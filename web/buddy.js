@@ -75,7 +75,7 @@
 
   // Which side of the cursor it runs on (flips near the right / bottom edge), and the turn-around.
   const side = { x: 1, y: 1 }, flip = { x: 1, y: 1 };
-  let lastMoveAt = performance.now(), lastTick = null, wasVisible = false;
+  let lastMoveAt = performance.now(), lastTick = null, wasVisible = false, hiddenFor = 0;
 
   // ---------- small reactions (appearing, switching sides, pointing, done talking) ----------
   let action = null;                         // {type, start, dur}
@@ -146,9 +146,12 @@
     const fy = (flip.y < 0 ? -1 : 1) * Math.max(.12, Math.abs(flip.y));
 
     const visible = !!(buddyOn && shown && phase !== 'off' && (cursor || flying));
-    buddy.classList.toggle('on', visible);
+    if (visible !== wasVisible) buddy.classList.toggle('on', visible);
     if (visible && !wasVisible) act('pop', 420);
+    if (!visible) hiddenFor += dt; else hiddenFor = 0;
     wasVisible = visible;
+    // Hidden (no session, helpers working): keep following the cursor, but don't redraw.
+    if (hiddenFor > .4) { requestAnimationFrame(frame); return; }
 
     const speed = Math.hypot(B.vx, B.vy);
     const idle = now - lastMoveAt;
@@ -291,6 +294,8 @@
         document.body.appendChild(r); setTimeout(() => r.remove(), 700);
       }, 380);
     },
+    /** Where your mouse is on this screen (points), or null. */
+    cursorPos() { return cursor; },
     /** Where the buddy's tip is (points), for helpers to bud from and fly back to. */
     buddyPos() {
       if (B.placed) return { x: B.x, y: B.y };

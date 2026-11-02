@@ -1,0 +1,4 @@
+{"type": "system", "subtype": "init", "cwd": "/Users/you/projects/tipsplit", "session_id": "quiet", "model": "fake", "permissionMode": "acceptEdits", "_t": 0.5}
+{"type": "assistant", "message": {"role": "assistant", "content": [{"type": "tool_use", "id": "t1", "name": "Read", "input": {"file_path": "/Users/you/projects/tipsplit/tipsplit.py"}}]}, "_t": 1.5}
+{"type": "assistant", "message": {"role": "assistant", "content": [{"type": "text", "text": "Done: read the file and thought about it for a long time."}]}, "_t": 74.5}
+{"type": "result", "subtype": "success", "is_error": false, "duration_ms": 74000, "result": "I read the file and thought about it for a long time.", "session_id": "quiet", "_t": 75}

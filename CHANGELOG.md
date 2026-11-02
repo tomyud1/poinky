@@ -9,6 +9,7 @@ All notable changes to Poinky. The format follows [Keep a Changelog](https://kee
 - You can send a working helper a follow-up; it folds it into its work.
 - At most 3 helpers work at once (Settings → Background agents, 1 to 6); more wait in line and start by themselves.
 - Helpers show up on screen: a small colored cursor buds off the buddy, takes its task, flies to the edge of the screen and shows what it's doing, then flies back when it's done. Poinky names it out loud ("I'll have Mint fix that").
+- Helpers stay out of your way: they work at the side with more room beside your window, never pile up on each other, and a card fades when your mouse passes over it. Rest the mouse on a helper to see its task, its to-do list and recent steps, how long it's been working, and Stop, Log and Folder buttons.
 - A sound volume slider in Settings (next to the sounds switch). It plays a sample when you let go, and you can also say "make the sounds quieter".
 - The Agent Lab (`web/agents-lab.html`): a playground for how helpers look, move and sound, with a timeline and sliders, and sounds that can be saved as `.wav` files.
 - Each helper's raw output is kept next to its log (`.jsonl`), and `tools/fake-helper.py` can replay it for testing without tokens (`tools/test-helpers.sh`).

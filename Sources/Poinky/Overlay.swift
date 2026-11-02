@@ -14,6 +14,8 @@ final class Overlay: NSObject, WKNavigationDelegate {
     /// Errors from inside a card (e.g. broken 3D code): id, type, message.
     var onCardError: ((String, String, String) -> Void)?
     var onClear: (() -> Void)?        // the Clear button on the overlay was clicked
+    /// A button on a helper's card: id, "stop" / "log" / "folder".
+    var onHelperAction: ((Int, String) -> Void)?
 
     private var panel: OverlayPanel?
     private var web: WKWebView!
@@ -111,7 +113,11 @@ final class Overlay: NSObject, WKNavigationDelegate {
     private var helperCursorTimer: Timer?
 
     /// A helper is starting: make sure the overlay is up (on the screen with the mouse if no session has it).
-    func helperSpawn(id: Int, name: String, task: String, note: Int) {
+    /// Open helper cards (they take clicks).
+    private var helperRects: [CGRect] = []
+    private var lastAvoid = ""
+
+    func helperSpawn(id: Int, name: String, task: String, note: Int, detail: String, folder: String) {
         if panel?.isVisible != true {
             let mouse = NSEvent.mouseLocation
             let s = NSScreen.screens.first { NSMouseInRect(mouse, $0.frame, false) } ?? NSScreen.main ?? NSScreen.screens[0]
@@ -121,7 +127,7 @@ final class Overlay: NSObject, WKNavigationDelegate {
             if hidden { setPhase("off"); followCursorForHelpers() }
         }
         helperCount = max(helperCount, 1)   // until the page reports
-        js("SB.helperSpawn(\(id), \(jsString(name)), \(jsString(task)), \(note))")
+        js("SB.helperSpawn(\(id), \(jsString(name)), \(jsString(task)), \(note), \(jsString(detail)), \(jsString(folder)))")
     }
     func helperStep(id: Int, text: String) { js("SB.helperStep(\(id), \(jsString(text)))") }
     func helperChecklist(id: Int, items: [HelperTask]) {
@@ -132,6 +138,15 @@ final class Overlay: NSObject, WKNavigationDelegate {
     func helperDone(id: Int, ok: Bool, summary: String) { js("SB.helperDone(\(id), \(ok), \(jsString(summary)))") }
     func helperStop(id: Int) { js("SB.helperStop(\(id))") }
     func helperSounds(on: Bool, volume: Double) { js("SB.helperSounds(\(on), \(volume))") }
+    /// The window you're using, in this overlay's points (nil: none).
+    func helperAvoid(_ r: CGRect?) {
+        let s = r.map { "{x:\(Int($0.minX)),y:\(Int($0.minY)),w:\(Int($0.width)),h:\(Int($0.height))}" } ?? "null"
+        guard s != lastAvoid else { return }
+        lastAvoid = s
+        js("SB.helperAvoid(\(s))")
+    }
+    /// For developer checks: run JavaScript in the overlay page.
+    func evaluateForTest(_ script: String) { js(script) }
 
     /// With no session running, the buddy is hidden but helpers still need to know where it would be.
     private func followCursorForHelpers() {
@@ -142,6 +157,7 @@ final class Overlay: NSObject, WKNavigationDelegate {
                 let loc = NSEvent.mouseLocation
                 let p = NSMouseInRect(loc, screen.frame, false) ? CGPoint(x: loc.x - screen.frame.minX, y: screen.frame.maxY - loc.y) : nil
                 self.tick(cursor: p, level: 0)
+                self.trackMouse()   // an open helper card takes clicks
             }
         }
     }
@@ -177,7 +193,8 @@ final class Overlay: NSObject, WKNavigationDelegate {
         guard let screen, panel?.isVisible == true else { return }
         let loc = NSEvent.mouseLocation
         let p = CGPoint(x: loc.x - screen.frame.minX, y: screen.frame.maxY - loc.y)
-        let over = !contentHidden && cardRects.contains { $0.insetBy(dx: -2, dy: -2).contains(p) }
+        let over = (!contentHidden && cardRects.contains { $0.insetBy(dx: -2, dy: -2).contains(p) })
+            || helperRects.contains { $0.insetBy(dx: -2, dy: -2).contains(p) }
         if over != isHoveringCard {
             isHoveringCard = over
             updateMouse()
@@ -337,6 +354,13 @@ final class Overlay: NSObject, WKNavigationDelegate {
             onClear?()
         case "helpers":
             helpersChanged((msg["count"] as? NSNumber)?.intValue ?? 0)
+        case "helperRects":
+            helperRects = ((msg["rects"] as? [[NSNumber]]) ?? []).compactMap { r in
+                r.count == 4 ? CGRect(x: r[0].doubleValue, y: r[1].doubleValue, width: r[2].doubleValue, height: r[3].doubleValue) : nil
+            }
+            trackMouse()
+        case "helperAction":
+            if let id = Int("\(msg["id"] ?? "")"), let action = msg["action"] as? String { onHelperAction?(id, action) }
         default:
             break
         }

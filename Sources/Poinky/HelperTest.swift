@@ -61,7 +61,7 @@ extension HelperTest {
         var config = AppConfig()
         config.maxHelpers = Int(env["POINKY_TEST_MAX"] ?? "") ?? 3
         config.soundVolume = 0.0001   // the test is silent
-        let o = Overlay(), m = AgentManager(), hs = HelperScreen(overlay: o)
+        let o = Overlay(), m = AgentManager(), hs = HelperScreen(overlay: o, agents: m)
         overlay = o; manager = m; screen = hs
         let display = NSScreen.main ?? NSScreen.screens[0]
         let t0 = Date()
@@ -109,6 +109,7 @@ extension HelperTest {
             }
         }
         _ = watcher
+        log("front window (\(NSWorkspace.shared.frontmostApplication?.localizedName ?? "?")): \(HelperScreen.frontWindowRect(on: display).map { "\(Int($0.minX)),\(Int($0.minY)) \(Int($0.width))x\(Int($0.height))" } ?? "none")")
         log("display \(Int(display.frame.width))x\(Int(display.frame.height)), helper command \(AgentManager.executable(config: config) ?? "none")")
         for (k, task) in tasks.enumerated() {
             // Spaced like a real conversation that asks for a few things.
@@ -116,6 +117,18 @@ extension HelperTest {
                 _ = m.start(AgentRequest(title: "Task \(k + 1)", dir: dir, task: task), config: config)
             }
         }
+        // Experiments: run JavaScript in the page once it's up (POINKY_TEST_JS="seconds|script").
+        if let js = env["POINKY_TEST_JS"], let bar = js.firstIndex(of: "|"), let secs = Double(js[..<bar]) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + secs) { o.evaluateForTest(String(js[js.index(after: bar)...])); log("ran test script") }
+        }
+        // A card's Stop button, as the page sends it (POINKY_TEST_STOP=seconds stops helper #2).
+        if let s = env["POINKY_TEST_STOP"], let secs = Double(s) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + secs) {
+                log("card button: stop #2")
+                o.evaluateForTest("window.webkit.messageHandlers.sb.postMessage({kind:'helperAction', id:'2', action:'stop'})")
+            }
+        }
+        m.onStopped = { a in log("#\(a.id) \(a.name) stopped"); hs.stopped(id: a.id) }
         // The session ends while helpers still work.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6 + Double(tasks.count) * 2.6 + 3) {
             sessionOn = false; o.hide(); log("session ended (overlay.hide)")

@@ -137,7 +137,8 @@
         <div class="hint">Background</div>
         <div class="seg" data-key="bg"><button data-v="light">Light</button><button data-v="dark">Dark</button></div>
         <div class="hint">Helpers work at the</div>
-        <div class="seg" data-key="dock"><button data-v="right">Right edge</button><button data-v="left">Left edge</button></div>
+        <div class="seg" data-key="dock"><button data-v="auto">Auto</button><button data-v="right">Right</button><button data-v="left">Left</button></div>
+        <div class="hint">Auto picks the side with more room beside your window. In the scene, the window moves at 26 s. Rest your mouse on a helper to open its card.</div>
         <div class="hint">Motion</div>
         <div class="seg" data-key="calm"><button data-v="false">Full</button><button data-v="true">Reduced Motion</button></div>
       </details>
@@ -176,7 +177,7 @@
 
   // ---------- settings (kept in this browser) ----------
   const sounds = new Sounds();
-  const DEFAULT = { scene: { bg: 'light', dock: 'right', calm: 'false' }, motion: { ...HelperLayer.defaults }, sound: { ...sounds.params }, voices: JSON.parse(JSON.stringify(sounds.voices)) };
+  const DEFAULT = { scene: { bg: 'light', dock: 'auto', calm: 'false' }, motion: { ...HelperLayer.defaults }, sound: { ...sounds.params }, voices: JSON.parse(JSON.stringify(sounds.voices)) };
   delete DEFAULT.motion.dock; delete DEFAULT.motion.calm;
   let S = JSON.parse(JSON.stringify(DEFAULT));
   try { const saved = JSON.parse(localStorage.getItem('poinky-agent-lab') || 'null'); if (saved) S = merge(S, saved); } catch (e) {}
@@ -256,13 +257,24 @@
   // ---------- the scene: 45 seconds, three helpers ----------
   const COLORS = { Mint: '#34c98e', Coral: '#ff7a59', Violet: '#9b6bff', Amber: '#ffb020', Rose: '#ff5c9a', Sky: '#38bdf8' };
   const END = 45;
-  const cursorPath = [[0, .4, .56], [3, .41, .57], [12, .43, .55], [16, .42, .57], [28, .4, .58], [45, .41, .57]];
+  // The scripted cursor: [time, x, y] as fractions of the stage, or a function (W, H) → {x, y}.
+  // From 12.4 s to 15.2 s it rests on Mint at the edge, which opens Mint's card.
+  const onMint = (W, H) => ({ x: (S.scene.dock === 'left' ? 34 : W - 34) + 6, y: 92 + 6 });
+  const cursorPath = [[0, .4, .56], [3, .41, .57], [11.6, .43, .55], [12.4, onMint], [15.2, onMint], [16.2, .42, .57], [28, .4, .58], [45, .41, .57]];
   function cursorAt(t) {
+    const W = stage.clientWidth, H = stage.clientHeight;
+    const at = k => typeof k[1] === 'function' ? k[1](W, H) : { x: W * k[1], y: H * k[2] };
     let a = cursorPath[0], b = cursorPath[cursorPath.length - 1];
     for (let i = 0; i < cursorPath.length - 1; i++) if (t >= cursorPath[i][0] && t <= cursorPath[i + 1][0]) { a = cursorPath[i]; b = cursorPath[i + 1]; break; }
     const u = b[0] === a[0] ? 0 : (t - a[0]) / (b[0] - a[0]), e = u * u * (3 - 2 * u);
-    return { x: stage.clientWidth * lerp(a[1], b[1], e), y: stage.clientHeight * lerp(a[2], b[2], e) };
+    const A = at(a), B = at(b);
+    return { x: lerp(A.x, B.x, e), y: lerp(A.y, B.y, e) };
   }
+  // Where "your window" is, and the real mouse when it's over the stage.
+  let realPointer = null;
+  stage.addEventListener('mousemove', e => { const r = stage.getBoundingClientRect(); realPointer = { x: e.clientX - r.left, y: e.clientY - r.top }; });
+  stage.addEventListener('mouseleave', () => { realPointer = null; });
+  function windowRect() { const w = $('window'); return { x: w.offsetLeft, y: w.offsetTop, w: w.offsetWidth, h: w.offsetHeight }; }
   const items = (states, texts) => texts.map((text, i) => ({ text, state: states[i] }));
   const MINT_TODO = ['Find the rounding bug', 'Fix split_bill', 'Add a test for uneven splits'];
   const SCRIPT = [
@@ -301,9 +313,12 @@
     [17.4, s => s.layer.step('violet', 'Can’t reach the package index, trying again')],
     [24.0, s => s.layer.step('violet', 'Trying a different mirror')],
     [31.0, s => s.layer.step('violet', 'Still can’t reach it')],
+    [25.6, s => setWin('right')],
+    [33.5, s => setWin('left')],
     [36.2, s => s.layer.done('violet', { ok: false, summary: 'Violet couldn’t reach the package server, so nothing changed. Try again when you’re online.' })],
   ].sort((a, b) => a[0] - b[0]);
-  const MOMENTS = [['Ask', .5], ['Spawn', 4.2], ['Hand-off', 4.85], ['Flight', 6.65], ['Working', 12], ['Raise hand', 14.5], ['Done', 21.6], ['Report', 23.6], ['Failure', 36.1], ['End', 44]];
+  const MOMENTS = [['Ask', .5], ['Spawn', 4.2], ['Hand-off', 4.85], ['Flight', 6.65], ['Card', 12.3], ['Raise hand', 14.5], ['Done', 21.6], ['Report', 23.6], ['Window moves', 25.4], ['Failure', 36.1], ['End', 44]];
+  function setWin(side) { const w = $('window'); if (w.dataset.side === side) return; w.dataset.side = side; w.style.left = side === 'right' ? '40%' : '5%'; }
 
   // ---------- simulation: everything is a function of time, so scrubbing is exact ----------
   const DT = 1 / 120;
@@ -319,13 +334,22 @@
         sounds.play(name, Object.assign({}, o, { x: o.x !== undefined ? o.x / W * 2 - 1 : 0, x2: o.x2 !== undefined ? o.x2 / W * 2 - 1 : undefined }));
       },
       params: Object.assign({}, S.motion, { dock: S.scene.dock, calm: S.scene.calm === 'true' }),
+      onAction: (id, action) => {
+        const h = layer.helpers.get(id), name = h ? h.name : id;
+        toast(action === 'stop' ? `Stopped ${name}` : action === 'log' ? `Would open ${name}'s log` : `Would open ${name}'s folder`);
+        if (action === 'stop') layer.stop(id);
+      },
     });
+    setWin('left');
     sim = { t: 0, i: 0, main, layer, audible: false };
   }
   function advance(dt) {
     sim.t += dt;
     while (sim.i < SCRIPT.length && SCRIPT[sim.i][0] <= sim.t) { SCRIPT[sim.i][1](sim); sim.i++; }
-    sim.main.update(dt, cursorAt(sim.t), sim.layer);
+    const c = cursorAt(sim.t);
+    sim.main.update(dt, c, sim.layer);
+    sim.layer.setAvoid(windowRect());
+    sim.layer.setPointer(playing && realPointer ? realPointer : c);
     sim.layer.update(dt);
   }
   function seek(t) {

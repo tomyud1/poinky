@@ -18,7 +18,7 @@ final class CallController: NSObject, NSMenuDelegate {
     private let speaker = Speaker()
     private let kokoro = KokoroVoice()      // stays loaded between calls so it starts instantly
     private let overlay = Overlay()
-    private lazy var helperScreen = HelperScreen(overlay: overlay)   // helpers (agents) on screen
+    private lazy var helperScreen = HelperScreen(overlay: overlay, agents: agents)   // helpers (agents) on screen
     private let home = NotchHome()            // the status + controls at the notch
     private let agents = AgentManager()       // background Claude Code agents
     private var agentReports: [String] = []   // finished agents the user hasn't heard about yet

@@ -17,6 +17,13 @@ echo "1. Parser"
 swiftc -O -o "$TMP/parser" Sources/Poinky/HelperEvents.swift tools/tests/helper-events/main.swift 2>"$TMP/swiftc.log" || { cat "$TMP/swiftc.log"; exit 1; }
 "$TMP/parser" tools/helper-runs | grep -E "ok|FAIL" ; "$TMP/parser" tools/helper-runs >/dev/null || fail=1
 
+echo "1b. Helper choreography in a browser (many at once: no overlaps, one hand-off and one report at a time)"
+if [ -x "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" ] && node -e "process.exit(typeof WebSocket === 'function' ? 0 : 1)" 2>/dev/null; then
+  node tools/tests/run-web-tests.mjs | sed 's/^/  /' ; [ "${PIPESTATUS[0]}" = 0 ] || fail=1
+else
+  echo "  (skipped: needs Google Chrome and Node 22+)"
+fi
+
 echo "2. Building"
 swift build -c release 2>&1 | grep -E "error:" && exit 1
 BIN="$ROOT/.build/release/Poinky"
@@ -48,10 +55,11 @@ pgrep -f "fake-helper.py" >/dev/null && bad "no helper processes left behind" ||
 if [ "${1:-}" = "--screen" ] || [ "${2:-}" = "--screen" ]; then
   echo "5. Helpers on screen through the real overlay (draws on your screen for ~35 s, silent)"
   [ -d build/Poinky.app ] || ./build.sh >/dev/null 2>&1
-  env POINKY_AGENT_LOG_DIR="$TMP/logs-screen" POINKY_HELPER_CMD="$ROOT/tools/fake-helper.py" POINKY_FAKE_SPEED=3 \
+  env POINKY_AGENT_LOG_DIR="$TMP/logs-screen" POINKY_HELPER_CMD="$ROOT/tools/fake-helper.py" POINKY_FAKE_SPEED=3 POINKY_TEST_STOP=9 \
     build/Poinky.app/Contents/MacOS/Poinky --helper-screen-test "$TMP/screen" "$TMP/proj" fixture:fix-bug fixture:todo-blocked fixture:error 2>/dev/null
   L="$TMP/screen/log.txt"
   expect "$L" "helpers on screen 3, session on" "all three helpers appear on screen"
+  expect "$L" "#2 Coral stopped" "a card's Stop button stops its helper"
   expect "$L" "session ended" "the session ends while they work"
   expect "$L" "overlay shown, helpers on screen [1-3], session off" "the overlay stays up for them after the session"
   expect "$L" "overlay hidden, helpers on screen 0, session off" "it goes away after the last one reports"

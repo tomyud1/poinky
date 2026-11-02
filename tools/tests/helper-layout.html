@@ -1,0 +1,67 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>running</title>
+<!-- Checks web/helpers.js choreography with many helpers at once: hand-offs one at a time, reports and
+     questions in line, nobody overlapping, everyone gone at the end. Run by tools/tests/run-web-tests.mjs. -->
+<body style="margin:0;width:1400px;height:900px;position:relative">
+<script src="../../web/helpers.js"></script>
+<script>
+(function () {
+  const results = [], fail = [];
+  const check = (ok, what) => { results.push((ok ? 'ok   ' : 'FAIL ') + what); if (!ok) fail.push(what); };
+
+  function scenario(label, dock) {
+    const root = document.createElement('div'); root.style.cssText = 'position:absolute;inset:0'; document.body.appendChild(root);
+    const events = [];
+    const main = { x: 520, y: 480 };
+    const layer = new HelperLayer(root, {
+      main: { pos: () => main, react: (k, d) => events.push([layer.time, k, d && d.id]) },
+      sound: () => {}, params: { dock },
+    });
+    const S = layer.params.size;
+    const ids = ['a', 'b', 'c', 'd'];
+    const script = [
+      [0, () => ids.forEach((id, i) => layer.spawn(id, { name: ['Mint', 'Coral', 'Violet', 'Amber'][i], color: '#3c9', task: 'Task ' + id, note: i }))],
+      [3, () => layer.done('d', { ok: true, summary: 'Finished before it even reached the edge.' })],
+      [14, () => { layer.raiseHand('a', 'Can I run npm install?'); layer.raiseHand('b', 'Can I delete the build folder?'); }],
+      [16, () => layer.step('c', 'Reading README.md')],
+      [17, () => layer.resolveHand('a', true)],
+      [19.5, () => layer.done('b', { ok: true, summary: 'It finished while its question was still waiting.' })],
+      [24, () => { layer.done('a', { ok: true, summary: 'Done one.' }); layer.done('c', { ok: false, summary: 'Could not finish.' }); }],
+    ];
+    let minGap = 1e9, worst = '', t = 0, i = 0, maxTime = 80;
+    while (t < maxTime) {
+      while (i < script.length && script[i][0] <= t) script[i++][1]();
+      layer.update(1 / 60); t += 1 / 60;
+      const vis = [...layer.helpers.values()].filter(h => h.alpha > .5 && h.scale > S * .3 && h.phase !== 'fly' && h.phase !== 'merge');
+      for (let x = 0; x < vis.length; x++) for (let y = x + 1; y < vis.length; y++) {
+        const d = Math.hypot(vis[x].x - vis[y].x, vis[x].y - vis[y].y);
+        if (d < minGap) { minGap = d; worst = `${vis[x].id}(${vis[x].phase}) and ${vis[y].id}(${vis[y].phase}) at ${t.toFixed(1)}s`; }
+      }
+      if (!layer.count && t > 30) break;
+    }
+    layer.render();
+    // Hand-offs: never two at once.
+    let open = null, handOverlap = false, reportOverlap = false, reporting = null, reports = 0, handoffs = 0;
+    for (const [, k, id] of events) {
+      if (k === 'handoff') { if (open) handOverlap = true; open = id; handoffs++; }
+      if (k === 'handoffEnd') open = null;
+      if (k === 'report') { if (reporting) reportOverlap = true; reporting = id; reports++; }
+      if (k === 'absorb') reporting = null;
+    }
+    check(handoffs === 4 && !handOverlap, `${label}: 4 hand-offs, one at a time (${handoffs})`);
+    check(reports === 4 && !reportOverlap, `${label}: 4 reports, one at a time (${reports})`);
+    check(minGap >= 24, `${label}: helpers never overlap (closest ${minGap.toFixed(0)}px: ${worst})`);
+    check(layer.count === 0, `${label}: everyone reported and merged by ${t.toFixed(0)}s (left: ${layer.count})`);
+    const asks = events.filter(e => e[1] === 'ask').map(e => e[2]);
+    check(asks.join() === 'a,b', `${label}: questions asked one at a time, in order (${asks.join() || 'none'})`);
+    root.remove();
+  }
+  scenario('dock right', 'right');
+  scenario('dock left', 'left');
+  document.body.textContent = results.join('\n');
+  document.title = fail.length ? 'FAIL' : 'PASS';
+  window.testResults = { pass: !fail.length, lines: results };
+})();
+</script>
+</body>

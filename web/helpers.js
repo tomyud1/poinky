@@ -21,6 +21,8 @@
   const easeInOut = t => t < .5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
   const easeOut = t => 1 - Math.pow(1 - t, 3);
   const easeOutBack = (t, s = 1.7) => 1 + (s + 1) * Math.pow(t - 1, 3) + s * Math.pow(t - 1, 2);
+  // Sets an inline style only when its value changed (most frames, nothing does).
+  const set = (el, k, v) => { v = String(v); const c = el._hl || (el._hl = {}); if (c[k] !== v) { c[k] = v; el.style[k] = v; } };
   // The cursor shape points up-left (-135°); this turns it to face an angle.
   const FACE = 135;
 
@@ -32,13 +34,23 @@
   .hl-h{position:absolute;left:0;top:0;width:0;height:0;will-change:transform}
   .hl-tri{position:absolute;left:0;top:0;width:29px;height:29px;margin:-5.5px 0 0 -5.5px;transform-origin:5.5px 5.5px;will-change:transform;overflow:visible}
   .hl-tri path{stroke-width:4;stroke-linejoin:round}
-  .hl-ring{position:absolute;left:0;top:0;width:44px;height:44px;margin:-22px 0 0 -22px;overflow:visible}
+  .hl-ring{position:absolute;left:0;top:0;width:44px;height:44px;margin:-22px 0 0 -22px}
+  .hl-ring svg{position:absolute;inset:0;width:44px;height:44px;overflow:visible}
   .hl-ring circle{fill:none;stroke-linecap:round}
+  /* The working motions run on their own layers (the whole ring turns; the helper bobs), so the graphics
+     chip just moves a finished picture: redrawing an SVG every frame cost a lot of CPU. */
+  .hl-spin{position:absolute;inset:0;will-change:transform}
+  .hl-spin.sweep{animation:hlSweep 2.6s linear infinite}
+  @keyframes hlSweep{from{transform:rotate(0)}to{transform:rotate(360deg)}}
+  .hl-bob{position:absolute;left:0;top:0;will-change:transform}
+  .hl-bob.on{animation:hlBob 1.7s ease-in-out infinite}
+  @keyframes hlBob{0%,70%,100%{transform:translate(0,0)}82%{transform:translate(-1.6px,-1px)}}
+  @media (prefers-reduced-motion: reduce){.hl-spin.sweep,.hl-bob.on{animation:none}}
   .hl-bub{position:absolute;left:0;top:0;white-space:nowrap;padding:5px 10px;border-radius:11px;color:#fff;
     font:600 12.5px/1.25 -apple-system,system-ui,sans-serif;box-shadow:0 6px 18px rgba(0,0,0,.22),0 1px 2px rgba(0,0,0,.2);
     transform-origin:0 50%;opacity:0}
   .hl-chip{position:absolute;left:0;top:0;width:236px;padding:8px 11px 9px;border-radius:13px;box-sizing:border-box;
-    background:rgba(28,28,32,.80);-webkit-backdrop-filter:blur(18px) saturate(1.4);backdrop-filter:blur(18px) saturate(1.4);
+    background:rgba(30,30,35,.9);
     box-shadow:0 8px 26px rgba(0,0,0,.28),inset 0 0 0 .5px rgba(255,255,255,.12);color:rgba(255,255,255,.92);opacity:0;will-change:transform,opacity}
   .hl-chip .top{display:flex;align-items:center;gap:6px;font:650 12px/1.2 -apple-system,system-ui,sans-serif;letter-spacing:.01em}
   .hl-chip .dot{width:8px;height:8px;border-radius:50%;flex:none}
@@ -46,6 +58,23 @@
   .hl-chip .lines{position:relative;height:17px;margin-top:4px;overflow:hidden}
   .hl-chip .ln{position:absolute;left:0;right:0;top:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12.5px;color:rgba(255,255,255,.78)}
   .hl-chip .check{display:inline-block;margin-right:4px}
+  .hl-chip .elapsed{margin-left:auto;font:500 11px/1 -apple-system,system-ui,sans-serif;color:rgba(255,255,255,.45);font-variant-numeric:tabular-nums}
+  .hl-chip .count+.elapsed{margin-left:8px}
+  .hl-chip.open{background:rgb(30,30,35);box-shadow:0 14px 40px rgba(0,0,0,.4),inset 0 0 0 .5px rgba(255,255,255,.14)}
+  .hl-chip .more{height:0;overflow:hidden}
+  .hl-chip .more .in{padding-top:9px}
+  .hl-chip .task{font:600 12.5px/1.35 -apple-system,system-ui,sans-serif;color:#fff;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+  .hl-chip .folder{margin-top:3px;font-size:11.5px;color:rgba(255,255,255,.5)}
+  .hl-chip .list{margin:8px 0 0;padding:0;list-style:none;font-size:12px;line-height:1.45;color:rgba(255,255,255,.6)}
+  .hl-chip .list li{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .hl-chip .list li.done{color:rgba(255,255,255,.42)} .hl-chip .list li.active{color:#fff}
+  .hl-chip .list .mk{display:inline-block;width:15px}
+  .hl-chip .sep{height:.5px;background:rgba(255,255,255,.12);margin:8px 0 0}
+  .hl-chip .btns{display:flex;gap:6px;margin-top:9px}
+  .hl-chip .btns button{flex:1;font:600 11.5px -apple-system,system-ui,sans-serif;color:rgba(255,255,255,.9);background:rgba(255,255,255,.1);
+    border:0;border-radius:7px;padding:5px 0;cursor:pointer}
+  .hl-chip .btns button:hover{background:rgba(255,255,255,.18)}
+  .hl-chip .btns button.stop{color:#ff8a80} .hl-chip .btns button.stop.sure{background:#e5484d;color:#fff}
   .hl-p{position:absolute;left:0;top:0;border-radius:50%;will-change:transform,opacity}
   .hl-trail{position:absolute;left:0;top:0;width:6px;height:6px;margin:-3px 0 0 -3px;border-radius:50%;will-change:transform,opacity}
   .hl-wait{position:absolute;left:0;top:0;width:10px;height:10px;margin:-5px 0 0 -5px;border-radius:50%;will-change:transform,opacity}
@@ -81,12 +110,31 @@
       this.parts = [];          // particles
       this.pool = [];
       this.time = 0;
+      this.seq = 0;
+      this.side = this.params.dock === 'left' ? 'left' : 'right';
+      this.avoid = null; this.pointer = null; this.rectKey = '';
       this.rand = rng(7);
     }
 
     destroy() { this.el.remove(); }
     setParams(p) { Object.assign(this.params, p); }
     get W() { return this.el.clientWidth || innerWidth; }
+    /** The window you're using (points, or null): in 'auto', helpers work at the edge with more room beside it. */
+    setAvoid(r) { this.avoid = r && r.w > 0 ? r : null; }
+    /** Where the pointer is (or null), to fade cards you pass over and open a helper you rest on. */
+    setPointer(p) { this.pointer = p; }
+    chooseSide() {
+      const want = this.params.dock;
+      if (want === 'left' || want === 'right') return want;
+      const a = this.avoid, W = this.W;
+      if (!a) return this.side || 'right';
+      const roomR = W - (a.x + a.w), roomL = a.x, need = 300;
+      const cur = this.side || 'right';
+      // Stay put unless the other side is clearly better.
+      if (cur === 'right' && roomR < need && roomL > roomR + 120) return 'left';
+      if (cur === 'left' && roomL < need && roomR > roomL + 120) return 'right';
+      return cur;
+    }
     get H() { return this.el.clientHeight || innerHeight; }
     sound(name, o = {}) { this.opts.sound && this.opts.sound(name, o); }
     main() { return this.opts.main.pos(); }
@@ -94,27 +142,40 @@
 
     // ---------- the API ----------
 
-    spawn(id, { name, color, task, note = 0 }) {
+    spawn(id, { name, color, task, note = 0, detail = '', folder = '' }) {
       const m = this.main();
       const h = {
-        id, name, color, task, note, phase: 'bud', t: 0,
-        x: m.x, y: m.y, vx: 0, vy: 0, rot: 0, vrot: 0, scale: 0, alpha: 1,
+        id, name, color, task, note, phase: 'wait', t: 0, seq: ++this.seq,
+        x: m.x, y: m.y, vx: 0, vy: 0, rot: 0, vrot: 0, scale: 0, alpha: 0,
         slot: this.freeSlot(), line: '', prev: '', lineT: 0, prevT: 9, count: '', items: [],
         frac: 0, fracShown: 0, chip: 0, chipX: 0, bub: '', bubT: 0, bubA: 0, ringA: 0, mood: 'work', trail: [],
         nod: -1, spin: -1, droop: 0, ask: '', handT: 0, el: null,
+        detail: detail || task, folder, born: this.time, history: [], open: 0, openT: 0, hoverT: 0, closeT: 0, fade: 1, sure: 0,
       };
       this.helpers.set(id, h);
       this.order[h.slot] = id;
       this.build(h);
-      this.react('bud', { id, x: m.x, y: m.y });
-      this.sound('spawn', { x: m.x, note });
-      this.burst(m.x + 8, m.y + 8, color, 7, 70);
+      this.nextBud();
       return h;
+    }
+
+    // Hand-offs happen one at a time: the next waiting helper buds when the stage is free.
+    nextBud() {
+      const all = [...this.helpers.values()];
+      if (all.some(o => o.phase === 'bud' || o.phase === 'handoff')) return;
+      const h = all.filter(o => o.phase === 'wait').sort((a, b) => a.seq - b.seq)[0];
+      if (!h) return;
+      const m = this.main();
+      h.phase = 'bud'; h.t = 0; h.x = m.x; h.y = m.y; h.alpha = 1;
+      this.react('bud', { id: h.id, x: m.x, y: m.y });
+      this.sound('spawn', { x: m.x, note: h.note });
+      this.burst(m.x + 8, m.y + 8, h.color, 7, 70);
     }
 
     step(id, text) {
       const h = this.helpers.get(id); if (!h || !text || text === h.line) return;
       h.prev = h.line; h.prevT = 0; h.line = text; h.lineT = 0;
+      h.history.push(text); if (h.history.length > 30) h.history.shift();
     }
 
     checklist(id, items) {
@@ -127,20 +188,30 @@
       if (active) this.step(id, active.text);
     }
 
+    // One question at a time: the others keep working, with a pulsing ring, until it's their turn.
     raiseHand(id, question) {
       const h = this.helpers.get(id); if (!h) return;
-      h.ask = question;
-      this.go(h, 'out', this.askSpot(h));
+      h.ask = question; h.askSeq = ++this.seq;
+      this.nextAsk();
+    }
+    nextAsk() {
+      const all = [...this.helpers.values()];
+      if (all.some(o => o.phase === 'asking' || o.phase === 'thanks' || (o.phase === 'fly' && o.fly.kind === 'out'))) return;
+      const h = all.filter(o => o.ask && o.phase === 'dock').sort((a, b) => a.askSeq - b.askSeq)[0];
+      if (h) this.go(h, 'out', this.askSpot(h));
     }
 
     resolveHand(id, ok) {
       const h = this.helpers.get(id); if (!h || h.phase !== 'asking') return;
-      h.phase = 'thanks'; h.t = 0; h.bub = ok ? 'Thanks!' : 'Okay, skipping it'; h.bubT = 0; h.nod = 0;
+      h.phase = 'thanks'; h.t = 0; h.ask = ''; h.bub = ok ? 'Thanks!' : 'Okay, skipping it'; h.bubT = 0; h.nod = 0;
       this.sound('ack', { x: h.x, note: h.note });
     }
 
     done(id, { ok = true, summary = '' } = {}) {
       const h = this.helpers.get(id); if (!h) return;
+      // Finished before it reached the edge, or while asking: it celebrates once it's back there.
+      if (h.phase !== 'dock') { h.pendingDone = { ok, summary }; return; }
+      h.ask = '';
       h.ok = ok; h.summary = summary;
       h.frac = ok ? 1 : h.frac; h.count = ok && h.items.length ? `${h.items.length}/${h.items.length}` : h.count;
       h.prev = h.line; h.prevT = 0; h.line = ok ? 'Done' : 'Couldn’t finish'; h.lineT = 99;
@@ -162,23 +233,45 @@
     }
 
     get count() { return this.helpers.size; }
+    /** Something is moving and needs smooth frames (otherwise a few frames a second are enough). */
+    get busy() {
+      if (this.parts.length) return true;
+      for (const h of this.helpers.values()) {
+        if (h.phase !== 'dock' || h.ask) return true;
+        if (h.lineT < 2 || h.prevT < .4 || h.bubA > .01) return true;
+        if (Math.abs(h.fracShown - h.frac) > .002 || (h.open > .001 && h.open < .999) || Math.abs(h.chip - 1) > .002) return true;
+        if (Math.abs(h.fade - 1) > .003 && Math.abs(h.fade - .14) > .003) return true;
+        if (Math.hypot(h.vx, h.vy) > 2 || h.nod >= 0 || h.spin >= 0 || h.squash >= 0 || Math.abs(h.vrot) > 1) return true;
+      }
+      return false;
+    }
     pos(id) { const h = this.helpers.get(id); return h ? { x: h.x, y: h.y } : null; }
 
     // ---------- layout ----------
 
     freeSlot() { let i = 0; while (this.order[i] !== undefined) i++; return i; }
     slotPos(h) {
-      const right = this.params.dock !== 'left';
+      const right = this.side !== 'left';
       return { x: right ? this.W - 34 : 34, y: 92 + h.slot * 66 };
     }
     askSpot(h) {
-      const m = this.main(), right = this.params.dock !== 'left';
-      return { x: m.x + (right ? 46 : -46), y: m.y - 30 };
+      const m = this.main(), right = this.side !== 'left';
+      return { x: m.x + (right ? 60 : -60), y: m.y + 2 };
     }
     // Where a new helper buds: above the main buddy, toward the edge it will fly to.
-    budDir() { return { x: this.params.dock === 'left' ? -26 : 34, y: -34 }; }
-    // Reporting back: in the same spot it budded from, clear of the main buddy's speech bubble.
-    reportSpot() { const m = this.main(), d = this.budDir(); return { x: m.x + d.x, y: m.y + d.y }; }
+    budDir() { return { x: this.side === 'left' ? -26 : 34, y: -34 }; }
+    // Reporting back: clear of the main buddy's speech bubble (below it),
+    // on the other side from where helpers bud, so a new hand-off and a report never collide. The first in line
+    // reports; the others wait behind it, further out.
+    reportSpot(h) {
+      const m = this.main(), s = this.side === 'left' ? 1 : -1;
+      const i = h ? this.reportIndex(h) : 0;
+      return { x: m.x + s * (30 + i * 30), y: m.y - 34 - i * 20 };
+    }
+    reportIndex(h) {
+      const line = [...this.helpers.values()].filter(o => o.reportSeq).sort((a, b) => a.reportSeq - b.reportSeq);
+      return Math.max(0, line.indexOf(h));
+    }
 
     // Starts a flight to `to`; `kind` says what happens on arrival.
     go(h, kind, to) {
@@ -193,12 +286,22 @@
     update(dt) {
       this.time += dt;
       const P = this.params, k = 170, c = lerp(26, 12, P.bounce);
+      // Move to the other edge when the window you're using needs this one (helpers fly over).
+      const side = this.chooseSide();
+      if (side !== this.side) {
+        this.side = side;
+        for (const h of this.helpers.values()) if (h.phase === 'dock') this.go(h, 'dock', this.slotPos(h));
+      }
       for (const h of [...this.helpers.values()]) {
         h.t += dt; h.lineT += dt; h.prevT += dt; h.bubT += dt;
         const m = this.main();
         let tx = h.x, ty = h.y, follow = true, face = 0, targetScale = P.size;
 
         switch (h.phase) {
+          case 'wait': {   // inside the main buddy until the stage is free
+            h.x = m.x; h.y = m.y; h.scale = 0; h.alpha = 0; follow = false;
+            break;
+          }
           case 'bud': {   // buds off the main buddy's tip and drifts a little away
             const u = clamp(h.t / .5, 0, 1);
             const away = this.budDir();
@@ -219,7 +322,7 @@
           }
           case 'fly': {
             const f = h.fly; f.u = clamp(f.u + dt / f.dur, 0, 1);
-            const to = f.kind === 'dock' ? this.slotPos(h) : f.kind === 'out' ? this.askSpot(h) : f.kind === 'report' ? this.reportSpot() : f.to;
+            const to = f.kind === 'dock' ? this.slotPos(h) : f.kind === 'out' ? this.askSpot(h) : f.kind === 'report' ? this.reportSpot(h) : f.to;
             follow = false;
             if (P.calm) {   // Reduced Motion: fade out, then in at the destination
               h.alpha = f.u < .5 ? 1 - f.u * 2 : (f.u - .5) * 2;
@@ -241,22 +344,22 @@
             h.scale = lerp(h.scale, targetScale, 1 - Math.exp(-dt * 14));
             if (f.u >= 1) {
               h.vx = h.vy = 0; h.trail.length = 0;
-              if (f.kind === 'dock') { h.phase = 'dock'; h.t = 0; this.sound('land', { x: h.x, note: h.note }); h.squash = 0; }
-              else if (f.kind === 'out') { h.phase = 'asking'; h.t = 0; h.bub = h.ask; h.bubT = 0; this.sound('hand', { x: h.x, note: h.note }); this.react('ask', { id: h.id, name: h.name, text: h.ask }); }
-              else if (f.kind === 'report') {
-                h.phase = 'report'; h.t = 0;
-                h.reportFor = clamp(1.6 + (h.summary || '').length * .045, 2.4, 6.5);
-                this.react('report', { id: h.id, name: h.name, color: h.color, ok: h.ok, summary: h.summary });
+              if (f.kind === 'dock') {
+                h.phase = 'dock'; h.t = 0; this.sound('land', { x: h.x, note: h.note }); h.squash = 0;
+                if (h.pendingDone) { const d = h.pendingDone; h.pendingDone = null; this.done(h.id, d); }
               }
+              else if (f.kind === 'out') { h.phase = 'asking'; h.t = 0; h.bub = h.ask; h.bubT = 0; this.sound('hand', { x: h.x, note: h.note }); this.react('ask', { id: h.id, name: h.name, text: h.ask }); }
+              else if (f.kind === 'report') { h.phase = 'report'; h.t = 0; h.reported = false; }
             }
             break;
           }
           case 'dock': {   // working: a soft "typing" tap toward its card
             const s = this.slotPos(h); tx = s.x; ty = s.y;
-            if (!P.calm) { const p = (h.t % 1.7) / .32; if (p < 1) { const d = Math.sin(p * Math.PI) * 2.2; tx -= d; ty -= d * .6; } }
+            if (h.ask) targetScale = P.size * (1 + .08 * Math.sin(h.t * 6));   // has a question, waiting its turn
             break;
           }
           case 'asking': {   // hopping gently next to you until you answer
+            if (h.pendingDone) { h.phase = 'thanks'; h.t = .4; h.ask = ''; h.bub = ''; break; }   // it finished anyway
             const a = this.askSpot(h); tx = a.x; ty = a.y - (P.calm ? 0 : Math.abs(Math.sin(h.t * 3.2)) * 5 * Math.exp(-((h.t % 4) * .9)));
             face = Math.atan2(m.y - h.y, m.x - h.x) * 180 / Math.PI + FACE;
             break;
@@ -268,19 +371,25 @@
           }
           case 'celebrate': {   // a happy spin, then home
             const s = this.slotPos(h); tx = s.x; ty = s.y - (P.calm ? 0 : Math.sin(clamp(h.t / .55, 0, 1) * Math.PI) * 9);
-            if (h.t > 1.05) { this.go(h, 'report', this.reportSpot()); }
+            if (h.t > 1.05) { h.reportSeq = ++this.seq; this.go(h, 'report', this.reportSpot(h)); }
             break;
           }
           case 'droop': {
             const s = this.slotPos(h); tx = s.x; ty = s.y + Math.min(4, h.t * 10);
             h.droop = lerp(h.droop, 22, 1 - Math.exp(-dt * 6));
-            if (h.t > 1.1) { this.go(h, 'report', this.reportSpot()); }
+            if (h.t > 1.1) { h.reportSeq = ++this.seq; this.go(h, 'report', this.reportSpot(h)); }
             break;
           }
-          case 'report': {   // next to the main buddy while it tells you
-            const r = this.reportSpot(); tx = r.x; ty = r.y + Math.sin(h.t * 4) * 1;
+          case 'report': {   // next to the main buddy while it tells you (or waiting its turn behind)
+            const r = this.reportSpot(h); tx = r.x; ty = r.y + Math.sin(h.t * 4) * 1;
             face = Math.atan2(m.y - h.y, m.x - h.x) * 180 / Math.PI + FACE;
-            if (h.t > h.reportFor) { h.phase = 'merge'; h.t = 0; this.sound('merge', { x: m.x, note: h.note }); this.react('absorb', { id: h.id }); }
+            if (this.reportIndex(h) > 0) { h.t = 0; break; }
+            if (!h.reported) {
+              h.reported = true; h.t = 0;
+              h.reportFor = clamp(1.6 + (h.summary || '').length * .045, 2.4, 6.5);
+              this.react('report', { id: h.id, name: h.name, color: h.color, ok: h.ok, summary: h.summary });
+            }
+            if (h.t > h.reportFor) { h.phase = 'merge'; h.t = 0; h.reportSeq = 0; this.sound('merge', { x: m.x, note: h.note }); this.react('absorb', { id: h.id }); }
             break;
           }
           case 'merge': {   // shrinks into the main buddy
@@ -310,18 +419,64 @@
         h.chip = lerp(h.chip, showChip ? 1 : dimChip ? .55 : 0, 1 - Math.exp(-dt * 9));
         h.chipX = lerp(h.chipX, showChip || dimChip ? 0 : 1, 1 - Math.exp(-dt * 9));
         h.fracShown = lerp(h.fracShown, h.frac, 1 - Math.exp(-dt * 6));
+        this.hover(h, dt);
         // Fades, advanced with time (not per drawn frame) so a scrubbed timeline looks the same.
         const working = ['dock', 'celebrate', 'droop'].includes(h.phase);
         h.ringA = lerp(h.ringA, working ? 1 : 0, 1 - Math.exp(-dt * 10));
         h.bubA = lerp(h.bubA, h.bub ? 1 : 0, 1 - Math.exp(-dt * 16));
         for (const p of h.trail) p.a -= dt * 4;
       }
+      // Helpers near the main buddy never sit on top of each other: a gentle push apart.
+      const near = [...this.helpers.values()].filter(h => !['wait', 'bud', 'fly', 'merge', 'dock', 'celebrate', 'droop'].includes(h.phase));
+      for (let i = 0; i < near.length; i++) for (let j = i + 1; j < near.length; j++) {
+        const a = near[i], b = near[j], dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy) || .01, min = 30;
+        if (d < min) { const push = (min - d) / 2 / d; a.x -= dx * push; a.y -= dy * push; b.x += dx * push; b.y += dy * push; }
+      }
+      this.nextBud(); this.nextAsk();
+      // Open cards take clicks: tell the app where they are.
+      const rects = [...this.helpers.values()].filter(h => h.open > .5).map(h => this.cardRect(h).map(Math.round));
+      const key = JSON.stringify(rects);
+      if (key !== this.rectKey) { this.rectKey = key; this.opts.onRects && this.opts.onRects(rects); }
       // Particles
       for (const p of this.parts) {
         p.life += dt; p.vx *= Math.exp(-dt * 3.2); p.vy = p.vy * Math.exp(-dt * 3.2) + 40 * dt;
         p.x += p.vx * dt; p.y += p.vy * dt;
       }
       this.parts = this.parts.filter(p => p.life < p.max);
+    }
+
+    // The card's rectangle [x, y, w, h] in points.
+    cardRect(h) {
+      const s = this.slotPos(h), cw = 236, right = this.side !== 'left';
+      return [right ? s.x - 22 - cw : s.x + 30, s.y - 15, cw, h.cardH || 52];
+    }
+
+    // Passing over a card fades it (so you can see what's under it); resting on the helper opens its full card.
+    hover(h, dt) {
+      const p = this.pointer, working = h.phase === 'dock';
+      let fadeTo = 1, openTo = h.open > .5 ? 1 : 0;
+      if (!working) openTo = 0;
+      else if (p) {
+        const [x, y, w, ht] = this.cardRect(h);
+        const cx = h.x + 8 * h.scale, cy = h.y + 8 * h.scale;
+        const onHelper = Math.hypot(p.x - cx, p.y - cy) < 22;
+        const inCard = p.x >= x - 8 && p.x <= x + w + 8 && p.y >= y - 8 && p.y <= y + ht + 8;
+        const nearCard = p.x >= x - 28 && p.x <= x + w + 28 && p.y >= y - 24 && p.y <= y + ht + 24;
+        if (h.open > .5) {
+          if (onHelper || inCard) h.closeT = 0;
+          else if ((h.closeT += dt) > .35) openTo = 0;
+        } else if (onHelper) {
+          if ((h.hoverT += dt) > .3) { openTo = 1; h.closeT = 0; }
+        } else {
+          h.hoverT = 0;
+          if (nearCard) fadeTo = .14;
+        }
+      } else { h.hoverT = 0; if (h.open > .5 && (h.closeT += dt) > .35) openTo = 0; }
+      if (!openTo) h.sure = 0;
+      h.open = lerp(h.open, openTo, 1 - Math.exp(-dt * 14));
+      if (Math.abs(h.open - openTo) < .002) h.open = openTo;
+      h.fade = lerp(h.fade, fadeTo, 1 - Math.exp(-dt * 12));
+      if (h.sure > 0 && (h.sure -= dt) <= 0) h.sure = 0;
     }
 
     burst(x, y, color, n, speed, sparkle) {
@@ -346,8 +501,8 @@
     build(h) {
       const root = document.createElement('div'); root.className = 'hl-h';
       root.innerHTML =
-        `<svg class="hl-ring" viewBox="-22 -22 44 44"><circle class="bg" r="16" stroke-width="2"/><circle class="fg" r="16" stroke-width="2.4" transform="rotate(-90)"/></svg>` +
-        `<svg class="hl-tri" viewBox="-3 -3 26 26"><path d="M2,2 L17,8 L8,17 Z"/></svg>` +
+        `<div class="hl-ring"><div class="hl-spin"><svg viewBox="-22 -22 44 44"><circle class="bg" r="16" stroke-width="2"/><circle class="fg" r="16" stroke-width="2.4" transform="rotate(-90)"/></svg></div></div>` +
+        `<div class="hl-bob"><svg class="hl-tri" viewBox="-3 -3 26 26"><path d="M2,2 L17,8 L8,17 Z"/></svg></div>` +
         `<div class="hl-bub"></div>`;
       const path = root.querySelector('path');
       path.style.fill = h.color; path.style.stroke = h.color;
@@ -356,7 +511,18 @@
       root.querySelector('.fg').style.stroke = h.color;
       const bub = root.querySelector('.hl-bub'); bub.style.background = h.color;
       const chip = document.createElement('div'); chip.className = 'hl-chip';
-      chip.innerHTML = `<div class="top"><span class="dot"></span><span class="name"></span><span class="count"></span></div><div class="lines"><div class="ln prev"></div><div class="ln cur"></div></div>`;
+      chip.innerHTML = `<div class="top"><span class="dot"></span><span class="name"></span><span class="count"></span><span class="elapsed"></span></div>` +
+        `<div class="lines"><div class="ln prev"></div><div class="ln cur"></div></div>` +
+        `<div class="more"><div class="in"><div class="task"></div><div class="folder"></div><ul class="list"></ul><div class="sep"></div>` +
+        `<div class="btns"><button class="stop">Stop</button><button data-a="log">Log</button><button data-a="folder">Folder</button></div></div></div>`;
+      chip.querySelector('.task').textContent = h.detail;
+      chip.querySelector('.folder').textContent = h.folder ? 'in ' + h.folder : '';
+      // Stop asks once more ("Stop Mint?") before it stops anything.
+      chip.querySelector('.stop').onclick = () => {
+        if (h.sure > 0) { h.sure = 0; this.opts.onAction && this.opts.onAction(h.id, 'stop'); }
+        else h.sure = 3;
+      };
+      chip.querySelectorAll('[data-a]').forEach(b => b.onclick = () => this.opts.onAction && this.opts.onAction(h.id, b.dataset.a));
       chip.querySelector('.dot').style.background = h.color;
       chip.querySelector('.dot').style.boxShadow = `0 0 6px ${h.color}`;
       const name = chip.querySelector('.name'); name.textContent = h.name; name.style.color = h.color;
@@ -364,49 +530,86 @@
       for (let i = 0; i < 9; i++) { const t = document.createElement('div'); t.className = 'hl-trail'; t.style.background = h.color; this.el.appendChild(t); trail.push(t); }
       this.el.appendChild(chip); this.el.appendChild(root);
       h.el = { root, tri: root.querySelector('.hl-tri'), ring: root.querySelector('.hl-ring'), fg: root.querySelector('.fg'), bub, chip, trail,
-        count: chip.querySelector('.count'), prev: chip.querySelector('.prev'), cur: chip.querySelector('.cur'), cache: {} };
+        spin: root.querySelector('.hl-spin'), bob: root.querySelector('.hl-bob'),
+        count: chip.querySelector('.count'), prev: chip.querySelector('.prev'), cur: chip.querySelector('.cur'), cache: {},
+        elapsed: chip.querySelector('.elapsed'), more: chip.querySelector('.more'), inner: chip.querySelector('.more .in'),
+        list: chip.querySelector('.list'), stop: chip.querySelector('.stop') };
     }
 
     render() {
-      const P = this.params, right = P.dock !== 'left';
+      const P = this.params, right = this.side !== 'left';
       for (const h of this.helpers.values()) {
         const e = h.el, C = e.cache;
         let sx = h.scale, sy = h.scale, rot = h.rot, dy = 0;
         if (h.nod >= 0) { const p = h.nod / .5; dy += Math.sin(p * Math.PI * 2) * 3 * (1 - p); }
         if (h.spin >= 0) { const p = easeInOut(h.spin / .7); rot += p * 360; sx *= 1 + Math.sin(p * Math.PI) * .3; sy = sx; }
         if (h.squash >= 0) { const p = h.squash / .3; sx *= 1 + Math.sin(p * Math.PI) * .18; sy *= 1 - Math.sin(p * Math.PI) * .14; }
-        e.root.style.transform = `translate(${h.x.toFixed(1)}px,${(h.y + dy).toFixed(1)}px)`;
-        e.root.style.opacity = h.alpha.toFixed(3);
-        e.tri.style.transform = `rotate(${rot.toFixed(1)}deg) scale(${sx.toFixed(3)},${sy.toFixed(3)})`;
+        set(e.root, 'transform', `translate(${h.x.toFixed(1)}px,${(h.y + dy).toFixed(1)}px)`);
+        set(e.tri, 'transform', `rotate(${rot.toFixed(1)}deg) scale(${sx.toFixed(3)},${sy.toFixed(3)})`);
         // Progress ring around it while it works.
-        e.ring.style.opacity = h.ringA.toFixed(3);
-        e.ring.style.transform = `translate(${(8.2 * h.scale).toFixed(1)}px,${(8.2 * h.scale).toFixed(1)}px) scale(${(.6 + .4 * h.scale / P.size).toFixed(3)})`;
+        set(e.ring, 'opacity', h.ringA.toFixed(3));
+        set(e.ring, 'transform', `translate(${(8.2 * h.scale).toFixed(1)}px,${(8.2 * h.scale).toFixed(1)}px) scale(${(.6 + .4 * h.scale / P.size).toFixed(3)})`);
         const L = TAU * 16;
         if (h.items.length || h.phase === 'celebrate') {
-          e.fg.style.strokeDasharray = h.fracShown < .005 ? `0 ${L.toFixed(1)}` : `${(L * h.fracShown).toFixed(1)} ${L.toFixed(1)}`;
-          e.fg.style.opacity = h.fracShown < .005 ? 0 : 1;
+          set(e.fg, 'strokeDasharray', h.fracShown < .005 ? `0 ${L.toFixed(1)}` : `${(L * h.fracShown).toFixed(1)} ${L.toFixed(1)}`);
+          set(e.fg, 'opacity', h.fracShown < .005 ? 0 : 1);
           e.fg.setAttribute('transform', 'rotate(-90)');
-        } else {   // no to-do list: a slow, quiet sweep
-          e.fg.style.strokeDasharray = `${(L * .22).toFixed(1)} ${L.toFixed(1)}`;
-          e.fg.setAttribute('transform', `rotate(${((this.time * 140) % 360).toFixed(1)})`);
-          e.fg.style.opacity = 1;
+        } else {   // no to-do list: a slow, quiet sweep (CSS)
+          set(e.fg, 'strokeDasharray', `${(L * .22).toFixed(1)} ${L.toFixed(1)}`);
+          set(e.fg, 'opacity', 1);
         }
-        e.fg.style.stroke = h.phase === 'droop' || (h.ok === false) ? '#8b8b93' : h.color;
+        const sweep = !h.items.length && h.phase !== 'celebrate';
+        if (C.sweep !== sweep) { e.spin.classList.toggle('sweep', sweep); C.sweep = sweep; }
+        const bob = h.phase === 'dock' && !P.calm;
+        if (C.bob !== bob) { e.bob.classList.toggle('on', bob); C.bob = bob; }
+        set(e.fg, 'stroke', h.phase === 'droop' || (h.ok === false) ? '#8b8b93' : h.color);
         // Its speech bubble ("On it!", a question).
         const bubOn = !!h.bub;
         if (C.bubText !== h.bub && h.bub) { e.bub.textContent = h.bub; C.bubText = h.bub; }
         const bs = bubOn ? easeOutBack(clamp(h.bubT / .3, 0, 1), 2) : 1;
-        const bx = right ? 18 : -18 - (e.bub.offsetWidth || 60);
-        e.bub.style.transformOrigin = right ? '0 50%' : '100% 50%';
-        e.bub.style.transform = `translate(${bx}px,-30px) scale(${(.6 + .4 * bs).toFixed(3)})`;
-        e.bub.style.opacity = h.bubA.toFixed(3);
+        if (C.bubW === undefined || C.bubWText !== C.bubText) { C.bubW = e.bub.offsetWidth || 60; C.bubWText = C.bubText; }
+        const bx = right ? 18 : -18 - C.bubW;
+        set(e.bub, 'transformOrigin', right ? '0 50%' : '100% 50%');
+        set(e.bub, 'transform', `translate(${bx}px,-30px) scale(${(.6 + .4 * bs).toFixed(3)})`);
+        set(e.bub, 'opacity', h.bubA.toFixed(3));
         // The card at the edge.
         const s = this.slotPos(h);
         // It grows out of the helper, toward the middle of the screen.
         const cw = 236, cx = right ? s.x - 22 - cw + h.chipX * 10 : s.x + 30 - h.chipX * 10;
-        e.chip.style.transformOrigin = right ? '100% 50%' : '0 50%';
-        e.chip.style.transform = `translate(${cx.toFixed(1)}px,${(s.y - 15).toFixed(1)}px) scale(${(.86 + .14 * h.chip).toFixed(3)})`;
-        e.chip.style.opacity = h.chip.toFixed(3);
+        set(e.chip, 'transformOrigin', right ? '100% 50%' : '0 50%');
+        set(e.chip, 'transform', `translate(${cx.toFixed(1)}px,${(s.y - 15).toFixed(1)}px) scale(${(.86 + .14 * h.chip + .02 * h.open).toFixed(3)})`);
+        set(e.chip, 'opacity', (h.chip * lerp(h.fade, 1, h.open)).toFixed(3));
+        set(e.root, 'opacity', (h.alpha * lerp(.35 + .65 * h.fade, 1, h.open)).toFixed(3));
+        // The full card: what it was asked, where, its to-do list or recent steps, and buttons.
+        const open = h.open > .01;
+        if (C.open !== open) { e.chip.classList.toggle('open', open); C.open = open; }
+        set(e.chip, 'zIndex', open ? 2 : '');
+        set(e.chip, 'pointerEvents', h.open > .5 ? 'auto' : 'none');
+        const secs = Math.max(0, Math.floor(this.time - h.born));
+        const el = secs < 60 ? `${secs}s` : `${Math.floor(secs / 60)} min`;
+        if (C.el !== el) { e.elapsed.textContent = el; C.el = el; }
+        if (open) {
+          const rows = h.items.length
+            ? h.items.slice(0, 6).map(i => [i.state, i.state === 'done' ? '✓' : i.state === 'active' ? '●' : '○', i.text])
+            : h.history.slice(-5, -1).map(t => ['done', '·', t]);
+          const key = JSON.stringify(rows);
+          if (C.rows !== key) {
+            C.rows = key;
+            e.list.innerHTML = '';
+            for (const [st, mk, text] of rows) {
+              const li = document.createElement('li'); li.className = st;
+              const m = document.createElement('span'); m.className = 'mk'; m.textContent = mk;
+              if (st === 'active') set(m, 'color', h.color);
+              li.append(m, document.createTextNode(text)); e.list.appendChild(li);
+            }
+          }
+          const label = h.sure > 0 ? `Stop ${h.name}?` : 'Stop';
+          if (C.stop !== label) { e.stop.textContent = label; e.stop.classList.toggle('sure', h.sure > 0); C.stop = label; }
+        }
+        const full = open ? e.inner.offsetHeight : 0;
+        set(e.more, 'height', (full * easeInOut(clamp(h.open, 0, 1))).toFixed(1) + 'px');
+        if (open || C.cardH === undefined) C.cardH = e.chip.offsetHeight || 52;
+        h.cardH = C.cardH;
         if (C.count !== h.count) { e.count.textContent = h.count; C.count = h.count; }
         // Progress text types in; the old line slides up and fades.
         const n = Math.floor(h.lineT * 45 * P.typing);
@@ -415,29 +618,29 @@
         if (C.cur !== cur) { e.cur.textContent = cur; C.cur = cur; }
         if (C.prev !== h.prev) { e.prev.textContent = h.prev; C.prev = h.prev; }
         const pu = clamp(h.prevT / .28, 0, 1);
-        e.prev.style.transform = `translateY(${(-14 * easeOut(pu)).toFixed(1)}px)`; e.prev.style.opacity = (1 - pu).toFixed(3);
+        set(e.prev, 'transform', `translateY(${(-14 * easeOut(pu)).toFixed(1)}px)`); set(e.prev, 'opacity', (1 - pu).toFixed(3));
         const cu = clamp(h.lineT / .28, 0, 1);
-        e.cur.style.transform = `translateY(${(10 * (1 - easeOut(cu))).toFixed(1)}px)`; e.cur.style.opacity = cu.toFixed(3);
-        e.cur.style.color = h.phase === 'celebrate' ? h.color : '';
+        set(e.cur, 'transform', `translateY(${(10 * (1 - easeOut(cu))).toFixed(1)}px)`); set(e.cur, 'opacity', cu.toFixed(3));
+        set(e.cur, 'color', h.phase === 'celebrate' ? h.color : '');
         // Trail
         e.trail.forEach((t, i) => {
           const p = h.trail[i];
-          if (!p || p.a <= 0) { t.style.opacity = 0; return; }
+          if (!p || p.a <= 0) { set(t, 'opacity', 0); return; }
           const k = 1 - i / 9;
-          t.style.transform = `translate(${p.x.toFixed(1)}px,${p.y.toFixed(1)}px) scale(${(k * h.scale / P.size).toFixed(3)})`;
-          t.style.opacity = (p.a * k * .55).toFixed(3);
+          set(t, 'transform', `translate(${p.x.toFixed(1)}px,${p.y.toFixed(1)}px) scale(${(k * h.scale / P.size).toFixed(3)})`);
+          set(t, 'opacity', (p.a * k * .55).toFixed(3));
         });
       }
       // Particles, from a pool of divs.
       while (this.pool.length < this.parts.length) { const d = document.createElement('div'); d.className = 'hl-p'; this.el.appendChild(d); this.pool.push(d); }
       this.pool.forEach((d, i) => {
         const p = this.parts[i];
-        if (!p) { if (d.style.opacity !== '0') d.style.opacity = '0'; return; }
+        if (!p) { set(d, 'opacity', '0'); return; }
         const u = p.life / p.max;
-        d.style.width = d.style.height = p.size.toFixed(1) + 'px';
-        d.style.background = p.color; d.style.boxShadow = `0 0 6px ${p.color}`;
-        d.style.transform = `translate(${(p.x - p.size / 2).toFixed(1)}px,${(p.y - p.size / 2).toFixed(1)}px) scale(${(1 - u * .6).toFixed(3)})`;
-        d.style.opacity = (1 - u * u).toFixed(3);
+        const sz = p.size.toFixed(1) + 'px'; set(d, 'width', sz); set(d, 'height', sz);
+        set(d, 'background', p.color); set(d, 'boxShadow', `0 0 6px ${p.color}`);
+        set(d, 'transform', `translate(${(p.x - p.size / 2).toFixed(1)}px,${(p.y - p.size / 2).toFixed(1)}px) scale(${(1 - u * .6).toFixed(3)})`);
+        set(d, 'opacity', (1 - u * u).toFixed(3));
       });
     }
   }
