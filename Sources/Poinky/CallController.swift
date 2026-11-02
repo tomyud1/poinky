@@ -25,6 +25,8 @@ final class CallController: NSObject, NSMenuDelegate {
     private var reportingIDs: [Int] = []       // helpers next to the buddy while Poinky tells you what they did
     private var reportAfterStart = false      // a session is starting just to tell the user about an agent
     private var reportCheckPending = false    // waiting for a pause in typing
+    private var talkTarget: Int?              // the helper you're pointing at while holding the keys (you're talking to it)
+    private var helperContext: String?        // for the talker: you asked a finished helper something
     private var endAfterSpeaking = false      // the user said goodbye
     private var buddyHidden = false           // ⌃⌥B or auto-hide: hidden until the next question
     private var buddyHotKey: HotKey?
@@ -482,6 +484,17 @@ final class CallController: NSObject, NSMenuDelegate {
         }
         overlay.setYouCaption(nil)
         overlay.setClaudeCaption(nil)
+        // Pointing at a helper: what you say goes to it.
+        if let id = overlay.pointedHelper, agents.agents.contains(where: { $0.id == id }) {
+            talkTarget = id
+            overlay.helperListen(id: id, on: true)
+        }
+    }
+
+    private func endHelperListen() {
+        guard let id = talkTarget else { return }
+        talkTarget = nil
+        overlay.helperListen(id: id, on: false)
     }
 
     /// Let go: send what you said (or drop it if it was a shortcut or too short).
@@ -494,6 +507,7 @@ final class CallController: NSObject, NSMenuDelegate {
             // Settle and throw away whatever was heard (it was a shortcut, not a question).
             if !finishingPush, listener.running { Task { _ = await self.listener.finishUtterance() } }
             if mode == .push, state == .listening { state = restingState }
+            endHelperListen()
             return
         }
         finishingPush = true
@@ -515,6 +529,7 @@ final class CallController: NSObject, NSMenuDelegate {
                 self.playSound(.cancel)
                 self.overlay.setYouCaption(nil)
                 self.mergeNext = false   // nothing was said: don't glue the next question to the last one
+                self.endHelperListen()
                 return
             }
             self.playSound(.send)
@@ -557,6 +572,20 @@ final class CallController: NSObject, NSMenuDelegate {
             turn += 1
             speaker.stop()
             mergeNext = true
+        }
+        // Said to a helper (pointing at it, or by name): handled right here, without the talker.
+        if let id = talkTarget {
+            talkTarget = nil
+            overlay.helperListen(id: id, on: false)
+            mergeNext = false
+            talkToHelper(id, HelperTalk.intent(text), said: text)
+            return
+        }
+        if guide == nil, let (name, intent) = HelperTalk.byName(text, names: helperNames()),
+           let a = helper(named: name) {
+            mergeNext = false
+            talkToHelper(a.id, intent, said: text)
+            return
         }
         let question = mergeNext && !lastQuestion.isEmpty ? lastQuestion + " " + text : text
         mergeNext = false
@@ -721,6 +750,7 @@ final class CallController: NSObject, NSMenuDelegate {
         let status = agents.statusLines()
         if !status.isEmpty { lines.append("Background agents:\n" + status.joined(separator: "\n")) }
         lines.append("If you start an agent now, it will be called \(agents.nextName).")
+        if let c = helperContext { lines.append(c); helperContext = nil }
         if !proactive, !agentReports.isEmpty {
             lines.append("Also tell the user briefly, after answering: " + agentReports.map(\.text).joined(separator: " "))
             startReporting(agentReports.map(\.id))
@@ -763,6 +793,14 @@ final class CallController: NSObject, NSMenuDelegate {
         if config.memoryEnabled {
             for f in ev.remember { Memory.remember(f) }
             for f in ev.forget { Memory.forget(f) }
+        }
+        for (name, text) in ev.tells {
+            if let a = helper(named: name), a.status == .running || a.status == .queued, agents.send(id: a.id, text: text) {
+                overlay.helperHeard(id: a.id, kind: "message")
+            }
+        }
+        for name in ev.stops {
+            if let a = helper(named: name) { agents.stop(id: a.id) }
         }
         for req in ev.agents {
             if agents.start(req, config: config) == nil {
@@ -1466,7 +1504,48 @@ final class CallController: NSObject, NSMenuDelegate {
             + "; teacher \(c.artistEnabled ? "on" : "off"); hold to talk \(PushToTalk.displayString(c.pushToTalk))"
             + "; hands-free call \(HotKey.displayString(c.hotkey)); hide buddy \(HotKey.displayString(c.buddyHotkey))"
             + "; pause before answering (calls) \(c.silenceSeconds) s; language \(c.language); memory \(c.memoryEnabled ? "on" : "off")"
-            + "; talker model \(c.brain == .claudeCode ? c.claudeCodeModel : c.apiModel), teacher model \(c.brain == .claudeCode ? c.artistModel : c.apiArtistModel)"
+            + "; models (effort): talker \(c.model(for: .talker)) (\(c.talkerEffort.isEmpty ? "auto" : c.talkerEffort)), teacher \(c.model(for: .artist)) (\(c.artistEffort.isEmpty ? "auto" : c.artistEffort)), guide \(c.model(for: .guide)), doer \(c.model(for: .doer)), helpers \(c.agentModel.isEmpty ? "Claude Code default" : c.agentModel) (\(c.agentEffort.isEmpty ? "default" : c.agentEffort))"
+    }
+
+    // MARK: - Talking to a helper
+
+    private func helperNames() -> [String] { helperScreen.names() }
+    private func helper(named name: String) -> AgentManager.Agent? { helperScreen.helper(named: name) }
+
+    /// Said to a helper: stop it, answer its status, or pass a follow-up on (no talker needed).
+    private func talkToHelper(_ id: Int, _ intent: HelperTalk.Intent, said: String) {
+        lastActivity = ProcessInfo.processInfo.systemUptime
+        overlay.setYouCaption(said)
+        switch helperScreen.talk(to: id, intent) {
+        case .say(let line)?:
+            sayQuick(line, said: said)
+        case .passed(let name)?:
+            overlay.setClaudeCaption("\(name) got it")
+            history.append((said, "(passed to \(name))"))
+            if history.count > 6 { history.removeFirst() }
+            state = restingState
+            captionFade?.cancel()
+            let work = DispatchWorkItem { [weak self] in self?.overlay.fadeCaptions() }
+            captionFade = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2, execute: work)
+        case .askTalker(let context)?:
+            helperContext = context
+            if case .message(let m) = intent { ask(m) } else { ask(said) }
+        case nil:
+            ask(said)
+        }
+    }
+
+    /// A short spoken line without asking the talker.
+    private func sayQuick(_ text: String, said: String) {
+        turn += 1
+        speaker.stop()
+        speaker.beginTurn()
+        speaker.enqueue(text)
+        speaker.endTurn()
+        state = .speaking
+        history.append((said, text))
+        if history.count > 6 { history.removeFirst() }
     }
 
     /// A helper finished (its own celebration and sound happen on screen). It waits at the edge with a

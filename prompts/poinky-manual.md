@@ -30,3 +30,4 @@ Use this when the user asks how Poinky works, what it can do, or how to change s
 - `pushToTalk`: "ctrl+option", "ctrl+shift", "option+cmd" or "off".
 - `memoryEnabled`: true/false.
 Other settings (language, Claude models, API key, shortcuts, privacy exclusions, what agents may do) are changed in the Settings window; tell the user where.
+Models and effort: Settings → Claude → Models has a model and an effort for each part (talker, teacher, guide, doer, helpers). Higher effort thinks longer: smarter, slower, uses more of the plan. Automatic keeps the voice quick. Opus 5.5 and Fable 5.1 need an up-to-date Claude Code (there's an Update Claude Code button there).

@@ -17,6 +17,14 @@ struct AppConfig: Codable {
     var apiArtistModel = "claude-sonnet-5-5"
     var doerModel = "sonnet"       // clicks and types for you (needs a model that's good at using apps)
     var apiDoerModel = "claude-sonnet-5-5"
+    var guideModel = ""            // walks you through a task ("" = same as the talker)
+    var apiGuideModel = ""
+    // How hard each one thinks: "" (automatic: Poinky's fast default) or low, medium, high, xhigh, max.
+    var talkerEffort = ""
+    var artistEffort = ""
+    var guideEffort = ""
+    var doerEffort = ""
+    var agentEffort = ""               // helpers ("" = your Claude Code default)
     var language = "en-US"         // speech recognition + voice language, e.g. "he-IL"
     var voice = ""                 // voice name or identifier; empty = best installed voice
     var speechRate: Float = 0.53   // 0.0 – 1.0 (Apple voices)
@@ -57,6 +65,13 @@ struct AppConfig: Codable {
         apiArtistModel = try c.decodeIfPresent(String.self, forKey: .apiArtistModel) ?? d.apiArtistModel
         doerModel = try c.decodeIfPresent(String.self, forKey: .doerModel) ?? d.doerModel
         apiDoerModel = try c.decodeIfPresent(String.self, forKey: .apiDoerModel) ?? d.apiDoerModel
+        guideModel = try c.decodeIfPresent(String.self, forKey: .guideModel) ?? d.guideModel
+        apiGuideModel = try c.decodeIfPresent(String.self, forKey: .apiGuideModel) ?? d.apiGuideModel
+        talkerEffort = try c.decodeIfPresent(String.self, forKey: .talkerEffort) ?? d.talkerEffort
+        artistEffort = try c.decodeIfPresent(String.self, forKey: .artistEffort) ?? d.artistEffort
+        guideEffort = try c.decodeIfPresent(String.self, forKey: .guideEffort) ?? d.guideEffort
+        doerEffort = try c.decodeIfPresent(String.self, forKey: .doerEffort) ?? d.doerEffort
+        agentEffort = try c.decodeIfPresent(String.self, forKey: .agentEffort) ?? d.agentEffort
         language = try c.decodeIfPresent(String.self, forKey: .language) ?? d.language
         voice = try c.decodeIfPresent(String.self, forKey: .voice) ?? d.voice
         speechRate = try c.decodeIfPresent(Float.self, forKey: .speechRate) ?? d.speechRate
@@ -121,6 +136,30 @@ struct AppConfig: Codable {
         // The file may hold an API key, so keep it private to this user.
         try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: Self.fileURL.path)
     }
+}
+
+extension AppConfig {
+    /// The model each part of Poinky uses, for the brain that's connected.
+    func model(for role: PromptRole) -> String {
+        let cc = brain == .claudeCode
+        switch role {
+        case .talker: return cc ? claudeCodeModel : apiModel
+        case .artist: return cc ? artistModel : apiArtistModel
+        case .doer: return cc ? doerModel : apiDoerModel
+        case .guide:
+            let g = cc ? guideModel : apiGuideModel
+            return g.isEmpty ? model(for: .talker) : g
+        }
+    }
+    func effort(for role: PromptRole) -> String {
+        switch role {
+        case .talker: return talkerEffort
+        case .artist: return artistEffort
+        case .guide: return guideEffort
+        case .doer: return doerEffort
+        }
+    }
+    static let efforts = ["low", "medium", "high", "xhigh", "max"]
 }
 
 enum PromptRole: String {

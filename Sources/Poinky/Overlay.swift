@@ -16,6 +16,8 @@ final class Overlay: NSObject, WKNavigationDelegate {
     var onClear: (() -> Void)?        // the Clear button on the overlay was clicked
     /// A button on a helper's card: id, "stop" / "log" / "folder".
     var onHelperAction: ((Int, String) -> Void)?
+    /// The helper the mouse is on (holding the talk keys there talks to it), or nil.
+    private(set) var pointedHelper: Int?
 
     private var panel: OverlayPanel?
     private var web: WKWebView!
@@ -137,6 +139,9 @@ final class Overlay: NSObject, WKNavigationDelegate {
     }
     func helperDone(id: Int, ok: Bool, summary: String) { js("SB.helperDone(\(id), \(ok), \(jsString(summary)))") }
     func helperStop(id: Int) { js("SB.helperStop(\(id))") }
+    func helperListen(id: Int, on: Bool) { js("SB.helperListen(\(id), \(on))") }
+    /// It heard you: "message" (a follow-up) or "status".
+    func helperHeard(id: Int, kind: String) { js("SB.helperHeard(\(id), \(jsString(kind)))") }
     /// Poinky is about to say what these helpers did: they fly to the buddy and wait there.
     func helperReport(ids: [Int]) { if !ids.isEmpty { js("SB.helperReport(\(ids))") } }
     /// Done saying it: they merge into the buddy.
@@ -367,6 +372,8 @@ final class Overlay: NSObject, WKNavigationDelegate {
                 r.count == 4 ? CGRect(x: r[0].doubleValue, y: r[1].doubleValue, width: r[2].doubleValue, height: r[3].doubleValue) : nil
             }
             trackMouse()
+        case "helperPointed":
+            pointedHelper = (msg["id"] as? String).flatMap { Int($0) } ?? (msg["id"] as? NSNumber)?.intValue
         case "helperAction":
             if let id = Int("\(msg["id"] ?? "")"), let action = msg["action"] as? String { onHelperAction?(id, action) }
         default:

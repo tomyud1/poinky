@@ -62,6 +62,48 @@ final class HelperScreen {
         }
     }
 
+    // MARK: - Talking to a helper
+
+    enum TalkResult: Equatable {
+        case say(String)                       // speak this (a status, or "Okay, I stopped Mint.")
+        case passed(String)                    // the follow-up went to this helper
+        case askTalker(context: String)        // it already finished: the main agent takes it, with this context
+    }
+
+    /// Names you can talk to: helpers working or waiting, and ones that finished in the last 15 minutes.
+    func names() -> [String] {
+        let recent = (agents?.agents ?? []).filter { a in
+            a.status == .running || a.status == .queued || Date().timeIntervalSince(a.finished ?? .distantPast) < 15 * 60
+        }
+        return Array(Set(recent.map(\.name)))
+    }
+
+    /// The newest helper with that name (names come back after a helper is done).
+    func helper(named name: String) -> AgentManager.Agent? {
+        agents?.agents.last { $0.name.caseInsensitiveCompare(name) == .orderedSame }
+    }
+
+    /// Stop, a status answer, or a follow-up for its work: quick, from what the helper has reported.
+    func talk(to id: Int, _ intent: HelperTalk.Intent) -> TalkResult? {
+        guard let agents, let a = agents.agents.first(where: { $0.id == id }) else { return nil }
+        let working = a.status == .running || a.status == .queued
+        switch intent {
+        case .stop:
+            if working { agents.stop(id: id) }
+            return .say(working ? "Okay, I stopped \(a.name)." : "\(a.name) already \(a.status == .stopped ? "stopped" : "finished").")
+        case .status:
+            overlay.helperHeard(id: id, kind: "status")
+            return .say(HelperTalk.status(a))
+        case .message(let m):
+            if working, agents.send(id: id, text: m) {
+                overlay.helperHeard(id: id, kind: "message")
+                return .passed(a.name)
+            }
+            let how = a.status == .done ? "finished" : a.status == .failed ? "couldn't finish" : "was stopped before finishing"
+            return .askTalker(context: "(The user is pointing at the helper \(a.name), which \(how) its task \"\(a.title)\" in \(a.dir.path). Its summary: \(a.summary.isEmpty ? "(none)" : a.summary). If they want more work on it, start a new agent and include that context.)")
+        }
+    }
+
     // MARK: - The window you're using
 
     /// While helpers are on screen, check twice a second which window is in front.

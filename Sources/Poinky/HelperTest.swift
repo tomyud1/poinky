@@ -80,10 +80,40 @@ extension HelperTest {
         o.show(on: display)
         o.setBuddy(true)
         o.setPhase("ready")
-        let cursor = CGPoint(x: display.frame.width * 0.42, y: display.frame.height * 0.55)
+        var cursor = CGPoint(x: display.frame.width * 0.42, y: display.frame.height * 0.55)
         var sessionOn = true
         let ticker = Timer.scheduledTimer(withTimeInterval: 1.0 / 30, repeats: true) { _ in
             MainActor.assumeIsolated { if sessionOn { o.tick(cursor: cursor, level: 0) } }
+        }
+        // POINKY_TEST_TALK=1: point at helpers and talk to them (a follow-up, a status question, "stop").
+        let talkTest = env["POINKY_TEST_TALK"] == "1"
+        if talkTest {
+            func pointAt(_ id: Int, at t: Double) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + t) {
+                    o.evaluateForTest("JSON.stringify(SB.helperPos('\(id)'))") { r in
+                        guard let s = r as? String, let d = s.data(using: .utf8),
+                              let p = try? JSONSerialization.jsonObject(with: d) as? [String: Double] else { log("no helper #\(id) to point at"); return }
+                        cursor = CGPoint(x: (p["x"] ?? 0) + 5, y: (p["y"] ?? 0) + 5)
+                        log("cursor on helper #\(id)")
+                    }
+                }
+            }
+            func say(_ text: String, to id: Int, at t: Double) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + t) {
+                    guard let pointed = o.pointedHelper else { log("said \"\(text)\" but no helper is pointed at"); return }
+                    o.helperListen(id: pointed, on: true)
+                    log("holding the keys, pointing at #\(pointed)")
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+                        let r = hs.talk(to: pointed, HelperTalk.intent(text))
+                        log("said \"\(text)\" to #\(pointed) → \(r.map { "\($0)" } ?? "nothing")")
+                        if let a = m.agents.first(where: { $0.id == pointed }) { log("#\(a.id) \(a.name) status \(a.status.rawValue), follow-ups \(a.followUps)") }
+                    }
+                }
+                _ = id
+            }
+            pointAt(1, at: 12); say("Also add a test for 4 people.", to: 1, at: 13)
+            say("What are you doing?", to: 1, at: 15.5)
+            pointAt(2, at: 17.5); say("stop", to: 2, at: 18.5)
         }
         hs.settings(config)
         m.onStarted = { a in log("#\(a.id) \(a.name) started"); hs.started(a) }
@@ -184,9 +214,63 @@ extension HelperTest {
         }
         m.onStopped = { a in log("#\(a.id) \(a.name) stopped"); hs.stopped(id: a.id) }
         // The session ends while helpers still work.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6 + Double(tasks.count) * 2.6 + 3) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + (talkTest ? 22 : 0.6 + Double(tasks.count) * 2.6 + 3)) {
             sessionOn = false; o.hide(); log("session ended (overlay.hide)")
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 180) { log("TIMEOUT"); NSApp.terminate(nil) }
+    }
+}
+
+extension HelperTest {
+    /// `--helper-talk-test <out.txt>`: what you say to a helper (stop / status / follow-up), by pointing or
+    /// by name, its spoken status, and the talker's <tell>/<stop> tags. No model, no screen.
+    static func talkSelfTest(out: String) {
+        var lines: [String] = [], fails = 0
+        func check(_ ok: Bool, _ what: String) { lines.append((ok ? "ok   " : "FAIL ") + what); if !ok { fails += 1 } }
+        let intents: [(String, HelperTalk.Intent)] = [
+            ("Stop", .stop), ("stop it please", .stop), ("Never mind.", .stop), ("cancel that", .stop),
+            ("What are you doing?", .status), ("How's it going?", .status), ("status", .status), ("Are you done yet?", .status),
+            ("how much longer", .status),
+            ("Stop using the old file and read config.py instead", .message("Stop using the old file and read config.py instead")),
+            ("Also add a test for 4 people.", .message("Also add a test for 4 people.")),
+            ("update the README too", .message("update the README too")),
+        ]
+        for (said, want) in intents { let got = HelperTalk.intent(said); check(got == want, "\"\(said)\" → \(got)") }
+        let names = ["Mint", "Coral"]
+        let byName: [(String, String?, HelperTalk.Intent?)] = [
+            ("How's Mint doing?", "Mint", .status), ("what's coral up to", "Coral", .status), ("Is Mint done?", "Mint", .status),
+            ("Stop Coral", "Coral", .stop), ("Tell Mint to also add a test", "Mint", .message("Also add a test")),
+            ("ask coral to use the json flag", "Coral", .message("Use the json flag")), ("Mint, also update the README", "Mint", .message("Also update the README")),
+            ("Mint, how's it going?", "Mint", .status),
+            ("Is mint tea good for you?", nil, nil), ("What color is coral?", nil, nil), ("How's Violet doing?", nil, nil),
+        ]
+        for (said, name, intent) in byName {
+            let got = HelperTalk.byName(said, names: names)
+            check(got?.name == name && got?.intent == intent, "\"\(said)\" → \(got.map { "\($0.name) \($0.intent)" } ?? "not about a helper")")
+        }
+        let dir = URL(fileURLWithPath: "/tmp/proj"), log = URL(fileURLWithPath: "/tmp/x.md")
+        var a = AgentManager.Agent(id: 1, name: "Mint", title: "Fix the tip bug", task: "…", dir: dir, started: Date().addingTimeInterval(-200), log: log)
+        a.latest = "Running the tests"
+        a.checklist = [HelperTask(text: "a", state: .done), HelperTask(text: "b", state: .done), HelperTask(text: "c", state: .active)]
+        let s1 = HelperTalk.status(a)
+        check(s1 == "Mint is running the tests. It has done 2 of 3 steps, 3 minutes in.", "status while working: \(s1)")
+        a.latest = "Two tests fail, confirming the bug."; a.checklist = []
+        let s2 = HelperTalk.status(a)
+        check(s2.hasPrefix("Mint says: Two tests fail, confirming the bug. It's been working for 3 minutes."), "status from a note: \(s2)")
+        a.latest = "Now adding the 4-person test to test_tipsplit.py."
+        let s4 = HelperTalk.status(a)
+        check(s4.hasPrefix("Mint is now adding the 4-person test to test_tipsplit.py. It's been"), "status from \"Now adding…\": \(s4)")
+        a.status = .done; a.finished = Date(); a.summary = "Fixed the rounding. All 4 tests pass. Nothing else changed."
+        let s3 = HelperTalk.status(a)
+        check(s3 == "Mint finished. Fixed the rounding. All 4 tests pass.", "status when done: \(s3)")
+        var p = TalkParser()
+        _ = p.feed(#"<say>I'll tell Mint.</say><tell agent="Mint">Also add a test for 4 people.</tell><stop agent="Coral"/>"#)
+        let ev = p.finish()
+        check(ev.tells.first?.name == "Mint" && ev.tells.first?.text == "Also add a test for 4 people." && ev.stops == ["Coral"],
+              "talker tags: tell \(ev.tells.map { "\($0.name): \($0.text)" }), stop \(ev.stops)")
+        check(ev.sentences == ["I'll tell Mint."] || ev.sentences.isEmpty, "the tags aren't spoken (\(ev.sentences))")
+        lines.append(fails == 0 ? "ALL OK" : "\(fails) FAILED")
+        try? lines.joined(separator: "\n").write(toFile: out, atomically: true, encoding: .utf8)
+        DispatchQueue.main.async { NSApp.terminate(nil) }
     }
 }

@@ -35,6 +35,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             HelperTest.runOnScreen(outDir: args[i + 1], dir: args[i + 2], tasks: Array(args[(i + 3)...]))
             return
         }
+        if let i = args.firstIndex(of: "--helper-talk-test"), i + 1 < args.count {
+            HelperTest.talkSelfTest(out: args[i + 1])
+            return
+        }
+        if let i = args.firstIndex(of: "--settings-shot"), i + 1 < args.count {
+            SettingsWindowController.shared.snapshotClaudeTab(to: args[i + 1])
+            return
+        }
         if let i = args.firstIndex(of: "--helper-test"), i + 2 < args.count {
             HelperTest.run(out: args[i + 1], dir: args[i + 2], tasks: Array(args[(i + 3)...]))
             return

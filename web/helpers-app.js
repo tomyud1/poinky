@@ -28,7 +28,7 @@
 
   // Runs only while there are helpers. Smooth frames while something moves; when they're all just
   // working at the edge (their small motions are CSS), ten frames a second are plenty.
-  let running = false, last = 0, lastCount = 0, idleTimer = 0, smooth = false;
+  let running = false, last = 0, lastCount = 0, idleTimer = 0, smooth = false, lastPointed = null;
   // Frame timing while something moves (for tests: SB.helperStats()).
   let stats = { frames: 0, gaps: [] };
   function frame(now) {
@@ -38,7 +38,14 @@
     layer.setPointer(SB.cursorPos ? SB.cursorPos() : null);
     layer.update(dt); layer.render();
     if (layer.count !== lastCount) { lastCount = layer.count; post({ kind: 'helpers', count: lastCount }); }
-    if (!layer.count && !layer.parts.length) { running = false; return; }
+    // Which helper you're pointing at (holding the talk keys there talks to it).
+    const pointed = layer.pointedId();
+    if (pointed !== lastPointed) { lastPointed = pointed; post({ kind: 'helperPointed', id: pointed }); }
+    if (!layer.count && !layer.parts.length) {
+      running = false;
+      if (lastPointed !== null) { lastPointed = null; post({ kind: 'helperPointed', id: null }); }
+      return;
+    }
     smooth = layer.busy;
     if (smooth) requestAnimationFrame(frame);
     else idleTimer = setTimeout(() => requestAnimationFrame(frame), 100);
@@ -64,6 +71,10 @@
     /** Poinky finished saying it (or was cut off): they merge into the buddy, one at a time. */
     helperRelease(ids) { (ids || []).forEach(id => layer.release(String(id))); wake(); },
     helperStop(id) { layer.stop(String(id)); wake(); },
+    /** Holding the talk keys while pointing at it: it listens. */
+    helperListen(id, on) { layer.listen(String(id), on); wake(); },
+    /** It heard you: kind 'message' (a follow-up) or 'status'. */
+    helperHeard(id, kind) { layer.heard(String(id), kind); wake(); },
     helperSounds(on, volume) {
       soundOn = !!on;
       sounds.params.master = Math.max(0, Math.min(1.2, +volume || 0)) * 1.1;
@@ -81,6 +92,6 @@
       return JSON.stringify(r);
     },
     /** For tests: "1:dock 2:fly>report …". */
-    helperPhases() { return [...layer.helpers.values()].map(h => h.id + ':' + h.phase + (h.phase === 'fly' ? '>' + h.fly.kind : '')).join(' '); },
+    helperPhases() { return [...layer.helpers.values()].map(h => h.id + ':' + h.phase + (h.phase === 'fly' ? '>' + h.fly.kind : '') + (h.listening ? '(listening)' : '') + (h.gotUntil ? '(got it)' : '')).join(' '); },
   });
 })();

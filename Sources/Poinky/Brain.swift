@@ -56,7 +56,7 @@ enum BrainFactory {
         if role == .talker || role == .guide || role == .doer { prompt += Memory.promptSection(enabled: config.memoryEnabled) }
         switch config.brain {
         case .claudeCode:
-            return ClaudeCodeBrain(model: role == .artist ? config.artistModel : role == .doer ? config.doerModel : config.claudeCodeModel,
+            return ClaudeCodeBrain(model: config.model(for: role), effort: config.effort(for: role),
                                    claudePath: config.claudePath, systemPrompt: prompt)
         case .api:
             let key = config.apiKey.isEmpty
@@ -65,7 +65,7 @@ enum BrainFactory {
             guard !key.isEmpty else {
                 throw BrainError("Add your Anthropic API key in ✨ menu → Settings → Claude, or switch back to Claude Code.")
             }
-            return APIBrain(model: role == .artist ? config.apiArtistModel : role == .doer ? config.apiDoerModel : config.apiModel,
+            return APIBrain(model: config.model(for: role), effort: config.effort(for: role),
                             apiKey: key, systemPrompt: prompt,
                             maxTokens: role == .artist ? 32000 : 4000)
         }
@@ -88,6 +88,8 @@ struct TalkEvents {
     var remember: [String] = []    // things to remember about the user
     var forget: [String] = []      // things to forget
     var agents: [AgentRequest] = []
+    var tells: [(name: String, text: String)] = []   // a follow-up for a working helper, by name
+    var stops: [String] = []                          // helpers to stop, by name
 }
 
 /// A background job for a Claude Code agent, asked for by the talker.
@@ -146,7 +148,7 @@ struct TalkParser {
             ev.sentences = takeSentences(final: true)
         } else if sayEmitted == 0 {
             var s = text
-            for tag in ["<draw>", "<visual>", "<guide>", "<do>", "<act", "<ask>", "<done>", "<end", "<set>", "<remember>", "<forget>", "<agent"] {
+            for tag in ["<draw>", "<visual>", "<guide>", "<do>", "<act", "<ask>", "<done>", "<end", "<set>", "<remember>", "<forget>", "<agent", "<tell", "<stop"] {
                 if let r = s.range(of: tag) { s = String(s[..<r.lowerBound]) }
             }
             s = s.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -178,6 +180,14 @@ struct TalkParser {
             guard !b.body.isEmpty else { return nil }
             let dir = Self.attr("dir", in: b.attrs).flatMap { $0.isEmpty ? nil : $0 }
             return AgentRequest(title: Self.attr("title", in: b.attrs) ?? "Agent", dir: dir, task: b.body)
+        }
+        ev.tells = Self.blocks(text, "tell").compactMap { b in
+            guard let name = Self.attr("agent", in: b.attrs), !name.isEmpty, !b.body.isEmpty else { return nil }
+            return (name, b.body)
+        }
+        if let re = try? NSRegularExpression(pattern: #"<stop\s+agent\s*=\s*"([^"]+)"\s*/?>"#) {
+            let ns = text as NSString
+            ev.stops = re.matches(in: text, range: NSRange(location: 0, length: ns.length)).map { ns.substring(with: $0.range(at: 1)) }
         }
         return ev
     }

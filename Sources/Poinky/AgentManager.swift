@@ -130,6 +130,14 @@ final class AgentManager {
     /// Sends a follow-up to a working helper. False if it isn't working (finished, stopped, or still in line).
     @discardableResult
     func send(id: Int, text: String) -> Bool {
+        // Still waiting for a free spot: add it to the task it will start with.
+        if let w = waiting.firstIndex(where: { $0.id == id }), let i = agents.firstIndex(where: { $0.id == id }) {
+            let r = waiting[w].req
+            waiting[w].req = AgentRequest(title: r.title, dir: r.dir, task: r.task + "\n\nAlso: " + text)
+            agents[i].followUps.append(text)
+            onChange?()
+            return true
+        }
         guard let input = inputs[id], let i = agents.firstIndex(where: { $0.id == id }), agents[i].status == .running,
               let line = Self.userLine(text) else { return false }
         do { try input.write(contentsOf: line) } catch { return false }
@@ -213,6 +221,7 @@ final class AgentManager {
         // safe commands (tests, git status/diff/log, listing files). Everything else is refused.
         if mode != "plan" { args += ["--allowedTools", Self.safeTools.joined(separator: " ")] }
         if !config.agentModel.isEmpty { args += ["--model", config.agentModel] }
+        if AppConfig.efforts.contains(config.agentEffort) { args += ["--effort", config.agentEffort] }
 
         let p = Process()
         p.executableURL = URL(fileURLWithPath: exe)

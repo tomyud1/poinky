@@ -26,6 +26,48 @@ final class SettingsModel: ObservableObject {
     }
     private var memoryWork: DispatchWorkItem?
 
+    /// Claude Code's version ("2.1.119"), for the Claude tab.
+    @Published var claudeVersion: String?
+    @Published var updatingClaude = false
+    @Published var claudeUpdateResult: String?
+
+    func checkClaudeVersion() {
+        let path = ClaudeCodeBrain.findClaude(explicit: config.claudePath)
+        DispatchQueue.global().async {
+            let v = Self.runClaude(path, ["--version"])?.trimmingCharacters(in: .whitespacesAndNewlines)
+            DispatchQueue.main.async { self.claudeVersion = v.map { String($0.split(separator: " ").first ?? "") } }
+        }
+    }
+
+    /// Runs `claude update` (the button in the Claude tab).
+    func updateClaude() {
+        updatingClaude = true
+        claudeUpdateResult = nil
+        let path = ClaudeCodeBrain.findClaude(explicit: config.claudePath)
+        DispatchQueue.global().async {
+            let out = Self.runClaude(path, ["update"]) ?? "Couldn't run Claude Code."
+            let last = out.split(separator: "\n").last.map(String.init) ?? ""
+            DispatchQueue.main.async {
+                self.updatingClaude = false
+                self.claudeUpdateResult = last
+                self.checkClaudeVersion()
+            }
+        }
+    }
+
+    nonisolated private static func runClaude(_ path: String?, _ args: [String]) -> String? {
+        guard let path else { return nil }
+        let p = Process(), pipe = Pipe()
+        p.executableURL = URL(fileURLWithPath: path)
+        p.arguments = args
+        p.standardOutput = pipe
+        p.standardError = pipe
+        guard (try? p.run()) != nil else { return nil }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        p.waitUntilExit()
+        return String(data: data, encoding: .utf8)
+    }
+
     init() { config = AppConfig.load(); loading = true; memoryText = Memory.text(); loading = false }
 
     func reload() {
@@ -86,6 +128,22 @@ final class SettingsWindowController {
         }
         NSApp.activate(ignoringOtherApps: true)
         window?.makeKeyAndOrderFront(nil)
+    }
+
+    /// Developer check (`--settings-shot <out.png>`): a picture of the Claude tab, then quit.
+    func snapshotClaudeTab(to out: String) {
+        model.reload()
+        let host = NSHostingView(rootView: ClaudeTab(model: model).frame(width: 620, height: 900))
+        let w = NSWindow(contentRect: CGRect(x: -3000, y: 0, width: 620, height: 900), styleMask: [.borderless], backing: .buffered, defer: false)
+        w.contentView = host
+        w.orderFrontRegardless()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+            if let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) {
+                host.cacheDisplay(in: host.bounds, to: rep)
+                try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: out))
+            }
+            NSApp.terminate(nil)
+        }
     }
 }
 
@@ -260,8 +318,30 @@ private struct VoiceTab: View {
 
 private struct ClaudeTab: View {
     @ObservedObject var model: SettingsModel
-    private let models = [("Haiku · fastest", "haiku"), ("Sonnet · balanced", "sonnet"), ("Opus · smartest, slowest", "opus")]
+
+    /// One part of Poinky: its model and how hard it thinks.
+    private func row(_ title: String, _ about: String, model m: Binding<String>, effort: Binding<String>,
+                     sameAs: String? = nil, automatic: String = "Automatic") -> some View {
+        LabeledContent {
+            HStack(spacing: 8) {
+                ModelPicker(value: m, sameAs: sameAs).frame(width: 205)
+                Picker("Effort", selection: effort) {
+                    Text(automatic).tag("")
+                    Divider()
+                    ForEach(EffortChoice.all, id: \.1) { Text($0.0).tag($0.1) }
+                }
+                .labelsHidden().frame(width: 118)
+            }
+        } label: {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title)
+                Text(about).font(.caption).foregroundStyle(.secondary)
+            }
+        }
+    }
+
     var body: some View {
+        let cc = model.config.brain == .claudeCode
         Form {
             Section {
                 Picker("Connect with", selection: $model.config.brain) {
@@ -269,29 +349,47 @@ private struct ClaudeTab: View {
                     Text("Anthropic API (API key, billed per use)").tag(BrainKind.api)
                 }
                 .pickerStyle(.radioGroup)
-            }
-            if model.config.brain == .claudeCode {
-                Section {
-                    Picker("Talker (answers out loud)", selection: $model.config.claudeCodeModel) {
-                        ForEach(models, id: \.1) { Text($0.0).tag($0.1) }
-                    }
-                    Toggle("Teacher sketches explanations and 3D models", isOn: $model.config.artistEnabled)
-                    Picker("Teacher", selection: $model.config.artistModel) {
-                        ForEach(models, id: \.1) { Text($0.0).tag($0.1) }
-                    }
-                    .disabled(!model.config.artistEnabled)
-                }
-            } else {
-                Section {
+                if !cc {
                     SecureField("API key", text: $model.config.apiKey, prompt: Text("sk-ant-…"))
-                    TextField("Talker model", text: $model.config.apiModel)
-                    Toggle("Teacher sketches explanations and 3D models", isOn: $model.config.artistEnabled)
-                    TextField("Teacher model", text: $model.config.apiArtistModel)
-                        .disabled(!model.config.artistEnabled)
                 }
             }
             Section {
-                Text("Changes apply from your next call.").font(.caption).foregroundStyle(.secondary)
+                row("Talker", "answers out loud, marks the screen",
+                    model: cc ? $model.config.claudeCodeModel : $model.config.apiModel, effort: $model.config.talkerEffort)
+                row("Teacher", "sketches and 3D models",
+                    model: cc ? $model.config.artistModel : $model.config.apiArtistModel, effort: $model.config.artistEffort)
+                    .disabled(!model.config.artistEnabled)
+                Toggle("Teacher sketches explanations and 3D models", isOn: $model.config.artistEnabled)
+                row("Guide", "walks you through, step by step",
+                    model: cc ? $model.config.guideModel : $model.config.apiGuideModel, effort: $model.config.guideEffort,
+                    sameAs: "Same as the talker")
+                row("Doer", "clicks and types for you",
+                    model: cc ? $model.config.doerModel : $model.config.apiDoerModel, effort: $model.config.doerEffort)
+                row("Helpers", "background agents (always Claude Code)",
+                    model: $model.config.agentModel, effort: $model.config.agentEffort,
+                    sameAs: "Your Claude Code default", automatic: "Default")
+            } header: {
+                Text("Models")
+            } footer: {
+                Text("Effort is how long each one thinks before answering. Automatic keeps Poinky's voice quick (no thinking step); higher is smarter but slower, and uses more of your plan. Changes apply from your next call (helpers: from the next one you start).")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            if cc, let v = model.claudeVersion {
+                Section {
+                    HStack {
+                        if ClaudeVersion.isOlder(v, than: ClaudeVersion.newestModels) {
+                            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                            Text("Your Claude Code (\(v)) is too old for Opus 5.5 and Fable 5.1, and its short names (haiku, sonnet, opus) pick older models.")
+                                .font(.callout)
+                        } else {
+                            Text("Claude Code \(v)").font(.callout).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Button(model.updatingClaude ? "Updating…" : "Update Claude Code") { model.updateClaude() }
+                            .disabled(model.updatingClaude)
+                    }
+                    if let r = model.claudeUpdateResult { Text(r).font(.caption).foregroundStyle(.secondary) }
+                }
             }
             Section("Background agents") {
                 Picker("Agents may", selection: $model.config.agentPermission) {
@@ -299,7 +397,6 @@ private struct ClaudeTab: View {
                     Text("Auto mode (if your Claude Code has it)").tag("auto")
                     Text("Only plan, change nothing").tag("plan")
                 }
-                TextField("Model", text: $model.config.agentModel, prompt: Text("your Claude Code default"))
                 Picker("Working at once", selection: $model.config.maxHelpers) {
                     ForEach(1...6, id: \.self) { n in Text(n == 3 ? "3 (recommended)" : "\(n)").tag(n) }
                 }
@@ -312,6 +409,56 @@ private struct ClaudeTab: View {
             }
         }
         .formStyle(.grouped)
+        .onAppear { model.checkClaudeVersion() }
+    }
+}
+
+enum EffortChoice {
+    static let all = [("Low", "low"), ("Medium", "medium"), ("High", "high"), ("Extra high", "xhigh"), ("Max", "max")]
+}
+
+/// The current Claude models by full name (short names like "sonnet" depend on your Claude Code version),
+/// anything else you type, and optionally "same as …" (an empty value).
+private struct ModelPicker: View {
+    @Binding var value: String
+    var sameAs: String?
+    static let known = [("Haiku 5.5 · fastest", "claude-haiku-5-5"), ("Sonnet 5.5 · balanced", "claude-sonnet-5-5"),
+                        ("Opus 5.5 · smarter, slower", "claude-opus-5-5"), ("Fable 5.1 · smartest, slowest", "claude-fable-5-1")]
+    static let short = ["haiku": "Haiku (auto version)", "sonnet": "Sonnet (auto version)", "opus": "Opus (auto version)"]
+    private static let other = "\u{1}other"
+
+    var body: some View {
+        let isKnown = Self.known.contains { $0.1 == value } || Self.short[value] != nil || (value.isEmpty && sameAs != nil)
+        VStack(alignment: .leading, spacing: 4) {
+            Picker("Model", selection: Binding(get: { isKnown ? value : Self.other },
+                                               set: { value = $0 == Self.other ? "claude-" : $0 })) {
+                if let sameAs { Text(sameAs).tag(""); Divider() }
+                ForEach(Self.known, id: \.1) { Text($0.0).tag($0.1) }
+                if let s = Self.short[value] { Text(s).tag(value) }
+                Divider()
+                Text("Other…").tag(Self.other)
+            }
+            .labelsHidden()
+            if !isKnown {
+                TextField("Model name", text: $value, prompt: Text("claude-…")).textFieldStyle(.roundedBorder).font(.caption)
+            }
+        }
+    }
+}
+
+enum ClaudeVersion {
+    /// Opus 5.5 and Fable 5.1 need at least this Claude Code.
+    static let newestModels = "2.1.280"
+    static func parts(_ v: String) -> [Int] {
+        (v.split(separator: " ").first ?? "").split(separator: ".").map { Int($0) ?? 0 }
+    }
+    static func isOlder(_ a: String, than b: String) -> Bool {
+        let x = parts(a), y = parts(b)
+        for i in 0..<max(x.count, y.count) {
+            let p = i < x.count ? x[i] : 0, q = i < y.count ? y[i] : 0
+            if p != q { return p < q }
+        }
+        return false
     }
 }
 

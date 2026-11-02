@@ -18,7 +18,11 @@ final class APIBrain: Brain {
     /// How many recent turns keep their screenshot. Older ones are swapped for a short note.
     private let keepImages = 2
 
-    init(model: String, apiKey: String, systemPrompt: String, maxTokens: Int) {
+    private let effort: String
+
+    /// `effort` "" keeps it fast (low effort, and no thinking on Haiku); a level lets it think that much.
+    init(model: String, effort: String = "", apiKey: String, systemPrompt: String, maxTokens: Int) {
+        self.effort = AppConfig.efforts.contains(effort) ? effort : ""
         self.maxTokens = maxTokens
         self.model = model
         self.apiKey = apiKey
@@ -64,10 +68,10 @@ final class APIBrain: Brain {
             "stream": true,
             "system": systemPrompt,
             "messages": history,
-            "output_config": ["effort": "low"],
+            "output_config": ["effort": effort.isEmpty ? "low" : effort],
         ]
-        // Haiku can skip thinking entirely (faster). Other current models don't accept that, so leave it to them.
-        if model.contains("haiku") { body["thinking"] = ["type": "disabled"] }
+        // Automatic: Haiku can skip thinking entirely (faster). Other current models don't accept that, so leave it to them.
+        if effort.isEmpty && model.contains("haiku") { body["thinking"] = ["type": "disabled"] }
 
         var req = URLRequest(url: URL(string: "https://api.anthropic.com/v1/messages")!)
         req.httpMethod = "POST"

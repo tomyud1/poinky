@@ -272,6 +272,35 @@
       return (m ? m[0] : s).trim();
     }
 
+    /** You're holding the talk keys while pointing at it: it perks up and listens (its card opens). */
+    listen(id, on) {
+      const h = this.helpers.get(id); if (!h) return;
+      h.listening = !!on;   // its card opens and its line says "Listening…"
+    }
+    /** It heard you: 'message' (a follow-up: "Got it!" and a nod) or 'status' (a nod while the buddy answers). */
+    heard(id, kind) {
+      const h = this.helpers.get(id); if (!h) return;
+      h.listening = false;
+      h.nod = 0;
+      if (kind === 'message') { h.gotUntil = this.time + 2; this.sound('ack', { x: h.x, note: h.note }); }
+    }
+    /** The helper the pointer is on (or on its card), if any: you're talking to it while you hold the keys. */
+    pointedId() {
+      const p = this.pointer; if (!p) return null;
+      let best = null, bestD = 1e9;
+      for (const h of this.helpers.values()) {
+        if (!['dock', 'ready', 'asking', 'thanks', 'report'].includes(h.phase) && !h.listening) continue;
+        const d = Math.hypot(p.x - (h.x + 8 * h.scale), p.y - (h.y + 8 * h.scale));
+        let hit = d < 30;
+        if (!hit && (h.phase === 'dock' || h.phase === 'ready') && h.chip > .5) {
+          const [x, y, w, ht] = this.cardRect(h);
+          hit = p.x >= x && p.x <= x + w && p.y >= y && p.y <= y + ht;
+        }
+        if (hit && d < bestD) { best = h.id; bestD = d; }
+      }
+      return best;
+    }
+
     get count() { return this.helpers.size; }
     /** Something is moving and needs smooth frames (otherwise a few frames a second are enough). */
     get busy() {
@@ -279,7 +308,7 @@
       if (this.chooseSide() !== this.side) return true;   // about to move to the other edge
       for (const h of this.helpers.values()) {
         if (h.hoverT > 0 || (h.open > .5 && h.closeT > 0)) return true;   // a card is about to open or close
-        if ((h.phase !== 'dock' && h.phase !== 'ready') || h.ask) return true;
+        if ((h.phase !== 'dock' && h.phase !== 'ready') || h.ask || h.listening || h.gotUntil) return true;
         if (h.lineT < 2 || h.prevT < .4 || h.bubA > .01) return true;
         if (Math.abs(h.fracShown - h.frac) > .002 || (h.open > .001 && h.open < .999) || Math.abs(h.chip - 1) > .002) return true;
         if (Math.abs(h.fade - 1) > .003 && Math.abs(h.fade - .14) > .003) return true;
@@ -336,6 +365,7 @@
       }
       for (const h of [...this.helpers.values()]) {
         h.t += dt; h.lineT += dt; h.prevT += dt; h.bubT += dt;
+        if (h.gotUntil && this.time > h.gotUntil) { h.gotUntil = 0; h.lineT = 0; }
         const m = this.main();
         let tx = h.x, ty = h.y, follow = true, face = 0, targetScale = P.size;
 
@@ -451,6 +481,7 @@
           }
         }
 
+        if (h.listening && (h.phase === 'dock' || h.phase === 'ready')) targetScale *= 1.18;
         if (follow) {   // a spring toward the target: a step behind, a little overshoot
           h.vx += ((tx - h.x) * k - h.vx * c) * dt; h.vy += ((ty - h.y) * k - h.vy * c) * dt;
           h.x += h.vx * dt; h.y += h.vy * dt;
@@ -523,6 +554,7 @@
           if (nearCard) fadeTo = .14;
         }
       } else { h.hoverT = 0; if (h.open > .5 && (h.closeT += dt) > .35) openTo = 0; }
+      if (h.listening) { openTo = 1; fadeTo = 1; h.closeT = 0; }
       if (!openTo) h.sure = 0;
       h.open = lerp(h.open, openTo, 1 - Math.exp(-dt * 14));
       if (Math.abs(h.open - openTo) < .002) h.open = openTo;
@@ -625,8 +657,11 @@
         if (C.bubText !== h.bub && h.bub) { e.bub.textContent = h.bub; C.bubText = h.bub; }
         const bs = bubOn ? easeOutBack(clamp(h.bubT / .3, 0, 1), 2) : 1;
         if (C.bubW === undefined || C.bubWText !== C.bubText) { C.bubW = e.bub.offsetWidth || 60; C.bubWText = C.bubText; }
-        const bx = right ? 18 : -18 - C.bubW;
-        set(e.bub, 'transformOrigin', right ? '0 50%' : '100% 50%');
+        let toLeft = !right;
+        if (h.x + 18 + C.bubW > this.W - 8) toLeft = true;
+        if (h.x - 18 - C.bubW < 8) toLeft = false;
+        const bx = toLeft ? -18 - C.bubW : 18;
+        set(e.bub, 'transformOrigin', toLeft ? '100% 50%' : '0 50%');
         set(e.bub, 'transform', `translate(${bx}px,-30px) scale(${(.6 + .4 * bs).toFixed(3)})`);
         set(e.bub, 'opacity', h.bubA.toFixed(3));
         // The card at the edge.
@@ -673,14 +708,16 @@
         // Progress text types in; the old line slides up and fades.
         const n = Math.floor(h.lineT * 45 * P.typing);
         const shown = h.line.slice(0, Math.max(0, n));
-        const cur = (h.finished && h.ok ? '✓ ' : '') + shown;
+        // Talking to it: its line says it's listening, then that it got your message.
+        const said = h.listening ? 'Listening…' : h.gotUntil ? '✓ Got it' : '';
+        const cur = said || (h.finished && h.ok ? '✓ ' : '') + shown;
         if (C.cur !== cur) { e.cur.textContent = cur; C.cur = cur; }
         if (C.prev !== h.prev) { e.prev.textContent = h.prev; C.prev = h.prev; }
         const pu = clamp(h.prevT / .28, 0, 1);
         set(e.prev, 'transform', `translateY(${(-14 * easeOut(pu)).toFixed(1)}px)`); set(e.prev, 'opacity', (1 - pu).toFixed(3));
         const cu = clamp(h.lineT / .28, 0, 1);
         set(e.cur, 'transform', `translateY(${(10 * (1 - easeOut(cu))).toFixed(1)}px)`); set(e.cur, 'opacity', cu.toFixed(3));
-        set(e.cur, 'color', h.phase === 'celebrate' ? h.color : '');
+        set(e.cur, 'color', h.phase === 'celebrate' || said ? h.color : '');
         // Trail
         e.trail.forEach((t, i) => {
           const p = h.trail[i];

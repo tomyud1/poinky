@@ -2,7 +2,7 @@
 # Tests helpers (background agents) without spending tokens:
 #   1. the stream parser (HelperEvents.swift) against every recorded run in tools/helper-runs/
 #   2. AgentManager end to end with the fake helper: waiting line, follow-ups, stop, crash, error.
-# Usage: tools/test-helpers.sh   (--screen: also show helpers through the real overlay, ~35 s;
+# Usage: tools/test-helpers.sh   (--screen: also show helpers through the real overlay, ~75 s;
 #                                 --live: also run one real Claude Code helper, ~1 min)
 set -uo pipefail
 cd "$(dirname "$0")/.."
@@ -32,6 +32,11 @@ run() { # name, extra env..., -- tasks...
   local name="$1"; shift
   env POINKY_AGENT_LOG_DIR="$TMP/logs-$name" POINKY_HELPER_CMD="$ROOT/tools/fake-helper.py" POINKY_FAKE_SPEED=4 "$@"
 }
+
+echo "2b. Talking to a helper: stop, status, follow-ups, by pointing or by name (no model)"
+"$BIN" --helper-talk-test "$TMP/talk.txt" 2>/dev/null
+grep -E "^FAIL" "$TMP/talk.txt" | sed 's/^/  /'
+grep -q "ALL OK" "$TMP/talk.txt" && pass "$(grep -c '^ok' "$TMP/talk.txt") phrases, status lines and talker tags" || { bad "talking to a helper"; cat "$TMP/talk.txt"; }
 
 echo "3. Four helpers, three at a time, a follow-up and a crash"
 run A POINKY_TEST_FOLLOWUP="2|Also add a test for 4 people." "$BIN" --helper-test "$TMP/A.txt" "$TMP/proj" \
@@ -72,11 +77,23 @@ if [ "${1:-}" = "--screen" ] || [ "${2:-}" = "--screen" ]; then
   expect "$L" "overlay hidden, helpers on screen 0, session off" "it goes away after the last one reports"
   n=$(ls "$TMP/screen"/shot-*.png 2>/dev/null | wc -l | tr -d ' ')
   [ "$n" -gt 20 ] && pass "snapshots of what it drew ($n)" || bad "snapshots of what it drew ($n)"
+
+  echo "6. Pointing at helpers and talking to them, through the real overlay (~35 s, silent)"
+  env POINKY_TEST_TALK=1 POINKY_AGENT_LOG_DIR="$TMP/logs-talk" POINKY_HELPER_CMD="$ROOT/tools/fake-helper.py" POINKY_FAKE_SPEED=2 \
+    build/Poinky.app/Contents/MacOS/Poinky --helper-screen-test "$TMP/talk" "$TMP/proj" fixture:fix-bug fixture:todo-blocked fixture:error 2>/dev/null
+  L="$TMP/talk/log.txt"
+  expect "$L" "holding the keys, pointing at #1" "the helper under the mouse is the one you talk to"
+  expect "$L" "phases: 1:dock\\(listening\\)" "it listens while you hold the keys"
+  expect "$L" "follow-ups \\[\"Also add a test for 4 people.\"\\]" "a follow-up goes into its work"
+  expect "$L" "phases: 1:dock\\(got it\\)" "it shows it got the message"
+  expect "$L" "said \"What are you doing\\?\" to #1 → say\\(\"Mint (is|says)" "a status answer comes from what it reported (no model)"
+  expect "$L" "#2 Coral stopped" "saying stop while pointing stops it"
+  expect "$L" "ALL DONE" "everything finishes"
   fi
 fi
 
 if [ "${1:-}" = "--live" ]; then
-  echo "6. A real Claude Code helper (uses your Claude plan)"
+  echo "7. A real Claude Code helper (uses your Claude plan)"
   cp -R demo/sample-project "$TMP/live"
   env POINKY_AGENT_LOG_DIR="$TMP/logs-live" POINKY_TEST_FOLLOWUP="10|Also add a short Usage section to the README." "$BIN" --helper-test "$TMP/live.txt" "$TMP/live" \
     "Fix the known issue described in the README of the tipsplit project (shares don't add up to the total), and add a test for it."

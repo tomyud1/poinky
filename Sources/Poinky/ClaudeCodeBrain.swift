@@ -32,8 +32,12 @@ final class ClaudeCodeBrain: Brain {
         w.forEach { $0.resume() }
     }
 
-    init(model: String, claudePath: String, systemPrompt: String) {
+    private let effort: String
+
+    /// `effort` "" keeps it fast (no thinking step); a level lets it think that much.
+    init(model: String, effort: String = "", claudePath: String, systemPrompt: String) {
         self.model = model
+        self.effort = AppConfig.efforts.contains(effort) ? effort : ""
         self.explicitPath = claudePath
         self.systemPrompt = systemPrompt
     }
@@ -99,15 +103,19 @@ final class ClaudeCodeBrain: Brain {
             "--strict-mcp-config",          // skip loading MCP servers (faster startup)
             "--disable-slash-commands",
             "--setting-sources", "",        // ignore project/user hooks & settings
-            "--settings", #"{"alwaysThinkingEnabled":false}"#,
             "--no-session-persistence",
             "--system-prompt", systemPrompt,
         ]
+        if effort.isEmpty {
+            p.arguments! += ["--settings", #"{"alwaysThinkingEnabled":false}"#]
+        } else {
+            p.arguments! += ["--effort", effort]
+        }
         var env = ProcessInfo.processInfo.environment
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         env["PATH"] = ["\(home)/.local/bin", "/opt/homebrew/bin", "/usr/local/bin", env["PATH"] ?? "/usr/bin:/bin"]
             .joined(separator: ":")
-        env["MAX_THINKING_TOKENS"] = "0"   // skip the thinking step: faster replies
+        if effort.isEmpty { env["MAX_THINKING_TOKENS"] = "0" }   // skip the thinking step: faster replies
         p.environment = env
         try? FileManager.default.createDirectory(at: AppConfig.dir, withIntermediateDirectories: true)
         p.currentDirectoryURL = AppConfig.dir
