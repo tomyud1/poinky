@@ -350,7 +350,8 @@ final class CallController: NSObject, NSMenuDelegate {
         stopWatchers()
         if !quietly, config.sounds {
             // After the audio engine stopped (and echo cancellation let go of the speakers).
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { Earcons.playStandalone(.end) }
+            let volume = Float(config.soundVolume)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { Earcons.playStandalone(.end, volume: volume) }
         }
         let o = overlay
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
@@ -387,8 +388,9 @@ final class CallController: NSObject, NSMenuDelegate {
     }
 
     private func playSound(_ sound: Earcons.Sound) {
-        guard config.sounds, let b = Earcons.buffer(sound) else { return }
-        if !audio.playSound(b) { Earcons.playStandalone(sound) }
+        guard config.sounds, config.soundVolume > 0, let b = Earcons.buffer(sound) else { return }
+        let volume = Float(min(1, max(0, config.soundVolume)))
+        if !audio.playSound(b, volume: volume) { Earcons.playStandalone(sound, volume: volume) }
     }
 
     // MARK: - Hold to talk
@@ -1430,6 +1432,7 @@ final class CallController: NSObject, NSMenuDelegate {
         if let v = flag("buddy") { cfg.buddy = v }
         if let v = num("buddyAutoHide") { cfg.buddyAutoHide = max(0, min(3600, v)) }
         if let v = flag("sounds") { cfg.sounds = v }
+        if let v = num("soundVolume") { cfg.soundVolume = min(1, max(0, v)); if v > 0 { cfg.sounds = true } }
         if let v = flag("artistEnabled") { cfg.artistEnabled = v }
         if let v = num("silenceSeconds") { cfg.silenceSeconds = min(2.5, max(0.5, v)) }
         if let v = obj["pushToTalk"] as? String, ["ctrl+option", "ctrl+shift", "option+cmd", "off"].contains(v) { cfg.pushToTalk = v }
@@ -1446,7 +1449,7 @@ final class CallController: NSObject, NSMenuDelegate {
     private func settingsSummary() -> String {
         let c = config
         return "voice \(c.kokoroVoice) at speed \(String(format: "%.2f", c.kokoroSpeed)) (engine \(c.voiceEngine)); buddy \(c.buddy ? "on" : "off")"
-            + (c.buddyAutoHide > 0 ? ", auto-hides after \(Int(c.buddyAutoHide)) s" : "") + "; sounds \(c.sounds ? "on" : "off")"
+            + (c.buddyAutoHide > 0 ? ", auto-hides after \(Int(c.buddyAutoHide)) s" : "") + "; sounds \(c.sounds ? "on at \(Int((c.soundVolume * 100).rounded()))% volume" : "off")"
             + "; teacher \(c.artistEnabled ? "on" : "off"); hold to talk \(PushToTalk.displayString(c.pushToTalk))"
             + "; hands-free call \(HotKey.displayString(c.hotkey)); hide buddy \(HotKey.displayString(c.buddyHotkey))"
             + "; pause before answering (calls) \(c.silenceSeconds) s; language \(c.language); memory \(c.memoryEnabled ? "on" : "off")"

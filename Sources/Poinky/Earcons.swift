@@ -27,7 +27,7 @@ enum Earcons {
     }
 
     /// Plays without an engine (before a session starts, or after it ended).
-    static func playStandalone(_ s: Sound) {
+    static func playStandalone(_ s: Sound, volume: Float = 1) {
         guard let b = buffer(s) else { return }
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("poinky-\(s.rawValue).caf")
         if !FileManager.default.fileExists(atPath: url.path) {
@@ -35,6 +35,7 @@ enum Earcons {
             try? f.write(from: b)
         }
         guard let p = try? AVAudioPlayer(contentsOf: url) else { return }
+        p.volume = volume
         players.removeAll { !$0.isPlaying }
         players.append(p)
         p.play()

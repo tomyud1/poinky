@@ -8,6 +8,7 @@ All notable changes to Poinky. The format follows [Keep a Changelog](https://kee
 - Helpers (background agents) get names (Mint, Coral, Violet…), live progress in plain words ("Reading tipsplit.py", "Running the tests"), their to-do lists, and a record of anything they weren't allowed to do. This is the groundwork for seeing them on screen.
 - You can send a working helper a follow-up; it folds it into its work.
 - At most 3 helpers work at once (Settings → Background agents, 1 to 6); more wait in line and start by themselves.
+- A sound volume slider in Settings (next to the sounds switch). It plays a sample when you let go, and you can also say "make the sounds quieter".
 - The Agent Lab (`web/agents-lab.html`): a playground for how helpers look, move and sound, with a timeline and sliders, and sounds that can be saved as `.wav` files.
 - Each helper's raw output is kept next to its log (`.jsonl`), and `tools/fake-helper.py` can replay it for testing without tokens (`tools/test-helpers.sh`).
 

@@ -63,8 +63,9 @@ final class AudioIO {
 
     /// Plays an interface sound through this engine (returns false if the engine isn't running).
     @discardableResult
-    func playSound(_ buffer: AVAudioPCMBuffer) -> Bool {
+    func playSound(_ buffer: AVAudioPCMBuffer, volume: Float = 1) -> Bool {
         guard running, engine.isRunning else { return false }
+        sfx.volume = volume
         sfx.scheduleBuffer(buffer, at: nil, options: [], completionHandler: nil)
         if !sfx.isPlaying { sfx.play() }
         return true

@@ -28,6 +28,7 @@ struct AppConfig: Codable {
     var pushToTalk = "ctrl+option"     // hold to talk, let go to send ("off" to turn it off)
     var buddy = true                   // the little companion at your cursor (captions appear next to it)
     var sounds = true                  // soft interface sounds
+    var soundVolume = 0.7              // their loudness, 0–1 (Poinky's voice has its own)
     var menuBarIcon = false            // also show ✨ in the menu bar (always shown on screens without a notch)
     var buddyHotkey = "ctrl+option+b"  // hides / shows the buddy
     var buddyAutoHide = 0.0            // hide the buddy after this many idle seconds (0 = never); it's back when you ask something
@@ -67,6 +68,7 @@ struct AppConfig: Codable {
         pushToTalk = try c.decodeIfPresent(String.self, forKey: .pushToTalk) ?? d.pushToTalk
         buddy = try c.decodeIfPresent(Bool.self, forKey: .buddy) ?? d.buddy
         sounds = try c.decodeIfPresent(Bool.self, forKey: .sounds) ?? d.sounds
+        soundVolume = try c.decodeIfPresent(Double.self, forKey: .soundVolume) ?? d.soundVolume
         menuBarIcon = try c.decodeIfPresent(Bool.self, forKey: .menuBarIcon) ?? d.menuBarIcon
         buddyHotkey = try c.decodeIfPresent(String.self, forKey: .buddyHotkey) ?? d.buddyHotkey
         buddyAutoHide = try c.decodeIfPresent(Double.self, forKey: .buddyAutoHide) ?? d.buddyAutoHide

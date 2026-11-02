@@ -148,6 +148,17 @@ private struct GeneralTab: View {
                 }
                 .disabled(!model.config.buddy)
                 Toggle("Interface sounds", isOn: $model.config.sounds)
+                LabeledContent("Sound volume") {
+                    HStack(spacing: 8) {
+                        Image(systemName: "speaker.fill").foregroundStyle(.secondary).font(.caption)
+                        // Plays a sample when you let go, so you hear the new level.
+                        Slider(value: $model.config.soundVolume, in: 0...1) { editing in
+                            if !editing { Earcons.playStandalone(.send, volume: Float(model.config.soundVolume)) }
+                        }
+                        Image(systemName: "speaker.wave.3.fill").foregroundStyle(.secondary).font(.caption)
+                    }
+                }
+                .disabled(!model.config.sounds)
                 Toggle("Menu bar icon (the notch is Poinky's home; hover it for controls)", isOn: $model.config.menuBarIcon)
             }
             Section {

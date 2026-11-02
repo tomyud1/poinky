@@ -24,7 +24,7 @@ Use this when the user asks how Poinky works, what it can do, or how to change s
 - `kokoroVoice`: am_michael, am_adam, am_echo, am_eric, am_liam, am_onyx, am_puck, af_heart, af_bella, af_nicole, af_nova, af_sarah, af_sky, bm_george, bm_lewis, bm_daniel, bf_emma, bf_isabella.
 - `buddy`: true/false (show the cursor buddy at all).
 - `buddyAutoHide`: seconds after Poinky finishes before the buddy hides (0 = never, 3 = right after it answers). It comes back when you hold ⌃⌥. Settings → General → "Hide the buddy".
-- `sounds`: true/false (interface sounds).
+- `sounds`: true/false (interface sounds). `soundVolume`: 0–1 (how loud they are; Poinky's voice is separate).
 - `artistEnabled`: true/false (the teacher: lessons and 3D).
 - `silenceSeconds`: hands-free calls, how long a pause ends a question (0.5–2.5).
 - `pushToTalk`: "ctrl+option", "ctrl+shift", "option+cmd" or "off".
