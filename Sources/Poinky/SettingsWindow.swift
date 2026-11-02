@@ -289,7 +289,10 @@ private struct ClaudeTab: View {
                     Text("Only plan, change nothing").tag("plan")
                 }
                 TextField("Model", text: $model.config.agentModel, prompt: Text("your Claude Code default"))
-                Text("Ask \"put an agent on it\" to have Claude Code work on a project in the background. Poinky tells you when it's done.")
+                Picker("Working at once", selection: $model.config.maxHelpers) {
+                    ForEach(1...6, id: \.self) { n in Text(n == 3 ? "3 (recommended)" : "\(n)").tag(n) }
+                }
+                Text("Ask \"put an agent on it\" to have Claude Code work on a project in the background. Poinky tells you when it's done. More agents than this wait in line; each one uses your Claude plan.")
                     .font(.caption).foregroundStyle(.secondary)
                 Button("Open Agent Logs") {
                     try? FileManager.default.createDirectory(at: AgentManager.logDir, withIntermediateDirectories: true)

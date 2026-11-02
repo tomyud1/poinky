@@ -25,6 +25,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             return
         }
+        // Developer check for helpers: `Poinky --helper-test <out.txt> <folder> <task>…` runs the
+        // tasks through AgentManager and writes every event, then quits. With
+        // POINKY_HELPER_CMD=tools/fake-helper.py and tasks like "fixture:fix-bug" it spends no tokens.
+        // POINKY_TEST_MAX: helpers at once (default 3). POINKY_TEST_FOLLOWUP="5|text": a follow-up to the first.
+        if let i = args.firstIndex(of: "--helper-test"), i + 2 < args.count {
+            HelperTest.run(out: args[i + 1], dir: args[i + 2], tasks: Array(args[(i + 3)...]))
+            return
+        }
         let c = CallController()
         c.setup()
         controller = c

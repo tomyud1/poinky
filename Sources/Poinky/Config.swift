@@ -36,6 +36,7 @@ struct AppConfig: Codable {
     var webPhotos = true               // pin a photo of the real thing (from Wikipedia) next to 3D models and lessons
     var agentPermission = "acceptEdits" // background agents: "acceptEdits" (edit the project + run tests), "auto" (if your Claude Code has it), "plan"
     var agentModel = ""                // background agents' model ("" = your Claude Code default)
+    var maxHelpers = 3                 // helpers (background agents) working at once, 1–6; more wait in line
     /// Apps left out of every screenshot (password managers by default).
     var excludedApps = ["com.apple.Passwords", "com.apple.keychainaccess", "com.1password.1password", "com.agilebits.onepassword7",
                         "com.bitwarden.desktop", "com.lastpass.LastPass"]
@@ -74,6 +75,7 @@ struct AppConfig: Codable {
         webPhotos = try c.decodeIfPresent(Bool.self, forKey: .webPhotos) ?? d.webPhotos
         agentPermission = try c.decodeIfPresent(String.self, forKey: .agentPermission) ?? d.agentPermission
         agentModel = try c.decodeIfPresent(String.self, forKey: .agentModel) ?? d.agentModel
+        maxHelpers = try c.decodeIfPresent(Int.self, forKey: .maxHelpers) ?? d.maxHelpers
         excludedApps = try c.decodeIfPresent([String].self, forKey: .excludedApps) ?? d.excludedApps
     }
 

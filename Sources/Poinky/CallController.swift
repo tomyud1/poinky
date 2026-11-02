@@ -1455,7 +1455,7 @@ final class CallController: NSObject, NSMenuDelegate {
 
     private func agentFinished(_ a: AgentManager.Agent) {
         let what = a.status == .done ? "finished" : "stopped with a problem"
-        agentReports.append("The background agent \"\(a.title)\" \(what). Its summary: \(a.summary.isEmpty ? "(none)" : a.summary) (Full log: \(a.log.path))")
+        agentReports.append("The background agent \(a.name) (\"\(a.title)\") \(what). Its summary: \(a.summary.isEmpty ? "(none)" : a.summary) (Full log: \(a.log.path))")
         playSound(.send)
         deliverReports()
     }

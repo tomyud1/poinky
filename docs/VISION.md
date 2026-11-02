@@ -37,12 +37,14 @@ The pieces already in the app:
 
 Each phase ends with something you can use and a test that proves it works. The rule: no phase starts until the last one passes its tests in the real app.
 
-### Phase 0: Helpers you can see into (plumbing)
+### Phase 0: Helpers you can see into (plumbing): done
 Turn each background agent into a live session the app can watch and talk to.
 - Keep each helper's input open (`--input-format stream-json`, like the talker), so you can send it messages while it runs.
 - Turn the raw output into a few plain events: *started*, *step* ("Reading Overlay.swift", "Running tests"), *checklist* (from its to-do list), *needs you*, *done*, *failed*. Build progress text from these events locally, without extra model calls.
 - Add a **fake helper**: a script that plays recorded event streams with real timing. It lets us test every animation and sound without spending tokens.
 - **Tests:** a `swiftc` harness feeds recorded streams (success, failure, permission request, crash) through the parser and checks the events. A real `claude -p` run on `demo/sample-project` produces the same kinds of events.
+- **Learned:** a follow-up sent while a helper works is folded into its current turn, and one sent just after it finished starts a new turn, so a helper counts as done 3 s after its last answer. Helpers often get refused for simple things, like running the program they just fixed, which makes Phase 6 (raise a hand) important.
+- **Run the tests:** `tools/test-helpers.sh` (add `--live` for a real Claude Code helper).
 
 ### Phase 1: The Agent Lab (design first)
 A web page, `web/agents-lab.html`, that plays the whole choreography with fake helpers: spawn, hand-off, flight, dock, working, done, report back, raise hand, failure. It has a timeline scrubber, a speed control, a sound toggle, and light and dark backgrounds. This is where the motion and sounds get tuned, together, before anything goes into the app.

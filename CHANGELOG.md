@@ -2,6 +2,14 @@
 
 All notable changes to Poinky. The format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Added
+- Helpers (background agents) get names (Blue, Mint, Coral…), live progress in plain words ("Reading tipsplit.py", "Running the tests"), their to-do lists, and a record of anything they weren't allowed to do. This is the groundwork for seeing them on screen.
+- You can send a working helper a follow-up; it folds it into its work.
+- At most 3 helpers work at once (Settings → Background agents, 1 to 6); more wait in line and start by themselves.
+- Each helper's raw output is kept next to its log (`.jsonl`), and `tools/fake-helper.py` can replay it for testing without tokens (`tools/test-helpers.sh`).
+
 ## [0.1.0] - 2026-11-02
 
 First public release.

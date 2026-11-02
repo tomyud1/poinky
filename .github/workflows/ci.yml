@@ -14,8 +14,8 @@ jobs:
 
       - name: Check the scripts
         run: |
-          for f in install.sh build.sh kokoro/install.sh; do bash -n "$f"; done
-          python3 -m py_compile kokoro/kokoro_server.py
+          for f in install.sh build.sh kokoro/install.sh tools/test-helpers.sh; do bash -n "$f"; done
+          python3 -m py_compile kokoro/kokoro_server.py tools/fake-helper.py
           node --check web/lesson.js
           node --check web/buddy.js
           node --check web/kit.js
@@ -35,6 +35,10 @@ jobs:
                    Contents/Resources/kokoro/install.sh; do
             test -s "$APP/$f" || { echo "missing from the app: $f"; exit 1; }
           done
+
+      - name: Test helpers (parser, waiting line, follow-ups, stop; no tokens)
+        run: tools/test-helpers.sh
+        timeout-minutes: 10
 
       - name: Check the installer's help and its guards
         run: |
