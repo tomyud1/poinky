@@ -77,8 +77,12 @@ It removes the app and the source, and asks before deleting your settings, memor
 
 **Private by design:** your voice is turned into text on your Mac, and screenshots go only to Claude, only when you ask. No accounts, no tracking. [More on privacy and safety →](docs/GUIDE.md#privacy)
 
+## Where it's going
+
+Claude Code agents that live on your screen instead of in a window. Ask Poinky for something big and a small colored helper buds off your cursor, flies to the side of the screen, and works there with live progress notes. When it's done, it flies back and Poinky tells you what it did. [Read the vision and plan →](docs/VISION.md)
+
 ## Learn more
 
-[User guide](docs/GUIDE.md) · [How it works](CLAUDE.md) · [Changelog](CHANGELOG.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [Third-party notices](THIRD_PARTY_NOTICES.md)
+[User guide](docs/GUIDE.md) · [Vision](docs/VISION.md) · [How it works](CLAUDE.md) · [Changelog](CHANGELOG.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [Third-party notices](THIRD_PARTY_NOTICES.md)
 
 Inspired by [Clicky](https://github.com/farzaa/clicky). MIT © 2026 Tomer Yudovic.
