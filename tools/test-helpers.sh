@@ -53,18 +53,26 @@ expect "$TMP/B.txt" "#3 Violet FINISHED failed .*I hit an error" "an error resul
 pgrep -f "fake-helper.py" >/dev/null && bad "no helper processes left behind" || pass "no helper processes left behind"
 
 if [ "${1:-}" = "--screen" ] || [ "${2:-}" = "--screen" ]; then
-  echo "5. Helpers on screen through the real overlay (draws on your screen for ~35 s, silent)"
+  echo "5. Helpers on screen through the real overlay (draws on your screen for ~40 s, silent)"
   [ -d build/Poinky.app ] || ./build.sh >/dev/null 2>&1
-  env POINKY_AGENT_LOG_DIR="$TMP/logs-screen" POINKY_HELPER_CMD="$ROOT/tools/fake-helper.py" POINKY_FAKE_SPEED=3 POINKY_TEST_STOP=9 \
+  env POINKY_AGENT_LOG_DIR="$TMP/logs-screen" POINKY_HELPER_CMD="$ROOT/tools/fake-helper.py" POINKY_FAKE_SPEED=3 POINKY_TEST_STOP=9 POINKY_TEST_BUSY="13|20" \
     build/Poinky.app/Contents/MacOS/Poinky --helper-screen-test "$TMP/screen" "$TMP/proj" fixture:fix-bug fixture:todo-blocked fixture:error 2>/dev/null
   L="$TMP/screen/log.txt"
+  if grep -q "SCREEN LOCKED" "$L" 2>/dev/null; then echo "  skipped: the screen is locked (nothing draws until you unlock it)"; else
   expect "$L" "helpers on screen 3, session on" "all three helpers appear on screen"
   expect "$L" "#2 Coral stopped" "a card's Stop button stops its helper"
   expect "$L" "session ended" "the session ends while they work"
   expect "$L" "overlay shown, helpers on screen [1-3], session off" "the overlay stays up for them after the session"
+  expect "$L" "phases: 1:ready 3:ready" "finished helpers wait at the edge while you're busy"
+  r=$(grep -m1 "report \\[" "$L" | awk '{print $1}')
+  awk -v r="${r:-0}" 'BEGIN{exit !(r >= 20)}' && pass "they report once you're free ($r s)" || bad "they report once you're free (${r:-never})"
+  expect "$L" "report \\[[13], [13]\\]" "two that finished together report together"
+  expect "$L" "phases: 1:report 3:report" "they stay by the buddy while it talks"
+  expect "$L" "release \\[" "they merge when it's done talking"
   expect "$L" "overlay hidden, helpers on screen 0, session off" "it goes away after the last one reports"
   n=$(ls "$TMP/screen"/shot-*.png 2>/dev/null | wc -l | tr -d ' ')
   [ "$n" -gt 20 ] && pass "snapshots of what it drew ($n)" || bad "snapshots of what it drew ($n)"
+  fi
 fi
 
 if [ "${1:-}" = "--live" ]; then

@@ -1,0 +1,65 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>running</title>
+<!-- Checks that nothing visible moves while HelperLayer.busy says it may run slowly: the app drops to
+     10 frames a second then, so anything still moving would stutter. Run by tools/tests/run-web-tests.mjs. -->
+<body style="margin:0;width:1400px;height:900px;position:relative">
+<script src="../../web/helpers.js"></script>
+<script>
+(function () {
+  const results = [], fail = [];
+  const check = (ok, what) => { results.push((ok ? 'ok   ' : 'FAIL ') + what); if (!ok) fail.push(what); };
+  const root = document.createElement('div'); root.style.cssText = 'position:absolute;inset:0'; document.body.appendChild(root);
+  const main = { x: 620, y: 520 };
+  const layer = new HelperLayer(root, { main: { pos: () => main, react: () => {} }, sound: () => {}, params: { dock: 'auto', hold: true } });
+  const items = s => s.map((st, i) => ({ text: 'Step ' + (i + 1), state: st }));
+  let pointer = null;
+  const script = [
+    [0, () => ['a', 'b', 'c'].forEach((id, i) => layer.spawn(id, { name: ['Mint', 'Coral', 'Violet'][i], color: '#3c9', task: 'Task ' + id, note: i }))],
+    [10, () => layer.step('a', 'Reading tipsplit.py')],
+    [12, () => layer.checklist('b', items(['active', 'pending', 'pending']))],
+    [14, () => layer.checklist('b', items(['done', 'active', 'pending']))],
+    [16, () => layer.raiseHand('c', 'Can I run npm install?')],
+    [19, () => layer.resolveHand('c', true)],
+    [21, () => { const h = layer.helpers.get('a'); pointer = { x: h.x + 6, y: h.y + 6 }; }],   // rest on Mint: its card opens
+    [24, () => { pointer = null; }],
+    [26, () => layer.setAvoid({ x: 300, y: 0, w: 1100, h: 900 })],   // they move to the other edge
+    [30, () => { layer.done('a', { ok: true, summary: 'Fixed the rounding. All 4 tests pass.' }); layer.done('c', { ok: false, summary: 'Could not install.' }); }],
+    [36, () => layer.report('a')],
+    [42, () => layer.release('a')],
+    [44, () => layer.done('b', { ok: true, summary: 'Wrote the README section.' })],
+    [48, () => { layer.release('b'); layer.release('c'); }],
+  ];
+  const props = ['x', 'y', 'scale', 'rot', 'alpha', 'ringA', 'badgeA', 'chip', 'chipX', 'open', 'fade', 'bubA', 'fracShown', 'droop'];
+  const limit = { x: .25, y: .25, rot: .25, scale: .002 };
+  const snap = () => { const m = new Map(); for (const h of layer.helpers.values()) m.set(h.id, Object.fromEntries(props.map(p => [p, h[p] || 0]))); return m; };
+  let t = 0, i = 0, slow = 0, bad = [];
+  while (t < 60) {
+    while (i < script.length && script[i][0] <= t) script[i++][1]();
+    layer.setPointer(pointer);
+    const idle = !layer.busy && !layer.parts.length;   // the app would wait 100 ms before this frame
+    const before = snap();
+    layer.update(1 / 60); t += 1 / 60;
+    if (idle) {
+      slow++;
+      for (const [id, a] of before) {
+        const h = layer.helpers.get(id); if (!h) continue;
+        for (const p of props) {
+          const d = Math.abs((h[p] || 0) - a[p]);
+          if (d > (limit[p] || .004)) { bad.push(`${id}.${p} (${h.phase}) at ${t.toFixed(1)}s`); break; }
+        }
+      }
+    }
+    if (!layer.count && t > 49) break;
+  }
+  const uniq = [...new Set(bad.map(b => b.replace(/ at .*/, '')))];
+  check(slow > 300, `the loop slows down while helpers just work (${slow} slow frames)`);
+  check(!bad.length, `nothing visible moves while it's slow (${bad.length ? uniq.join(', ') + '; first ' + bad[0] : 'none'})`);
+  check(layer.count === 0, `everyone merged (left: ${layer.count})`);
+  root.remove();
+  document.body.textContent = results.join('\n');
+  document.title = fail.length ? 'FAIL' : 'PASS';
+  window.testResults = { pass: !fail.length, lines: results };
+})();
+</script>
+</body>

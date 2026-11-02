@@ -54,7 +54,34 @@ final class NotchModel: ObservableObject {
     func clearTip() { tipWork?.cancel(); hoverButton = nil; tip = nil }
     @Published var buddyHidden = false
     @Published var agentsRunning = 0
+    /// What helpers did, newest last: the hover panel lists the latest few, and the ones you haven't
+    /// heard yet show as colored dots beside the notch.
+    @Published private(set) var reports: [HelperReport] = []
+    var onOpenReport: (HelperReport) -> Void = { _ in }
     private(set) var lastLineAt = Date.distantPast
+
+    struct HelperReport: Identifiable {
+        let id: Int
+        let name: String
+        let ok: Bool
+        let summary: String
+        let log: URL
+        let at: Date
+        var heard = false
+    }
+    func addReport(_ r: HelperReport) {
+        reports.removeAll { $0.id == r.id }
+        reports.append(r)
+        if reports.count > 12 { reports.removeFirst(reports.count - 12) }
+    }
+    func markHeard(_ ids: [Int]) {
+        for i in reports.indices where ids.contains(reports[i].id) { reports[i].heard = true }
+    }
+    var waitingReports: [HelperReport] { reports.filter { !$0.heard } }
+    /// The last three, from the last few hours.
+    var recentReports: [HelperReport] { Array(reports.filter { Date().timeIntervalSince($0.at) < 4 * 3600 }.suffix(3).reversed()) }
+    /// Dots beside the notch while idle: one per helper waiting to tell you, plus one for work going on.
+    var dotCount: Int { min(3, waitingReports.count) + (agentsRunning > 0 ? 1 : 0) }
 
     var onCall: () -> Void = {}
     var onEnd: () -> Void = {}
@@ -87,13 +114,27 @@ final class NotchModel: ObservableObject {
     var shapeSize: CGSize {
         let wide = notchWidth + 2 * Self.wing
         if expanded {
-            return CGSize(width: max(wide, 300), height: notchHeight + Self.buttonRow + (showsLastLine ? Self.lineRow : 0) + 6)
+            return CGSize(width: max(wide, 300), height: notchHeight + Self.buttonRow + (showsLastLine ? Self.lineRow : 0)
+                          + CGFloat(recentReports.count) * Self.lineRow + (recentReports.isEmpty ? 0 : 4) + 6)
         }
         if active { return CGSize(width: wide, height: notchHeight) }
-        if agentsRunning > 0 { return CGSize(width: notchWidth + 2 * Self.dotWing, height: notchHeight) }
+        if dotCount > 0 { return CGSize(width: notchWidth + 2 * (Self.dotWing + CGFloat(dotCount - 1) * 10), height: notchHeight) }
         return CGSize(width: max(notchWidth, 1), height: notchHeight)
     }
-    var visible: Bool { hasNotch || active || expanded || agentsRunning > 0 }
+    var visible: Bool { hasNotch || active || expanded || dotCount > 0 }
+
+    /// Each helper's color (web/helpers.js has the same ones).
+    static func color(of name: String) -> Color {
+        switch name {
+        case "Mint": return Color(red: 0.20, green: 0.79, blue: 0.56)
+        case "Coral": return Color(red: 1.0, green: 0.48, blue: 0.35)
+        case "Violet": return Color(red: 0.61, green: 0.42, blue: 1.0)
+        case "Amber": return Color(red: 1.0, green: 0.69, blue: 0.13)
+        case "Rose": return Color(red: 1.0, green: 0.36, blue: 0.60)
+        case "Sky": return Color(red: 0.22, green: 0.74, blue: 0.97)
+        default: return Color(red: 0.2, green: 0.8, blue: 0.75)
+        }
+    }
 }
 
 // MARK: - Views
@@ -138,6 +179,12 @@ struct NotchView: View {
                 wings.frame(height: m.notchHeight)
                 if m.expanded {
                     VStack(spacing: 0) {
+                        if !m.recentReports.isEmpty {
+                            VStack(spacing: 0) {
+                                ForEach(m.recentReports) { r in ReportRow(m: m, r: r) }
+                            }
+                            .padding(.top, 4)
+                        }
                         if m.showsLastLine {
                             Text(m.infoLine)
                                 .font(.system(size: 11.5)).foregroundStyle(.white.opacity(0.62))
@@ -177,16 +224,26 @@ struct NotchView: View {
 
     /// The two sides of the notch. Active: status and a visualizer. Hovered while idle: the two shortcuts.
     @ViewBuilder private var wings: some View {
-        if !m.active && !m.expanded && m.agentsRunning > 0 {
-            HStack {
+        if !m.active && !m.expanded && m.dotCount > 0 {
+            HStack(spacing: 4) {
                 Spacer()
-                TimelineView(.animation(minimumInterval: 1.0 / 20)) { tl in
-                    let u = 0.5 + 0.5 * sin(tl.date.timeIntervalSinceReferenceDate * 3)
-                    Circle().fill(sbTeal).frame(width: 6, height: 6).opacity(0.45 + 0.55 * u)
-                        .shadow(color: sbTeal.opacity(0.9), radius: 3 + 2 * u)
+                // Helpers that finished and are waiting to tell you, in their colors.
+                ForEach(m.waitingReports.suffix(3)) { r in
+                    Circle().fill(r.ok ? NotchModel.color(of: r.name) : Color.gray).frame(width: 6, height: 6)
+                        .shadow(color: NotchModel.color(of: r.name).opacity(0.8), radius: 3)
+                        .transition(.scale.combined(with: .opacity))
                 }
-                .frame(width: NotchModel.dotWing)
+                if m.agentsRunning > 0 {
+                    TimelineView(.animation(minimumInterval: 1.0 / 20)) { tl in
+                        let u = 0.5 + 0.5 * sin(tl.date.timeIntervalSinceReferenceDate * 3)
+                        Circle().fill(sbTeal).frame(width: 6, height: 6).opacity(0.45 + 0.55 * u)
+                            .shadow(color: sbTeal.opacity(0.9), radius: 3 + 2 * u)
+                    }
+                    .frame(width: 6, height: 6)
+                }
             }
+            .padding(.trailing, 10)
+            .animation(.spring(response: 0.35, dampingFraction: 0.7), value: m.dotCount)
             .transition(.opacity)
         } else if m.active || m.expanded {
             HStack(spacing: 0) {
@@ -268,6 +325,44 @@ struct NotchView: View {
         }
         .padding(.horizontal, 10)
         .padding(.bottom, 4)
+    }
+}
+
+/// One finished helper in the hover panel: its name in its color and what it did. Click to read its log.
+struct ReportRow: View {
+    @ObservedObject var m: NotchModel
+    let r: NotchModel.HelperReport
+
+    var body: some View {
+        let hot = m.hoverButton == "report\(r.id)"
+        Button { m.onOpenReport(r) } label: {
+            HStack(spacing: 6) {
+                Circle().fill(r.ok ? NotchModel.color(of: r.name) : Color.gray).frame(width: 6, height: 6)
+                Text(r.name).font(.system(size: 11.5, weight: .semibold)).foregroundStyle(NotchModel.color(of: r.name))
+                Text((r.ok ? "" : "Couldn’t finish · ") + Self.firstSentence(r.summary))
+                    .font(.system(size: 11.5)).foregroundStyle(.white.opacity(0.72))
+                    .lineLimit(1).truncationMode(.tail)
+                Spacer(minLength: 4)
+                Text(Self.ago(r.at)).font(.system(size: 10.5)).foregroundStyle(.white.opacity(0.38)).monospacedDigit()
+            }
+            .padding(.horizontal, 10)
+            .frame(height: NotchModel.lineRow)
+            .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(Color.white.opacity(hot ? 0.09 : 0)))
+            .padding(.horizontal, 6)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .notchTip(m, "report\(r.id)", r.summary.count > 170 ? String(r.summary.prefix(169)) + "… (click for the full log)" : r.summary + " (click for the full log)")
+    }
+
+    static func firstSentence(_ s: String) -> String {
+        let t = s.replacingOccurrences(of: "\n", with: " ").trimmingCharacters(in: .whitespaces)
+        if let r = t.range(of: #"^.{12,}?[.!?](\s|$)"#, options: .regularExpression) { return String(t[r]).trimmingCharacters(in: .whitespaces) }
+        return t
+    }
+    static func ago(_ d: Date) -> String {
+        let s = Int(Date().timeIntervalSince(d))
+        return s < 60 ? "now" : s < 3600 ? "\(s / 60)m" : "\(s / 3600)h"
     }
 }
 

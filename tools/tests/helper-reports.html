@@ -1,0 +1,80 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>running</title>
+<!-- Checks how finished helpers report in the app (params.hold): they wait at the edge until the app
+     calls report(), stay by the main buddy until release(), and merge one at a time. Two finishing at
+     once don't celebrate (or sound) on top of each other. Run by tools/tests/run-web-tests.mjs. -->
+<body style="margin:0;width:1400px;height:900px;position:relative">
+<script src="../../web/helpers.js"></script>
+<script>
+(function () {
+  const results = [], fail = [];
+  const check = (ok, what) => { results.push((ok ? 'ok   ' : 'FAIL ') + what); if (!ok) fail.push(what); };
+
+  const root = document.createElement('div'); root.style.cssText = 'position:absolute;inset:0'; document.body.appendChild(root);
+  const events = [], sounds = [];
+  const main = { x: 620, y: 520 };
+  const layer = new HelperLayer(root, {
+    main: { pos: () => main, react: (k, d) => events.push([layer.time, k, d && d.id]) },
+    sound: (name) => sounds.push([layer.time, name]),
+    params: { dock: 'auto', hold: true },
+  });
+  const S = layer.params.size;
+  const phase = id => { const h = layer.helpers.get(id); return h ? h.phase + (h.phase === 'fly' ? '>' + h.fly.kind : '') : 'gone'; };
+  const phases = ids => ids.map(phase).join(',');
+  const script = [
+    [0, () => ['a', 'b', 'c', 'd'].forEach((id, i) => layer.spawn(id, { name: ['Mint', 'Coral', 'Violet', 'Amber'][i], color: '#3c9', task: 'Task ' + id, note: i }))],
+    [12, () => { layer.done('b', { ok: true, summary: 'Fixed the tip rounding. All 4 tests pass.' }); layer.done('c', { ok: false, summary: 'Could not install the package.' }); }],
+    [14, () => layer.done('a', { ok: true, summary: 'Added a Usage section to the README.' })],
+    // The window you use moves to the right: everyone (finished or not) moves to the left edge.
+    [15, () => layer.setAvoid({ x: 300, y: 0, w: 1100, h: 900 })],
+    [19.9, () => {
+      check(phases(['a', 'b', 'c']) === 'ready,ready,ready', `finished helpers wait at the edge until the app reports them (${phases(['a', 'b', 'c'])})`);
+      check(!events.some(e => e[1] === 'report'), 'nobody flies to the buddy before that');
+      const xs = ['a', 'b', 'c'].map(id => layer.helpers.get(id).x);
+      check(xs.every(x => x < 100), `waiting helpers move edges with the others (x: ${xs.map(Math.round).join(', ')})`);
+      check(layer.helpers.get('b').line.startsWith('Fixed the tip rounding.'), `the card shows what it did (“${layer.helpers.get('b').line}”)`);
+    }],
+    [20, () => { layer.report('b'); layer.report('c'); layer.report('d'); }],   // d is still working: ignored
+    [27.9, () => {
+      check(phase('a') === 'ready', `a helper nobody talks about yet keeps waiting (${phase('a')})`);
+      check(phases(['b', 'c']) === 'report,report', `reported helpers stay by the buddy while it talks (${phases(['b', 'c'])})`);
+      check(phase('d') === 'dock', `a helper still working ignores report() (${phase('d')})`);
+    }],
+    [28, () => { layer.release('b'); layer.release('c'); }],
+    [30, () => layer.done('d', { ok: true, summary: 'Renamed the files.' })],
+    [33, () => { layer.release('a'); layer.release('d'); }],   // report and release at once (cut short)
+  ];
+  let minGap = 1e9, worst = '', t = 0, i = 0;
+  while (t < 60) {
+    while (i < script.length && script[i][0] <= t) script[i++][1]();
+    layer.update(1 / 60); t += 1 / 60;
+    const vis = [...layer.helpers.values()].filter(h => h.alpha > .5 && h.scale > S * .3 && h.phase !== 'fly' && h.phase !== 'merge');
+    for (let x = 0; x < vis.length; x++) for (let y = x + 1; y < vis.length; y++) {
+      const d = Math.hypot(vis[x].x - vis[y].x, vis[x].y - vis[y].y);
+      if (d < minGap) { minGap = d; worst = `${vis[x].id}(${vis[x].phase}) and ${vis[y].id}(${vis[y].phase}) at ${t.toFixed(1)}s`; }
+    }
+    if (!layer.count && t > 34) break;
+  }
+  layer.render();
+  const gaps = name => { const ts = sounds.filter(s => s[1] === name).map(s => s[0]); return ts.slice(1).map((x, k) => x - ts[k]); };
+  const finishes = sounds.filter(s => s[1] === 'done' || s[1] === 'fail').map(s => s[0]).sort((a, b) => a - b);
+  const finishGap = Math.min(...finishes.slice(1).map((x, k) => x - finishes[k]));
+  check(finishes.length === 4 && finishGap >= .44, `finish sounds never land together (${finishes.length} sounds, closest ${finishGap.toFixed(2)} s apart)`);
+  const merges = sounds.filter(s => s[1] === 'merge').map(s => s[0]);
+  const mergeGap = Math.min(...merges.slice(1).map((x, k) => x - merges[k]));
+  check(merges.length === 4 && mergeGap >= .3, `they merge one at a time (${merges.length} merges, closest ${mergeGap.toFixed(2)} s apart)`);
+  const firstMerge = merges[0] || 0;
+  check(firstMerge >= 28, `nobody merges before release (${firstMerge.toFixed(1)} s)`);
+  let reporting = null, overlap = false;
+  for (const [, k, id] of events) { if (k === 'report') { if (reporting) overlap = true; reporting = id; } if (k === 'absorb') reporting = null; }
+  check(!overlap, 'one report at a time next to the buddy');
+  check(minGap >= 24, `helpers never overlap (closest ${minGap.toFixed(0)}px: ${worst})`);
+  check(layer.count === 0, `everyone merged by ${t.toFixed(0)} s (left: ${layer.count})`);
+  root.remove();
+  document.body.textContent = results.join('\n');
+  document.title = fail.length ? 'FAIL' : 'PASS';
+  window.testResults = { pass: !fail.length, lines: results };
+})();
+</script>
+</body>

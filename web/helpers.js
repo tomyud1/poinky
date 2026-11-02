@@ -13,6 +13,8 @@
 //   layer.step('h1', 'Reading tipsplit.py');  layer.checklist('h1', [{text, state}]);
 //   layer.raiseHand('h1', 'Can I run npm install?');  layer.resolveHand('h1', true);
 //   layer.done('h1', {ok: true, summary: '…'});
+//   With params.hold, a finished helper waits at the edge until layer.report('h1') (the app is about to
+//   tell you), stays by the main buddy while it talks, and merges on layer.release('h1').
 //   each frame: layer.update(dt); layer.render();
 (function (global) {
   const TAU = Math.PI * 2;
@@ -45,7 +47,12 @@
   .hl-bob{position:absolute;left:0;top:0;will-change:transform}
   .hl-bob.on{animation:hlBob 1.7s ease-in-out infinite}
   @keyframes hlBob{0%,70%,100%{transform:translate(0,0)}82%{transform:translate(-1.6px,-1px)}}
-  @media (prefers-reduced-motion: reduce){.hl-spin.sweep,.hl-bob.on{animation:none}}
+  /* Finished, waiting to tell you: a small hop now and then. */
+  .hl-bob.hop{animation:hlHop 2.6s ease-in-out infinite}
+  @keyframes hlHop{0%,62%,100%{transform:translate(0,0)}71%{transform:translate(0,-4.5px)}79%{transform:translate(0,0)}85%{transform:translate(0,-1.6px)}90%{transform:translate(0,0)}}
+  .hl-badge{position:absolute;left:0;top:0;width:13px;height:13px;margin:-6.5px 0 0 -6.5px;border-radius:50%;color:#fff;
+    font:800 8.5px/13px -apple-system,system-ui,sans-serif;text-align:center;box-shadow:0 1px 3px rgba(0,0,0,.35),0 0 0 1.5px rgba(20,20,24,.85);opacity:0;will-change:transform,opacity}
+  @media (prefers-reduced-motion: reduce){.hl-spin.sweep,.hl-bob.on,.hl-bob.hop{animation:none}}
   .hl-bub{position:absolute;left:0;top:0;white-space:nowrap;padding:5px 10px;border-radius:11px;color:#fff;
     font:600 12.5px/1.25 -apple-system,system-ui,sans-serif;box-shadow:0 6px 18px rgba(0,0,0,.22),0 1px 2px rgba(0,0,0,.2);
     transform-origin:0 50%;opacity:0}
@@ -65,6 +72,8 @@
   .hl-chip .more .in{padding-top:9px}
   .hl-chip .task{font:600 12.5px/1.35 -apple-system,system-ui,sans-serif;color:#fff;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
   .hl-chip .folder{margin-top:3px;font-size:11.5px;color:rgba(255,255,255,.5)}
+  .hl-chip .sum{margin-top:8px;font-size:12px;line-height:1.42;color:rgba(255,255,255,.84);display:-webkit-box;-webkit-line-clamp:8;-webkit-box-orient:vertical;overflow:hidden}
+  .hl-chip .sum:empty{display:none}
   .hl-chip .list{margin:8px 0 0;padding:0;list-style:none;font-size:12px;line-height:1.45;color:rgba(255,255,255,.6)}
   .hl-chip .list li{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .hl-chip .list li.done{color:rgba(255,255,255,.42)} .hl-chip .list li.active{color:#fff}
@@ -94,6 +103,7 @@
       handoff: 2.1,       // seconds the main buddy spends handing over the task
       dock: 'right',      // which edge helpers work at
       calm: false,        // Reduced Motion: fades instead of flights and bursts
+      hold: false,        // finished helpers wait at the edge until report(id), and merge on release(id)
     };
 
     constructor(root, opts) {
@@ -114,6 +124,7 @@
       this.side = this.params.dock === 'left' ? 'left' : 'right';
       this.avoid = null; this.pointer = null; this.rectKey = '';
       this.rand = rng(7);
+      this.lastBig = -9; this.lastMerge = -9;   // so two finishing at once don't celebrate (or merge) on top of each other
     }
 
     destroy() { this.el.remove(); }
@@ -211,7 +222,10 @@
       const h = this.helpers.get(id); if (!h) return;
       // Finished before it reached the edge, or while asking: it celebrates once it's back there.
       if (h.phase !== 'dock') { h.pendingDone = { ok, summary }; return; }
-      h.ask = '';
+      // Another one just finished: celebrate a moment later, so the sounds and sparkles don't land together.
+      if (this.time - this.lastBig < .45) { h.pendingDone = { ok, summary }; return; }
+      this.lastBig = this.time;
+      h.ask = ''; h.finished = true; h.endAt = this.time;
       h.ok = ok; h.summary = summary;
       h.frac = ok ? 1 : h.frac; h.count = ok && h.items.length ? `${h.items.length}/${h.items.length}` : h.count;
       h.prev = h.line; h.prevT = 0; h.line = ok ? 'Done' : 'Couldn’t finish'; h.lineT = 99;
@@ -232,12 +246,40 @@
       this.remove(h);
     }
 
+    /** (hold) The app is about to tell you what it did: it flies to the main buddy and waits there. */
+    report(id) {
+      const h = this.helpers.get(id); if (!h || (!h.finished && !h.pendingDone)) return;
+      h.wantReport = true;
+      if (h.phase === 'ready') this.toReport(h);
+    }
+    /** (hold) Done telling you: it merges into the main buddy (one at a time). */
+    release(id) {
+      const h = this.helpers.get(id); if (!h || (!h.finished && !h.pendingDone)) return;
+      h.release = true; this.report(id);
+    }
+    afterDone(h) {
+      if (!this.params.hold || h.wantReport) { this.toReport(h); return; }
+      h.phase = 'ready'; h.t = 0;
+      // Its card now shows what it did, in short.
+      const short = HelperLayer.short(h.summary);
+      if (short) { h.prev = h.line; h.prevT = 0; h.line = short; h.lineT = 0; }
+    }
+    toReport(h) { h.reportSeq = ++this.seq; this.go(h, 'report', this.reportSpot(h)); }
+    /** The first sentence of a summary, short enough for one line. */
+    static short(s) {
+      s = String(s || '').replace(/[*_`#>]/g, '').replace(/\s+/g, ' ').trim();
+      const m = s.match(/^.{12,}?[.!?](\s|$)/);
+      return (m ? m[0] : s).trim();
+    }
+
     get count() { return this.helpers.size; }
     /** Something is moving and needs smooth frames (otherwise a few frames a second are enough). */
     get busy() {
       if (this.parts.length) return true;
+      if (this.chooseSide() !== this.side) return true;   // about to move to the other edge
       for (const h of this.helpers.values()) {
-        if (h.phase !== 'dock' || h.ask) return true;
+        if (h.hoverT > 0 || (h.open > .5 && h.closeT > 0)) return true;   // a card is about to open or close
+        if ((h.phase !== 'dock' && h.phase !== 'ready') || h.ask) return true;
         if (h.lineT < 2 || h.prevT < .4 || h.bubA > .01) return true;
         if (Math.abs(h.fracShown - h.frac) > .002 || (h.open > .001 && h.open < .999) || Math.abs(h.chip - 1) > .002) return true;
         if (Math.abs(h.fade - 1) > .003 && Math.abs(h.fade - .14) > .003) return true;
@@ -290,7 +332,7 @@
       const side = this.chooseSide();
       if (side !== this.side) {
         this.side = side;
-        for (const h of this.helpers.values()) if (h.phase === 'dock') this.go(h, 'dock', this.slotPos(h));
+        for (const h of this.helpers.values()) if (h.phase === 'dock' || h.phase === 'ready') this.go(h, 'dock', this.slotPos(h));
       }
       for (const h of [...this.helpers.values()]) {
         h.t += dt; h.lineT += dt; h.prevT += dt; h.bubT += dt;
@@ -345,7 +387,7 @@
             if (f.u >= 1) {
               h.vx = h.vy = 0; h.trail.length = 0;
               if (f.kind === 'dock') {
-                h.phase = 'dock'; h.t = 0; this.sound('land', { x: h.x, note: h.note }); h.squash = 0;
+                h.phase = h.finished ? 'ready' : 'dock'; h.t = 0; this.sound('land', { x: h.x, note: h.note }); h.squash = 0;
                 if (h.pendingDone) { const d = h.pendingDone; h.pendingDone = null; this.done(h.id, d); }
               }
               else if (f.kind === 'out') { h.phase = 'asking'; h.t = 0; h.bub = h.ask; h.bubT = 0; this.sound('hand', { x: h.x, note: h.note }); this.react('ask', { id: h.id, name: h.name, text: h.ask }); }
@@ -356,6 +398,12 @@
           case 'dock': {   // working: a soft "typing" tap toward its card
             const s = this.slotPos(h); tx = s.x; ty = s.y;
             if (h.ask) targetScale = P.size * (1 + .08 * Math.sin(h.t * 6));   // has a question, waiting its turn
+            if (h.pendingDone && this.time - this.lastBig >= .45) { const d = h.pendingDone; h.pendingDone = null; this.done(h.id, d); }
+            break;
+          }
+          case 'ready': {   // finished: waits at the edge (with a badge) until you're free to hear it
+            const s = this.slotPos(h); tx = s.x; ty = s.y + (h.ok === false ? 4 : 0);
+            if (h.wantReport) this.toReport(h);
             break;
           }
           case 'asking': {   // hopping gently next to you until you answer
@@ -371,13 +419,13 @@
           }
           case 'celebrate': {   // a happy spin, then home
             const s = this.slotPos(h); tx = s.x; ty = s.y - (P.calm ? 0 : Math.sin(clamp(h.t / .55, 0, 1) * Math.PI) * 9);
-            if (h.t > 1.05) { h.reportSeq = ++this.seq; this.go(h, 'report', this.reportSpot(h)); }
+            if (h.t > 1.05) this.afterDone(h);
             break;
           }
           case 'droop': {
             const s = this.slotPos(h); tx = s.x; ty = s.y + Math.min(4, h.t * 10);
             h.droop = lerp(h.droop, 22, 1 - Math.exp(-dt * 6));
-            if (h.t > 1.1) { h.reportSeq = ++this.seq; this.go(h, 'report', this.reportSpot(h)); }
+            if (h.t > 1.1) this.afterDone(h);
             break;
           }
           case 'report': {   // next to the main buddy while it tells you (or waiting its turn behind)
@@ -386,10 +434,12 @@
             if (this.reportIndex(h) > 0) { h.t = 0; break; }
             if (!h.reported) {
               h.reported = true; h.t = 0;
-              h.reportFor = clamp(1.6 + (h.summary || '').length * .045, 2.4, 6.5);
+              // Held: until the app says it's done talking (with a safety limit). Otherwise: about as long as reading it.
+              h.reportFor = P.hold ? 45 : clamp(1.6 + (h.summary || '').length * .045, 2.4, 6.5);
               this.react('report', { id: h.id, name: h.name, color: h.color, ok: h.ok, summary: h.summary });
             }
-            if (h.t > h.reportFor) { h.phase = 'merge'; h.t = 0; h.reportSeq = 0; this.sound('merge', { x: m.x, note: h.note }); this.react('absorb', { id: h.id }); }
+            const leave = h.t > h.reportFor || (P.hold && h.release && h.t > .6);
+            if (leave && this.time - this.lastMerge > .32) { this.lastMerge = this.time; h.phase = 'merge'; h.t = 0; h.reportSeq = 0; this.sound('merge', { x: m.x, note: h.note }); this.react('absorb', { id: h.id }); }
             break;
           }
           case 'merge': {   // shrinks into the main buddy
@@ -407,27 +457,28 @@
           h.scale = lerp(h.scale, targetScale, 1 - Math.exp(-dt * 12)); h.alpha = lerp(h.alpha, 1, 1 - Math.exp(-dt * 10));
         }
         // Turning, on its own spring (the shortest way around).
-        let want = face + (h.phase === 'droop' || (h.phase === 'report' && h.ok === false) ? h.droop : 0);
+        let want = face + (h.phase === 'droop' || ((h.phase === 'report' || h.phase === 'ready') && h.ok === false) ? h.droop : 0);
         let diff = ((want - h.rot) % 360 + 540) % 360 - 180;
         h.vrot += (diff * 140 - h.vrot * 18) * dt; h.rot += h.vrot * dt;
         if (h.nod >= 0) { h.nod += dt; if (h.nod > .5) h.nod = -1; }
         if (h.spin >= 0) { h.spin += dt; if (h.spin > .7) h.spin = -1; }
         if (h.squash !== undefined && h.squash >= 0) { h.squash += dt; if (h.squash > .3) h.squash = -1; }
         // Card: shown while it works at the edge.
-        const showChip = ['dock', 'celebrate', 'droop'].includes(h.phase) || (h.phase === 'fly' && h.fly.kind === 'dock' && h.fly.u > .93);
+        const showChip = ['dock', 'celebrate', 'droop', 'ready'].includes(h.phase) || (h.phase === 'fly' && h.fly.kind === 'dock' && h.fly.u > .93);
         const dimChip = ['asking', 'thanks'].includes(h.phase) || (h.phase === 'fly' && h.fly.kind === 'out');
         h.chip = lerp(h.chip, showChip ? 1 : dimChip ? .55 : 0, 1 - Math.exp(-dt * 9));
         h.chipX = lerp(h.chipX, showChip || dimChip ? 0 : 1, 1 - Math.exp(-dt * 9));
         h.fracShown = lerp(h.fracShown, h.frac, 1 - Math.exp(-dt * 6));
         this.hover(h, dt);
         // Fades, advanced with time (not per drawn frame) so a scrubbed timeline looks the same.
-        const working = ['dock', 'celebrate', 'droop'].includes(h.phase);
+        const working = ['dock', 'celebrate', 'droop', 'ready'].includes(h.phase);
+        h.badgeA = lerp(h.badgeA || 0, h.phase === 'ready' ? 1 : 0, 1 - Math.exp(-dt * 10));
         h.ringA = lerp(h.ringA, working ? 1 : 0, 1 - Math.exp(-dt * 10));
         h.bubA = lerp(h.bubA, h.bub ? 1 : 0, 1 - Math.exp(-dt * 16));
         for (const p of h.trail) p.a -= dt * 4;
       }
       // Helpers near the main buddy never sit on top of each other: a gentle push apart.
-      const near = [...this.helpers.values()].filter(h => !['wait', 'bud', 'fly', 'merge', 'dock', 'celebrate', 'droop'].includes(h.phase));
+      const near = [...this.helpers.values()].filter(h => !['wait', 'bud', 'fly', 'merge', 'dock', 'celebrate', 'droop', 'ready'].includes(h.phase));
       for (let i = 0; i < near.length; i++) for (let j = i + 1; j < near.length; j++) {
         const a = near[i], b = near[j], dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy) || .01, min = 30;
         if (d < min) { const push = (min - d) / 2 / d; a.x -= dx * push; a.y -= dy * push; b.x += dx * push; b.y += dy * push; }
@@ -453,7 +504,7 @@
 
     // Passing over a card fades it (so you can see what's under it); resting on the helper opens its full card.
     hover(h, dt) {
-      const p = this.pointer, working = h.phase === 'dock';
+      const p = this.pointer, working = h.phase === 'dock' || h.phase === 'ready';
       let fadeTo = 1, openTo = h.open > .5 ? 1 : 0;
       if (!working) openTo = 0;
       else if (p) {
@@ -503,7 +554,7 @@
       root.innerHTML =
         `<div class="hl-ring"><div class="hl-spin"><svg viewBox="-22 -22 44 44"><circle class="bg" r="16" stroke-width="2"/><circle class="fg" r="16" stroke-width="2.4" transform="rotate(-90)"/></svg></div></div>` +
         `<div class="hl-bob"><svg class="hl-tri" viewBox="-3 -3 26 26"><path d="M2,2 L17,8 L8,17 Z"/></svg></div>` +
-        `<div class="hl-bub"></div>`;
+        `<div class="hl-badge"></div><div class="hl-bub"></div>`;
       const path = root.querySelector('path');
       path.style.fill = h.color; path.style.stroke = h.color;
       path.style.filter = `drop-shadow(0 0 5px ${h.color}bb) drop-shadow(0 2px 3px rgba(0,0,0,.25))`;
@@ -513,7 +564,7 @@
       const chip = document.createElement('div'); chip.className = 'hl-chip';
       chip.innerHTML = `<div class="top"><span class="dot"></span><span class="name"></span><span class="count"></span><span class="elapsed"></span></div>` +
         `<div class="lines"><div class="ln prev"></div><div class="ln cur"></div></div>` +
-        `<div class="more"><div class="in"><div class="task"></div><div class="folder"></div><ul class="list"></ul><div class="sep"></div>` +
+        `<div class="more"><div class="in"><div class="task"></div><div class="folder"></div><div class="sum"></div><ul class="list"></ul><div class="sep"></div>` +
         `<div class="btns"><button class="stop">Stop</button><button data-a="log">Log</button><button data-a="folder">Folder</button></div></div></div>`;
       chip.querySelector('.task').textContent = h.detail;
       chip.querySelector('.folder').textContent = h.folder ? 'in ' + h.folder : '';
@@ -533,7 +584,7 @@
         spin: root.querySelector('.hl-spin'), bob: root.querySelector('.hl-bob'),
         count: chip.querySelector('.count'), prev: chip.querySelector('.prev'), cur: chip.querySelector('.cur'), cache: {},
         elapsed: chip.querySelector('.elapsed'), more: chip.querySelector('.more'), inner: chip.querySelector('.more .in'),
-        list: chip.querySelector('.list'), stop: chip.querySelector('.stop') };
+        list: chip.querySelector('.list'), stop: chip.querySelector('.stop'), sum: chip.querySelector('.sum'), badge: root.querySelector('.hl-badge') };
     }
 
     render() {
@@ -550,7 +601,7 @@
         set(e.ring, 'opacity', h.ringA.toFixed(3));
         set(e.ring, 'transform', `translate(${(8.2 * h.scale).toFixed(1)}px,${(8.2 * h.scale).toFixed(1)}px) scale(${(.6 + .4 * h.scale / P.size).toFixed(3)})`);
         const L = TAU * 16;
-        if (h.items.length || h.phase === 'celebrate') {
+        if (h.items.length || h.phase === 'celebrate' || h.finished) {
           set(e.fg, 'strokeDasharray', h.fracShown < .005 ? `0 ${L.toFixed(1)}` : `${(L * h.fracShown).toFixed(1)} ${L.toFixed(1)}`);
           set(e.fg, 'opacity', h.fracShown < .005 ? 0 : 1);
           e.fg.setAttribute('transform', 'rotate(-90)');
@@ -558,10 +609,16 @@
           set(e.fg, 'strokeDasharray', `${(L * .22).toFixed(1)} ${L.toFixed(1)}`);
           set(e.fg, 'opacity', 1);
         }
-        const sweep = !h.items.length && h.phase !== 'celebrate';
+        if (h.finished && h.ok && !h.items.length) h.frac = 1;
+        const sweep = !h.items.length && h.phase !== 'celebrate' && !h.finished;
         if (C.sweep !== sweep) { e.spin.classList.toggle('sweep', sweep); C.sweep = sweep; }
-        const bob = h.phase === 'dock' && !P.calm;
+        const bob = h.phase === 'dock' && !P.calm, hop = h.phase === 'ready' && !P.calm;
         if (C.bob !== bob) { e.bob.classList.toggle('on', bob); C.bob = bob; }
+        if (C.hop !== hop) { e.bob.classList.toggle('hop', hop); C.hop = hop; }
+        // Its badge while it waits to tell you: a check (or "!" if it couldn't finish).
+        if (C.badgeOk !== h.ok) { e.badge.textContent = h.ok === false ? '!' : '✓'; set(e.badge, 'background', h.ok === false ? '#8b8b93' : h.color); C.badgeOk = h.ok; }
+        set(e.badge, 'opacity', (h.badgeA || 0).toFixed(3));
+        set(e.badge, 'transform', `translate(${(17 * h.scale).toFixed(1)}px,${(19 * h.scale).toFixed(1)}px) scale(${(.4 + .6 * easeOutBack(clamp(h.badgeA || 0, 0, 1), 2.4)).toFixed(3)})`);
         set(e.fg, 'stroke', h.phase === 'droop' || (h.ok === false) ? '#8b8b93' : h.color);
         // Its speech bubble ("On it!", a question).
         const bubOn = !!h.bub;
@@ -585,7 +642,7 @@
         if (C.open !== open) { e.chip.classList.toggle('open', open); C.open = open; }
         set(e.chip, 'zIndex', open ? 2 : '');
         set(e.chip, 'pointerEvents', h.open > .5 ? 'auto' : 'none');
-        const secs = Math.max(0, Math.floor(this.time - h.born));
+        const secs = Math.max(0, Math.floor((h.endAt ?? this.time) - h.born));
         const el = secs < 60 ? `${secs}s` : `${Math.floor(secs / 60)} min`;
         if (C.el !== el) { e.elapsed.textContent = el; C.el = el; }
         if (open) {
@@ -603,6 +660,8 @@
               li.append(m, document.createTextNode(text)); e.list.appendChild(li);
             }
           }
+          // Finished: what it did, in full (and nothing left to stop).
+          if (C.fin !== !!h.finished) { C.fin = !!h.finished; e.sum.textContent = h.finished ? h.summary : ''; set(e.stop, 'display', h.finished ? 'none' : ''); }
           const label = h.sure > 0 ? `Stop ${h.name}?` : 'Stop';
           if (C.stop !== label) { e.stop.textContent = label; e.stop.classList.toggle('sure', h.sure > 0); C.stop = label; }
         }
@@ -614,7 +673,7 @@
         // Progress text types in; the old line slides up and fades.
         const n = Math.floor(h.lineT * 45 * P.typing);
         const shown = h.line.slice(0, Math.max(0, n));
-        const cur = (h.phase === 'celebrate' || (h.phase !== 'droop' && h.ok && h.line === 'Done')) ? '✓ ' + h.line : shown;
+        const cur = (h.finished && h.ok ? '✓ ' : '') + shown;
         if (C.cur !== cur) { e.cur.textContent = cur; C.cur = cur; }
         if (C.prev !== h.prev) { e.prev.textContent = h.prev; C.prev = h.prev; }
         const pu = clamp(h.prevT / .28, 0, 1);

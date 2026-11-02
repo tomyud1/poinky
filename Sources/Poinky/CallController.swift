@@ -21,8 +21,10 @@ final class CallController: NSObject, NSMenuDelegate {
     private lazy var helperScreen = HelperScreen(overlay: overlay, agents: agents)   // helpers (agents) on screen
     private let home = NotchHome()            // the status + controls at the notch
     private let agents = AgentManager()       // background Claude Code agents
-    private var agentReports: [String] = []   // finished agents the user hasn't heard about yet
+    private var agentReports: [(id: Int, text: String)] = []   // finished agents the user hasn't heard about yet
+    private var reportingIDs: [Int] = []       // helpers next to the buddy while Poinky tells you what they did
     private var reportAfterStart = false      // a session is starting just to tell the user about an agent
+    private var reportCheckPending = false    // waiting for a pause in typing
     private var endAfterSpeaking = false      // the user said goodbye
     private var buddyHidden = false           // ⌃⌥B or auto-hide: hidden until the next question
     private var buddyHotKey: HotKey?
@@ -177,6 +179,7 @@ final class CallController: NSObject, NSMenuDelegate {
         m.onBuddy = { [weak self] in self?.toggleBuddy() }
         m.onSettings = { [weak self] in self?.home.collapse(); self?.openSettings() }
         m.onQuit = { NSApp.terminate(nil) }
+        m.onOpenReport = { [weak self] r in self?.home.collapse(); NSWorkspace.shared.open(r.log) }
         refreshHomeLabels()
         home.show()
     }
@@ -325,6 +328,7 @@ final class CallController: NSObject, NSMenuDelegate {
         pushCommitted = false
         endAfterSpeaking = false
         buddyHidden = false
+        releaseReports()
         listener.stop()
         speaker.stop()
         audio.stop()
@@ -639,6 +643,7 @@ final class CallController: NSObject, NSMenuDelegate {
     /// `proactive`: nobody asked; Poinky has something to tell the user (an agent finished).
     private func ask(_ question: String, proactive: Bool = false) {
         guard let talker, let screen = overlay.screen else { return }
+        releaseReports()   // a new question cut a report short
         turn += 1
         let myTurn = turn
         lastActivity = ProcessInfo.processInfo.systemUptime
@@ -717,7 +722,8 @@ final class CallController: NSObject, NSMenuDelegate {
         if !status.isEmpty { lines.append("Background agents:\n" + status.joined(separator: "\n")) }
         lines.append("If you start an agent now, it will be called \(agents.nextName).")
         if !proactive, !agentReports.isEmpty {
-            lines.append("Also tell the user briefly, after answering: " + agentReports.joined(separator: " "))
+            lines.append("Also tell the user briefly, after answering: " + agentReports.map(\.text).joined(separator: " "))
+            startReporting(agentReports.map(\.id))
             agentReports.removeAll()
         }
         if teacherStartedTurn == turn {
@@ -773,6 +779,7 @@ final class CallController: NSObject, NSMenuDelegate {
         }
         pendingSteps.removeAll()
         lastActivity = ProcessInfo.processInfo.systemUptime
+        releaseReports()   // the helpers that were reported merge into the buddy
         guard state == .speaking || state == .thinking else { return }
         state = restingState
         if endAfterSpeaking {
@@ -1462,18 +1469,33 @@ final class CallController: NSObject, NSMenuDelegate {
             + "; talker model \(c.brain == .claudeCode ? c.claudeCodeModel : c.apiModel), teacher model \(c.brain == .claudeCode ? c.artistModel : c.apiArtistModel)"
     }
 
+    /// A helper finished (its own celebration and sound happen on screen). It waits at the edge with a
+    /// badge until you're free, then flies to the buddy while Poinky says what it did.
     private func agentFinished(_ a: AgentManager.Agent) {
         let what = a.status == .done ? "finished" : "stopped with a problem"
-        agentReports.append("The background agent \(a.name) (\"\(a.title)\") \(what). Its summary: \(a.summary.isEmpty ? "(none)" : a.summary) (Full log: \(a.log.path))")
-        playSound(.send)
-        deliverReports()
+        agentReports.append((a.id, "The background agent \(a.name) (\"\(a.title)\") \(what). Its summary: \(a.summary.isEmpty ? "(none)" : a.summary) (Full log: \(a.log.path))"))
+        home.model.addReport(.init(id: a.id, name: a.name, ok: a.status == .done, summary: a.summary, log: a.log, at: Date()))
+        // Let it celebrate at the edge first.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) { [weak self] in self?.deliverReports() }
     }
 
-    /// Tells the user about finished agents, but never over Claude talking or the user holding the keys.
+    /// Tells the user about finished agents, but never over Claude talking, the user holding the keys
+    /// or typing. Until then they wait at the edge of the screen.
     private func deliverReports() {
-        guard !agentReports.isEmpty else { return }
+        guard !agentReports.isEmpty, !reportCheckPending else { return }
+        func later(_ secs: Double) {
+            reportCheckPending = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + secs) { [weak self] in
+                self?.reportCheckPending = false
+                self?.deliverReports()
+            }
+        }
+        // Away (screen locked): nobody to tell. They wait at the edge until you're back.
+        if Self.screenLocked() { later(2); return }
         switch state {
         case .idle:
+            // Typing: wait for a pause, so a voice doesn't start mid-sentence.
+            if Self.secondsSinceTyping() < 2 { later(1); return }
             // No session: start a quiet one just to say it.
             reportAfterStart = true
             startSession(.push)
@@ -1487,9 +1509,35 @@ final class CallController: NSObject, NSMenuDelegate {
     }
 
     private func sayReports() {
-        let text = agentReports.joined(separator: " ")
+        guard talker != nil, overlay.screen != nil else { return }
+        let reports = agentReports
         agentReports.removeAll()
-        ask(text + " Tell the user in one or two short sentences what was done and anything they should check. Don't mark anything.", proactive: true)
+        ask(reports.map(\.text).joined(separator: " ") + " Tell the user in one or two short sentences per agent what was done and anything they should check. Don't mark anything.", proactive: true)
+        startReporting(reports.map(\.id))
+    }
+
+    /// These helpers fly to the buddy and stay there while Poinky talks about them.
+    private func startReporting(_ ids: [Int]) {
+        guard !ids.isEmpty else { return }
+        reportingIDs += ids
+        overlay.helperReport(ids: ids)
+        home.model.markHeard(ids)
+    }
+
+    /// Done talking about them (or cut off): they merge into the buddy.
+    private func releaseReports() {
+        guard !reportingIDs.isEmpty else { return }
+        overlay.helperRelease(ids: reportingIDs)
+        reportingIDs.removeAll()
+    }
+
+    static func screenLocked() -> Bool {
+        (CGSessionCopyCurrentDictionary() as? [String: Any])?["CGSSessionScreenIsLocked"] as? Bool ?? false
+    }
+
+    /// Seconds since the last key press anywhere (no permission needed for this).
+    static func secondsSinceTyping() -> Double {
+        CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: .keyDown)
     }
 
     private func refreshAgentsInHome() {
@@ -1498,7 +1546,7 @@ final class CallController: NSObject, NSMenuDelegate {
 
     /// A hold-to-talk session that hasn't been used for a while ends by itself (frees the Claude sessions).
     private func checkIdle() {
-        guard mode == .push, state == .ready, guide == nil, !artistBusy, !ptt.isDown, agentReports.isEmpty else { return }
+        guard mode == .push, state == .ready, guide == nil, !artistBusy, !ptt.isDown, agentReports.isEmpty, reportingIDs.isEmpty else { return }
         if ProcessInfo.processInfo.systemUptime - lastActivity > Self.idleTimeout { endCall(quietly: true) }
     }
 

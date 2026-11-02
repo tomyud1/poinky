@@ -125,9 +125,9 @@
         <button id="restart" title="Back to the start">↺</button>
         <select id="speed" title="Playback speed"><option value=".25">¼×</option><option value=".5">½×</option><option value="1" selected>1×</option><option value="2">2×</option></select>
         <button id="mute" title="Sound on or off">Sound on</button>
-        <span id="time" style="margin-left:auto">0.0 / 45.0</span>
+        <span id="time" style="margin-left:auto">0.0 / 48.0</span>
       </div>
-      <input id="scrub" type="range" min="0" max="45" step="0.01" value="0" aria-label="Timeline">
+      <input id="scrub" type="range" min="0" max="48" step="0.01" value="0" aria-label="Timeline">
       <div id="moments"></div>
     </div>
 
@@ -178,7 +178,7 @@
   // ---------- settings (kept in this browser) ----------
   const sounds = new Sounds();
   const DEFAULT = { scene: { bg: 'light', dock: 'auto', calm: 'false' }, motion: { ...HelperLayer.defaults }, sound: { ...sounds.params }, voices: JSON.parse(JSON.stringify(sounds.voices)) };
-  delete DEFAULT.motion.dock; delete DEFAULT.motion.calm;
+  delete DEFAULT.motion.dock; delete DEFAULT.motion.calm; delete DEFAULT.motion.hold;
   let S = JSON.parse(JSON.stringify(DEFAULT));
   try { const saved = JSON.parse(localStorage.getItem('poinky-agent-lab') || 'null'); if (saved) S = merge(S, saved); } catch (e) {}
   function merge(a, b) { for (const k in b) { if (b[k] && typeof b[k] === 'object' && a[k] && typeof a[k] === 'object') merge(a[k], b[k]); else if (k in a) a[k] = b[k]; } return a; }
@@ -254,13 +254,13 @@
     }
   }
 
-  // ---------- the scene: 45 seconds, three helpers ----------
+  // ---------- the scene: 48 seconds, three helpers ----------
   const COLORS = { Mint: '#34c98e', Coral: '#ff7a59', Violet: '#9b6bff', Amber: '#ffb020', Rose: '#ff5c9a', Sky: '#38bdf8' };
-  const END = 45;
+  const END = 48;
   // The scripted cursor: [time, x, y] as fractions of the stage, or a function (W, H) → {x, y}.
   // From 12.4 s to 15.2 s it rests on Mint at the edge, which opens Mint's card.
   const onMint = (W, H) => ({ x: (S.scene.dock === 'left' ? 34 : W - 34) + 6, y: 92 + 6 });
-  const cursorPath = [[0, .4, .56], [3, .41, .57], [11.6, .43, .55], [12.4, onMint], [15.2, onMint], [16.2, .42, .57], [28, .4, .58], [45, .41, .57]];
+  const cursorPath = [[0, .4, .56], [3, .41, .57], [11.6, .43, .55], [12.4, onMint], [15.2, onMint], [16.2, .42, .57], [28, .4, .58], [48, .41, .57]];
   function cursorAt(t) {
     const W = stage.clientWidth, H = stage.clientHeight;
     const at = k => typeof k[1] === 'function' ? k[1](W, H) : { x: W * k[1], y: H * k[2] };
@@ -315,9 +315,21 @@
     [31.0, s => s.layer.step('violet', 'Still can’t reach it')],
     [25.6, s => setWin('right')],
     [33.5, s => setWin('left')],
+    // Reports, as the app does them: a finished helper waits at the edge (with a badge) until the buddy
+    // is free, flies over while it says what the helper did, and merges when it's done talking.
+    [23.4, s => s.layer.report('mint')],
+    [28.6, s => s.layer.release('mint')],
+    [30.2, s => s.main.hear('Is the README clear enough now?')],
+    [31.6, s => { s.main.hear(''); s.main.thinking = true; }],
+    [32.4, s => { s.main.thinking = false; s.main.speak('Yes, it reads well.'); }],
+    [34.0, s => s.main.speak('')],
+    [34.2, s => s.layer.report('coral')],
+    [38.8, s => s.layer.release('coral')],
+    [39.4, s => s.layer.report('violet')],
+    [45.0, s => s.layer.release('violet')],
     [36.2, s => s.layer.done('violet', { ok: false, summary: 'Violet couldn’t reach the package server, so nothing changed. Try again when you’re online.' })],
   ].sort((a, b) => a[0] - b[0]);
-  const MOMENTS = [['Ask', .5], ['Spawn', 4.2], ['Hand-off', 4.85], ['Flight', 6.65], ['Card', 12.3], ['Raise hand', 14.5], ['Done', 21.6], ['Report', 23.6], ['Window moves', 25.4], ['Failure', 36.1], ['End', 44]];
+  const MOMENTS = [['Ask', .5], ['Spawn', 4.2], ['Hand-off', 4.85], ['Flight', 6.65], ['Card', 12.3], ['Raise hand', 14.5], ['Done', 21.6], ['Report', 23.3], ['Window moves', 25.4], ['Waits for you', 31], ['Failure', 36.1], ['End', 47]];
   function setWin(side) { const w = $('window'); if (w.dataset.side === side) return; w.dataset.side = side; w.style.left = side === 'right' ? '40%' : '5%'; }
 
   // ---------- simulation: everything is a function of time, so scrubbing is exact ----------
@@ -333,7 +345,7 @@
         const W = stage.clientWidth || 1;
         sounds.play(name, Object.assign({}, o, { x: o.x !== undefined ? o.x / W * 2 - 1 : 0, x2: o.x2 !== undefined ? o.x2 / W * 2 - 1 : undefined }));
       },
-      params: Object.assign({}, S.motion, { dock: S.scene.dock, calm: S.scene.calm === 'true' }),
+      params: Object.assign({}, S.motion, { dock: S.scene.dock, calm: S.scene.calm === 'true', hold: true }),
       onAction: (id, action) => {
         const h = layer.helpers.get(id), name = h ? h.name : id;
         toast(action === 'stop' ? `Stopped ${name}` : action === 'log' ? `Would open ${name}'s log` : `Would open ${name}'s folder`);

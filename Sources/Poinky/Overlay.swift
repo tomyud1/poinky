@@ -137,6 +137,10 @@ final class Overlay: NSObject, WKNavigationDelegate {
     }
     func helperDone(id: Int, ok: Bool, summary: String) { js("SB.helperDone(\(id), \(ok), \(jsString(summary)))") }
     func helperStop(id: Int) { js("SB.helperStop(\(id))") }
+    /// Poinky is about to say what these helpers did: they fly to the buddy and wait there.
+    func helperReport(ids: [Int]) { if !ids.isEmpty { js("SB.helperReport(\(ids))") } }
+    /// Done saying it: they merge into the buddy.
+    func helperRelease(ids: [Int]) { if !ids.isEmpty { js("SB.helperRelease(\(ids))") } }
     func helperSounds(on: Bool, volume: Double) { js("SB.helperSounds(\(on), \(volume))") }
     /// The window you're using, in this overlay's points (nil: none).
     func helperAvoid(_ r: CGRect?) {
@@ -147,6 +151,10 @@ final class Overlay: NSObject, WKNavigationDelegate {
     }
     /// For developer checks: run JavaScript in the overlay page.
     func evaluateForTest(_ script: String) { js(script) }
+    func evaluateForTest(_ script: String, done: @escaping (Any?) -> Void) {
+        guard web != nil, loaded else { done(nil); return }
+        web.evaluateJavaScript(script) { r, _ in done(r) }
+    }
 
     /// With no session running, the buddy is hidden but helpers still need to know where it would be.
     private func followCursorForHelpers() {
