@@ -17,6 +17,8 @@
 
 Poinky lives in your Mac's notch. Hold <kbd>⌃ Control</kbd> <kbd>⌥ Option</kbd>, ask out loud, let go. A little buddy at your cursor points at the answer while a yellow pen sketches it for you, like a friend explaining at your shoulder.
 
+It's Claude Code, but you activate it with two keys instead of switching apps. The goal: make working with AI agents immediate, visual, and spatial—no context-switching, just press and talk.
+
 - **Explains by drawing.** Step-by-step sketches in sync with its voice, or a 3D model you can spin.
 - **Shows you the way.** "How do I export this?" It circles each click and waits for you.
 - **Does it for you.** "Write an email to Sam" or "fill this in". It types, and asks before sending anything.
@@ -76,6 +78,12 @@ It removes the app and the source, and asks before deleting your settings, memor
 | <kbd>⌃</kbd><kbd>⌥</kbd><kbd>Space</kbd> | Hands-free conversation |
 
 **Private by design:** your voice is turned into text on your Mac, and screenshots go only to Claude, only when you ask. No accounts, no tracking. [More on privacy and safety →](docs/GUIDE.md#privacy)
+
+## Where it's going
+
+**Visual agent control** (planned): spawn differently colored cursor buddies, each working on its own project. Watch multiple Claude agents work in parallel with a spatial interface—they move to the side of the screen, each with its own color, so you can see your agents at work.
+
+The ambition: be the next step for working with Claude Code agents—making interaction immediate, visual, and embodied on your screen.
 
 ## Learn more
 

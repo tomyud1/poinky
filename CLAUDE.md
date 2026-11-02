@@ -2,6 +2,16 @@
 
 A macOS menu bar app: hold ⌃⌥ and talk to Claude about what's on your screen (or ⌃⌥Space for a hands-free call), and it answers out loud while marking the screen and sketching explanations on a "paper" with a yellow pen (2D lessons) or narrated 3D models. Inspired by the HeyClicky "real-time graphics" demo.
 
+## Vision / product direction
+
+Poinky is the next phase of how people interact with AI agents. It's Claude Code that you activate with two keys (⌃⌥) instead of switching contexts. It sees what you're looking at, explains and interacts by voice, sketches explanations as it talks, and shows 3D models when needed. Because it runs on Claude Code, it can do real, useful work and give meaningful answers, not just chat.
+
+**Next:** visual control of Claude agents. Spawn differently colored cursor buddies that each work on their own project beside you—watch multiple Claude agents work in parallel with a spatial, visual interface.
+
+**Ambition:** OpenClaw kicked off the wave of personal AI agent assistants. Poinky aims to be the next step for working with Claude Code agents—making agent interaction immediate, visual, and embodied on your screen.
+
+When building features, favor decisions that push toward this vision: immediacy (no context-switching), spatial/visual affordances (marks, papers, buddies moving and working in space), multi-agent coordination, and tight integration with Claude Code's capabilities.
+
 ## Build & run
 - `./build.sh` builds `build/Poinky.app` (Swift Package, macOS 26+, no Xcode project). Then `open build/Poinky.app`.
 - Restart after a rebuild: `pkill -f "Poinky.app/Contents/MacOS/Poinky"; open build/Poinky.app`. **Ask the user before restarting** if they might be mid-call.
