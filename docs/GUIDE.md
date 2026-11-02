@@ -17,7 +17,7 @@ The full tour. For a quick start, see the [README](../README.md).
 - Never types into password fields, never signs in, never changes security settings.
 - Won't press shortcuts that quit apps or delete things.
 - Tap <kbd>⌃</kbd><kbd>⌥</kbd> or press <kbd>Esc</kbd> to stop it instantly; start talking to pause it. Turn it off entirely in Settings → General.
-- Background agents can edit the project they're given and run a short list of safe commands; everything else is refused.
+- Background agents can edit the project they're given and run a short list of safe commands; anything else they ask you first, out loud, and wait for your yes.
 
 
 Hold two keys and talk with Claude about what's on your screen. It answers out loud and marks things on your screen. For anything worth explaining, a paper slides in and a yellow pen sketches the explanation step by step while Claude talks, even reaching out of the paper to circle things on your screen. It can also build interactive 3D models.
@@ -57,7 +57,7 @@ Poinky remembers things about you between sessions (your name, what you're worki
 Ask "how do I make you talk faster?" or "what can you do?": it has a built-in manual and sees your current settings. It can change a few safe ones itself ("talk faster", "hide the buddy", "turn off the sounds", "turn the teacher off").
 
 ### Background agents: "put an agent on it"
-Because it runs on Claude Code, Poinky can start an **agent**: a separate Claude Code session that works on your project in the background (fix a bug, add a feature, write tests, research something) with your normal Claude Code setup. A small dot by the notch shows agents are working. When one finishes, Poinky tells you what it did, waiting until it's done talking (or folding it into your next question). Agents may edit files in the project and run a short list of safe commands (tests, `git status`/`diff`/`log`); anything else is refused, since nobody is there to approve it. Settings → Claude can switch them to Claude Code's auto mode (if your account has it) or to planning only. Full logs: `~/Library/Application Support/Poinky/agents/`.
+Because it runs on Claude Code, Poinky can start an **agent**: a separate Claude Code session that works on your project in the background (fix a bug, add a feature, write tests, research something) with your normal Claude Code setup. A small dot by the notch shows agents are working. When one finishes, Poinky tells you what it did, waiting until it's done talking (or folding it into your next question). Agents may edit files in the project and run a short list of safe commands (tests, `git status`/`diff`/`log`). For anything else (installing a package, deleting a file, pushing, running a script) the helper raises its hand: it flies to you and Poinky says what it wants ("Mint wants to run npm install left-pad. Is that okay?"). Say yes or no (hold ⌃⌥, or just answer in a hands-free call); "no, use yarn instead" tells it why. A helper can also ask you a question ("Where should I keep the settings?"): answer with one of the choices or "you choose". If you don't answer, it goes back to the edge with a "?" and keeps waiting while the others work; answer it later by name ("Mint, yes"), by pointing at it, or with the Allow / Don't allow buttons on its card. Nothing is ever approved without you, and pushing, deleting and installing always ask, even in auto mode. Settings → Claude can switch agents to Claude Code's auto mode (if your account has it), which asks less often, or to planning only. Full logs: `~/Library/Application Support/Poinky/agents/`.
 
 ### Demo
 `python3 demo/serve.py` opens six realistic, made-up scenes for showing Poinky off: a social feed, a code editor, a notes doc with a checklist, a transit dashboard, an encyclopedia article and a notes app. They all work like the real thing (click, type, check things off), so Poinky can walk you through actions. The code editor shows the real files in `demo/sample-project` live and its terminal really runs the tests, so you can watch a background agent fix the bug. `demo/DEMO-SCRIPT.md` is a recording script.
@@ -127,7 +127,7 @@ Poinky is signed with a local certificate ("Poinky Local Signing", created by `b
 | `buddyHotkey` | `ctrl+option+b` | Hides / shows the buddy |
 | `buddyAutoHide` | `0` | Hide the buddy this many seconds after it finishes (0 = never, 3 = right after it answers); it comes back when you hold ⌃⌥ |
 | `memoryEnabled` | `true` | Remember things about you between sessions |
-| `agentPermission` | `acceptEdits` | Background agents: `acceptEdits`, `auto` or `plan` |
+| `agentPermission` | `auto` | Background agents: `auto` (Claude Code's auto mode; falls back to `acceptEdits` if it can't start), `acceptEdits` or `plan` |
 | `computerControl` | `true` | Let Poinky click and type for you when you ask it to do something |
 | `doerModel` / `apiDoerModel` | `sonnet` / `claude-sonnet-5-5` | The model that clicks and types for you |
 | `agentModel` | | Background agents' model (empty = your Claude Code default) |

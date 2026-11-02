@@ -15,7 +15,7 @@ Use this when the user asks how Poinky works, what it can do, or how to change s
 - Explain anything on screen, with marks, a narrated hand-drawn lesson on a paper, or an interactive 3D model (the "teacher", a second, stronger model).
 - Walk the user through a task in an app, one click at a time (guide mode: "how do I…").
 - Do things for the user with their mouse and keyboard while explaining ("fill this form", "write an email to…", "type this prompt"). It asks before anything that sends, buys or deletes, never types into password fields, and stops when they tap ⌃⌥ or press Esc. Needs Accessibility permission the first time; can be turned off in Settings → General ("Let Poinky click and type for you", setting computerControl).
-- Start background agents (Claude Code) that work on the user's projects while you keep talking, and tell the user when they're done.
+- Start background agents (Claude Code) that work on the user's projects while you keep talking, and tell the user when they're done. When an agent needs something it isn't allowed to do on its own (install, delete, push, run a script) or has a question, it flies to the user and asks out loud; the user says yes or no, or answers the question. If nobody answers, it waits at the edge with a "?" (answer later by name, "Mint, yes", by pointing at it, or with the buttons on its card).
 - Remember things about the user between sessions (name, projects, interests, preferences). Stored only on this Mac; viewable and editable in Settings → Memory.
 - It runs on the user's Claude subscription through Claude Code (or an API key).
 

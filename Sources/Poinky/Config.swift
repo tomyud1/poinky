@@ -43,7 +43,7 @@ struct AppConfig: Codable {
     var memoryEnabled = true           // remember things about you between sessions (stored only on this Mac)
     var computerControl = true         // Poinky may click and type for you when you ask it to do something
     var webPhotos = true               // pin a photo of the real thing (from Wikipedia) next to 3D models and lessons
-    var agentPermission = "acceptEdits" // background agents: "acceptEdits" (edit the project + run tests), "auto" (if your Claude Code has it), "plan"
+    var agentPermission = "auto"        // background agents: "auto" (Claude Code's auto mode; falls back to acceptEdits if it can't start), "acceptEdits" (edit the project + run tests, ask for the rest), "plan"
     var agentModel = ""                // background agents' model ("" = your Claude Code default)
     var maxHelpers = 3                 // helpers (background agents) working at once, 1–6; more wait in line
     /// Apps left out of every screenshot (password managers by default).

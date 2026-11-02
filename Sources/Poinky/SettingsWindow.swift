@@ -393,14 +393,14 @@ private struct ClaudeTab: View {
             }
             Section("Background agents") {
                 Picker("Agents may", selection: $model.config.agentPermission) {
-                    Text("Edit the project and run its tests").tag("acceptEdits")
-                    Text("Auto mode (if your Claude Code has it)").tag("auto")
+                    Text("Auto mode (recommended)").tag("auto")
+                    Text("Edit the project, ask for the rest").tag("acceptEdits")
                     Text("Only plan, change nothing").tag("plan")
                 }
                 Picker("Working at once", selection: $model.config.maxHelpers) {
                     ForEach(1...6, id: \.self) { n in Text(n == 3 ? "3 (recommended)" : "\(n)").tag(n) }
                 }
-                Text("Ask \"put an agent on it\" to have Claude Code work on a project in the background. Poinky tells you when it's done. More agents than this wait in line; each one uses your Claude plan.")
+                Text("Ask \"put an agent on it\" to have Claude Code work on a project in the background. Poinky tells you when it's done. Anything else an agent wants to do (install, delete, push, run a script) comes to you as a question: say yes or no, or click its card. Auto mode asks less often. More agents than this wait in line; each one uses your Claude plan.")
                     .font(.caption).foregroundStyle(.secondary)
                 Button("Open Agent Logs") {
                     try? FileManager.default.createDirectory(at: AgentManager.logDir, withIntermediateDirectories: true)

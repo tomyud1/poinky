@@ -54,6 +54,18 @@ enum HelperTalk {
         return nil
     }
 
+    /// What you said to a helper by name, without the name ("Mint, yes" → "yes", "tell Coral no, use yarn" →
+    /// "no, use yarn", "yes Violet" → "yes"). Nil if the name isn't in it.
+    static func without(name: String, in text: String) -> String? {
+        let n = NSRegularExpression.escapedPattern(for: name)
+        guard text.range(of: "\\b\(n)\\b", options: [.regularExpression, .caseInsensitive]) != nil else { return nil }
+        var t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        t = t.replacingOccurrences(of: "^(please |hey |okay |ok )?(tell|ask|let) \(n)( to| that)?[,:]?\\s*", with: "", options: [.regularExpression, .caseInsensitive])
+        t = t.replacingOccurrences(of: "^(hey |okay |ok )?\(n)[,:.!]?\\s+", with: "", options: [.regularExpression, .caseInsensitive])
+        t = t.replacingOccurrences(of: "[,]?\\s*\(n)[.!?]?$", with: "", options: [.regularExpression, .caseInsensitive])
+        return t.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     /// One or two spoken sentences: what it's doing now, how far along, for how long.
     static func status(_ a: AgentManager.Agent, now: Date = Date()) -> String {
         let secs = (a.finished ?? now).timeIntervalSince(a.started)
@@ -62,6 +74,11 @@ enum HelperTalk {
         case .queued:
             return "\(a.name) is waiting for a free spot. It starts when another helper finishes."
         case .running:
+            if let ask = a.asks.first {
+                return ask.kind == .question
+                    ? "\(a.name) is waiting for your answer. It \(ask.spoken)"
+                    : "\(a.name) is waiting for your OK. It \(ask.spoken)"
+            }
             var s: String
             let latest = a.latest.trimmingCharacters(in: .whitespacesAndNewlines)
             let w = latest.split(separator: " ").map { $0.lowercased() }
@@ -112,11 +129,7 @@ enum HelperTalk {
     }
 
     /// Lowercase words and spaces only ("How's it going?" → "how s it going").
-    static func plain(_ s: String) -> String {
-        s.lowercased().replacingOccurrences(of: "’", with: "'")
-            .replacingOccurrences(of: "[^a-z0-9 ]", with: " ", options: .regularExpression)
-            .split(separator: " ").joined(separator: " ")
-    }
+    static func plain(_ s: String) -> String { HelperStream.plain(s) }
     static func lowerFirst(_ s: String) -> String { s.prefix(1).lowercased() + s.dropFirst() }
     static func sentence(_ s: String) -> String { s.prefix(1).uppercased() + s.dropFirst() }
     static func firstSentences(_ s: String, _ n: Int) -> String {

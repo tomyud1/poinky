@@ -84,6 +84,10 @@
     border:0;border-radius:7px;padding:5px 0;cursor:pointer}
   .hl-chip .btns button:hover{background:rgba(255,255,255,.18)}
   .hl-chip .btns button.stop{color:#ff8a80} .hl-chip .btns button.stop.sure{background:#e5484d;color:#fff}
+  .hl-chip .askq{margin-top:8px;padding:7px 9px;border-radius:8px;background:rgba(255,255,255,.07);font:500 11.5px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;
+    color:rgba(255,255,255,.9);word-break:break-word;display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}
+  .hl-chip .askq:empty,.hl-chip .btns.ask:not(.on){display:none}
+  .hl-chip .btns.ask button.yes{color:#fff}
   .hl-p{position:absolute;left:0;top:0;border-radius:50%;will-change:transform,opacity}
   .hl-trail{position:absolute;left:0;top:0;width:6px;height:6px;margin:-3px 0 0 -3px;border-radius:50%;will-change:transform,opacity}
   .hl-wait{position:absolute;left:0;top:0;width:10px;height:10px;margin:-5px 0 0 -5px;border-radius:50%;will-change:transform,opacity}
@@ -160,7 +164,7 @@
         x: m.x, y: m.y, vx: 0, vy: 0, rot: 0, vrot: 0, scale: 0, alpha: 0,
         slot: this.freeSlot(), line: '', prev: '', lineT: 0, prevT: 9, count: '', items: [],
         frac: 0, fracShown: 0, chip: 0, chipX: 0, bub: '', bubT: 0, bubA: 0, ringA: 0, mood: 'work', trail: [],
-        nod: -1, spin: -1, droop: 0, ask: '', handT: 0, el: null,
+        nod: -1, spin: -1, droop: 0, ask: '', askDetail: '', parked: false, gotText: '', handT: 0, el: null,
         detail: detail || task, folder, born: this.time, history: [], open: 0, openT: 0, hoverT: 0, closeT: 0, fade: 1, sure: 0,
       };
       this.helpers.set(id, h);
@@ -200,22 +204,46 @@
     }
 
     // One question at a time: the others keep working, with a pulsing ring, until it's their turn.
-    raiseHand(id, question) {
+    // `detail`: exactly what it wants to do (the command), shown on its card.
+    // `kind`: 'permission' (its card offers Allow / Don't allow) or 'question' (You choose / Skip).
+    raiseHand(id, question, detail = '', kind = 'permission') {
       const h = this.helpers.get(id); if (!h) return;
-      h.ask = question; h.askSeq = ++this.seq;
+      h.ask = question; h.askDetail = detail || question; h.askKind = kind; h.askSeq = ++this.seq; h.parked = false;
       this.nextAsk();
     }
     nextAsk() {
       const all = [...this.helpers.values()];
       if (all.some(o => o.phase === 'asking' || o.phase === 'thanks' || (o.phase === 'fly' && o.fly.kind === 'out'))) return;
-      const h = all.filter(o => o.ask && o.phase === 'dock').sort((a, b) => a.askSeq - b.askSeq)[0];
+      // Working at the edge, or still on its way there (it turns around instead of landing first).
+      const free = o => o.phase === 'dock' || (o.phase === 'fly' && o.fly.kind === 'dock' && !o.finished && !o.pendingDone);
+      const h = all.filter(o => o.ask && !o.parked && free(o)).sort((a, b) => a.askSeq - b.askSeq)[0];
       if (h) this.go(h, 'out', this.askSpot(h));
     }
 
-    resolveHand(id, ok) {
-      const h = this.helpers.get(id); if (!h || h.phase !== 'asking') return;
-      h.phase = 'thanks'; h.t = 0; h.ask = ''; h.bub = ok ? 'Thanks!' : 'Okay, skipping it'; h.bubT = 0; h.nod = 0;
+    /** Answered (by voice or its card's buttons). `next`: another question it has, asked right away. */
+    resolveHand(id, ok, next = '', nextDetail = '', nextKind = 'permission') {
+      const h = this.helpers.get(id); if (!h || !h.ask) return;
       this.sound('ack', { x: h.x, note: h.note });
+      h.nod = 0;
+      if (h.phase === 'asking' && next) {   // stays next to you with its next question
+        h.ask = next; h.askDetail = nextDetail || next; h.askKind = nextKind; h.bub = next; h.bubT = 0; h.t = 0;
+        this.react('ask', { id: h.id, name: h.name, text: next });
+        return;
+      }
+      if (h.phase === 'asking') {
+        h.phase = 'thanks'; h.t = 0; h.ask = ''; h.bub = ok ? 'Thanks!' : 'Okay, skipping it'; h.bubT = 0;
+      } else {   // answered from its card at the edge
+        h.ask = ''; h.gotUntil = this.time + 2; h.gotText = ok ? '✓ Thanks' : 'Okay, skipping it'; h.lineT = 0;
+      }
+      if (next) this.raiseHand(id, next, nextDetail, nextKind);
+      h.parked = false;
+    }
+    /** Not answered for a while: it goes back to work at the edge with its hand still up (a "?" on it),
+     *  and the next helper with a question gets its turn. Answer it later from its card or by name. */
+    park(id) {
+      const h = this.helpers.get(id); if (!h || !h.ask) return;
+      h.parked = true;
+      if (h.phase === 'asking' || (h.phase === 'fly' && h.fly.kind === 'out')) { h.bub = ''; this.go(h, 'dock', this.slotPos(h)); }
     }
 
     done(id, { ok = true, summary = '' } = {}) {
@@ -308,7 +336,7 @@
       if (this.chooseSide() !== this.side) return true;   // about to move to the other edge
       for (const h of this.helpers.values()) {
         if (h.hoverT > 0 || (h.open > .5 && h.closeT > 0)) return true;   // a card is about to open or close
-        if ((h.phase !== 'dock' && h.phase !== 'ready') || h.ask || h.listening || h.gotUntil) return true;
+        if ((h.phase !== 'dock' && h.phase !== 'ready') || (h.ask && !h.parked) || h.listening || h.gotUntil) return true;
         if (h.lineT < 2 || h.prevT < .4 || h.bubA > .01) return true;
         if (Math.abs(h.fracShown - h.frac) > .002 || (h.open > .001 && h.open < .999) || Math.abs(h.chip - 1) > .002) return true;
         if (Math.abs(h.fade - 1) > .003 && Math.abs(h.fade - .14) > .003) return true;
@@ -365,7 +393,7 @@
       }
       for (const h of [...this.helpers.values()]) {
         h.t += dt; h.lineT += dt; h.prevT += dt; h.bubT += dt;
-        if (h.gotUntil && this.time > h.gotUntil) { h.gotUntil = 0; h.lineT = 0; }
+        if (h.gotUntil && this.time > h.gotUntil) { h.gotUntil = 0; h.gotText = ''; h.lineT = 0; }
         const m = this.main();
         let tx = h.x, ty = h.y, follow = true, face = 0, targetScale = P.size;
 
@@ -427,7 +455,7 @@
           }
           case 'dock': {   // working: a soft "typing" tap toward its card
             const s = this.slotPos(h); tx = s.x; ty = s.y;
-            if (h.ask) targetScale = P.size * (1 + .08 * Math.sin(h.t * 6));   // has a question, waiting its turn
+            if (h.ask && !h.parked) targetScale = P.size * (1 + .08 * Math.sin(h.t * 6));   // has a question, waiting its turn
             if (h.pendingDone && this.time - this.lastBig >= .45) { const d = h.pendingDone; h.pendingDone = null; this.done(h.id, d); }
             break;
           }
@@ -503,7 +531,7 @@
         this.hover(h, dt);
         // Fades, advanced with time (not per drawn frame) so a scrubbed timeline looks the same.
         const working = ['dock', 'celebrate', 'droop', 'ready'].includes(h.phase);
-        h.badgeA = lerp(h.badgeA || 0, h.phase === 'ready' ? 1 : 0, 1 - Math.exp(-dt * 10));
+        h.badgeA = lerp(h.badgeA || 0, h.phase === 'ready' || (h.ask && h.phase === 'dock') ? 1 : 0, 1 - Math.exp(-dt * 10));
         h.ringA = lerp(h.ringA, working ? 1 : 0, 1 - Math.exp(-dt * 10));
         h.bubA = lerp(h.bubA, h.bub ? 1 : 0, 1 - Math.exp(-dt * 16));
         for (const p of h.trail) p.a -= dt * 4;
@@ -596,7 +624,8 @@
       const chip = document.createElement('div'); chip.className = 'hl-chip';
       chip.innerHTML = `<div class="top"><span class="dot"></span><span class="name"></span><span class="count"></span><span class="elapsed"></span></div>` +
         `<div class="lines"><div class="ln prev"></div><div class="ln cur"></div></div>` +
-        `<div class="more"><div class="in"><div class="task"></div><div class="folder"></div><div class="sum"></div><ul class="list"></ul><div class="sep"></div>` +
+        `<div class="more"><div class="in"><div class="task"></div><div class="folder"></div><div class="askq"></div><div class="btns ask"><button class="yes" data-a="allow">Allow</button><button data-a="deny">Don’t allow</button></div>` +
+        `<div class="sum"></div><ul class="list"></ul><div class="sep"></div>` +
         `<div class="btns"><button class="stop">Stop</button><button data-a="log">Log</button><button data-a="folder">Folder</button></div></div></div>`;
       chip.querySelector('.task').textContent = h.detail;
       chip.querySelector('.folder').textContent = h.folder ? 'in ' + h.folder : '';
@@ -609,6 +638,7 @@
       chip.querySelector('.dot').style.background = h.color;
       chip.querySelector('.dot').style.boxShadow = `0 0 6px ${h.color}`;
       const name = chip.querySelector('.name'); name.textContent = h.name; name.style.color = h.color;
+      chip.querySelector('.btns.ask .yes').style.background = h.color;
       const trail = [];
       for (let i = 0; i < 9; i++) { const t = document.createElement('div'); t.className = 'hl-trail'; t.style.background = h.color; this.el.appendChild(t); trail.push(t); }
       this.el.appendChild(chip); this.el.appendChild(root);
@@ -616,7 +646,8 @@
         spin: root.querySelector('.hl-spin'), bob: root.querySelector('.hl-bob'),
         count: chip.querySelector('.count'), prev: chip.querySelector('.prev'), cur: chip.querySelector('.cur'), cache: {},
         elapsed: chip.querySelector('.elapsed'), more: chip.querySelector('.more'), inner: chip.querySelector('.more .in'),
-        list: chip.querySelector('.list'), stop: chip.querySelector('.stop'), sum: chip.querySelector('.sum'), badge: root.querySelector('.hl-badge') };
+        list: chip.querySelector('.list'), stop: chip.querySelector('.stop'), sum: chip.querySelector('.sum'), badge: root.querySelector('.hl-badge'),
+        askq: chip.querySelector('.askq'), abtns: chip.querySelector('.btns.ask') };
     }
 
     render() {
@@ -648,7 +679,9 @@
         if (C.bob !== bob) { e.bob.classList.toggle('on', bob); C.bob = bob; }
         if (C.hop !== hop) { e.bob.classList.toggle('hop', hop); C.hop = hop; }
         // Its badge while it waits to tell you: a check (or "!" if it couldn't finish).
-        if (C.badgeOk !== h.ok) { e.badge.textContent = h.ok === false ? '!' : '✓'; set(e.badge, 'background', h.ok === false ? '#8b8b93' : h.color); C.badgeOk = h.ok; }
+        // (A "?" while it waits for your answer.)
+        const badge = h.ask ? '?' : h.ok === false ? '!' : '✓';
+        if (C.badge !== badge) { e.badge.textContent = badge; set(e.badge, 'background', badge === '!' ? '#8b8b93' : h.color); C.badge = badge; }
         set(e.badge, 'opacity', (h.badgeA || 0).toFixed(3));
         set(e.badge, 'transform', `translate(${(17 * h.scale).toFixed(1)}px,${(19 * h.scale).toFixed(1)}px) scale(${(.4 + .6 * easeOutBack(clamp(h.badgeA || 0, 0, 1), 2.4)).toFixed(3)})`);
         set(e.fg, 'stroke', h.phase === 'droop' || (h.ok === false) ? '#8b8b93' : h.color);
@@ -696,6 +729,14 @@
             }
           }
           // Finished: what it did, in full (and nothing left to stop).
+          const askText = h.ask ? h.askDetail : '';
+          if (C.askq !== askText) { e.askq.textContent = askText; e.abtns.classList.toggle('on', !!askText); C.askq = askText; }
+          if (C.askKind !== h.askKind) {
+            const q = h.askKind === 'question';
+            e.abtns.children[0].textContent = q ? 'You choose' : 'Allow';
+            e.abtns.children[1].textContent = q ? 'Skip' : 'Don’t allow';
+            C.askKind = h.askKind;
+          }
           if (C.fin !== !!h.finished) { C.fin = !!h.finished; e.sum.textContent = h.finished ? h.summary : ''; set(e.stop, 'display', h.finished ? 'none' : ''); }
           const label = h.sure > 0 ? `Stop ${h.name}?` : 'Stop';
           if (C.stop !== label) { e.stop.textContent = label; e.stop.classList.toggle('sure', h.sure > 0); C.stop = label; }
@@ -709,7 +750,7 @@
         const n = Math.floor(h.lineT * 45 * P.typing);
         const shown = h.line.slice(0, Math.max(0, n));
         // Talking to it: its line says it's listening, then that it got your message.
-        const said = h.listening ? 'Listening…' : h.gotUntil ? '✓ Got it' : '';
+        const said = h.listening ? 'Listening…' : h.gotUntil ? (h.gotText || '✓ Got it') : h.ask ? 'Waiting for your OK' : '';
         const cur = said || (h.finished && h.ok ? '✓ ' : '') + shown;
         if (C.cur !== cur) { e.cur.textContent = cur; C.cur = cur; }
         if (C.prev !== h.prev) { e.prev.textContent = h.prev; C.prev = h.prev; }

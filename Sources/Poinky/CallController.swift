@@ -27,6 +27,11 @@ final class CallController: NSObject, NSMenuDelegate {
     private var reportCheckPending = false    // waiting for a pause in typing
     private var talkTarget: Int?              // the helper you're pointing at while holding the keys (you're talking to it)
     private var helperContext: String?        // for the talker: you asked a finished helper something
+    private var askingNow: Int?               // the helper next to the buddy with its hand up, waiting for your answer
+    private var askSpoken: String?            // its request that Poinky already said out loud
+    private var askAfterStart = false         // a session is starting just to say a helper's question
+    private var askCheckPending = false
+    private var parkWork: DispatchWorkItem?   // no answer for a while: it goes back to the edge
     private var endAfterSpeaking = false      // the user said goodbye
     private var buddyHidden = false           // ⌃⌥B or auto-hide: hidden until the next question
     private var buddyHotKey: HotKey?
@@ -148,11 +153,14 @@ final class CallController: NSObject, NSMenuDelegate {
         ptt.onCommit = { [weak self] in self?.pushCommit() }
         ptt.onUp = { [weak self] send in self?.pushUp(send: send) }
         ptt.onTap = { [weak self] in self?.pushTap() }
-        agents.onFinished = { [weak self] a in self?.helperScreen.finished(a); self?.agentFinished(a) }
+        agents.onFinished = { [weak self] a in self?.helperScreen.finished(a); self?.askEnded(a.id); self?.agentFinished(a) }
         agents.onChange = { [weak self] in self?.refreshAgentsInHome() }
         agents.onStarted = { [weak self] a in self?.helperScreen.started(a) }
         agents.onEvent = { [weak self] a, e in self?.helperScreen.event(a, e) }
-        agents.onStopped = { [weak self] a in self?.helperScreen.stopped(id: a.id) }
+        agents.onStopped = { [weak self] a in self?.helperScreen.stopped(id: a.id); self?.askEnded(a.id) }
+        agents.onAsksChanged = { [weak self] a in self?.helperScreen.asksChanged(a); if a.asks.isEmpty { self?.askEnded(a.id) } }
+        overlay.onHelperAsking = { [weak self] id in self?.helperAsking(id) }
+        helperScreen.onCardAnswer = { [weak self] id, yes in self?.cardAnswer(id, yes) }
         helperScreen.settings(config)
         ptt.configure(config.pushToTalk)
         ScreenCapture.excludedBundleIDs = Set(config.excludedApps)
@@ -315,6 +323,10 @@ final class CallController: NSObject, NSMenuDelegate {
                 reportAfterStart = false
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in self?.deliverReports() }
             }
+            if askAfterStart {
+                askAfterStart = false
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in self?.deliverAsk() }
+            }
             if !goodVoice {
                 overlay.setClaudeCaption("Tip: for a natural voice, download a Premium voice: ✨ menu → Get a Better Voice…")
             }
@@ -331,6 +343,10 @@ final class CallController: NSObject, NSMenuDelegate {
         endAfterSpeaking = false
         buddyHidden = false
         releaseReports()
+        // A helper asking you goes back to the edge with its hand up (answer it later from its card or by name).
+        if let id = askingNow { helperScreen.park(id: id); askingNow = nil; askSpoken = nil }
+        parkWork?.cancel(); parkWork = nil
+        askAfterStart = false
         listener.stop()
         speaker.stop()
         audio.stop()
@@ -573,6 +589,13 @@ final class CallController: NSObject, NSMenuDelegate {
             speaker.stop()
             mergeNext = true
         }
+        // A helper is waiting for your answer: a clear yes or no (or a pick) goes straight to it.
+        if guide == nil, let (id, reply) = helperScreen.askReply(text, pointing: talkTarget, asking: askingNow) {
+            if let t = talkTarget { talkTarget = nil; overlay.helperListen(id: t, on: false) }
+            mergeNext = false
+            answerAsk(id, reply, said: text)
+            return
+        }
         // Said to a helper (pointing at it, or by name): handled right here, without the talker.
         if let id = talkTarget {
             talkTarget = nil
@@ -751,6 +774,9 @@ final class CallController: NSObject, NSMenuDelegate {
         if !status.isEmpty { lines.append("Background agents:\n" + status.joined(separator: "\n")) }
         lines.append("If you start an agent now, it will be called \(agents.nextName).")
         if let c = helperContext { lines.append(c); helperContext = nil }
+        if agents.running.contains(where: { !$0.asks.isEmpty }) {
+            lines.append("(Only the user can answer a helper that is WAITING: they say yes or no, or click its card. You can't approve anything for them, and <tell> doesn't answer it. If they ask what it wants, explain it plainly.)")
+        }
         if !proactive, !agentReports.isEmpty {
             lines.append("Also tell the user briefly, after answering: " + agentReports.map(\.text).joined(separator: " "))
             startReporting(agentReports.map(\.id))
@@ -824,6 +850,10 @@ final class CallController: NSObject, NSMenuDelegate {
             endAfterSpeaking = false
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in self?.endCall() }
             return
+        }
+        // A helper came to ask while Claude was talking: its question comes first.
+        if askingNow != nil, askSpoken == nil {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in self?.deliverAsk() }
         }
         // An agent finished while Claude was talking: now's the time to say so.
         if !agentReports.isEmpty {
@@ -1544,8 +1574,128 @@ final class CallController: NSObject, NSMenuDelegate {
         speaker.enqueue(text)
         speaker.endTurn()
         state = .speaking
-        history.append((said, text))
-        if history.count > 6 { history.removeFirst() }
+        if !said.isEmpty {
+            history.append((said, text))
+            if history.count > 6 { history.removeFirst() }
+        }
+    }
+
+    // MARK: - A helper raises its hand
+
+    /// A helper reached the buddy with its question: say it out loud as soon as you're free.
+    private func helperAsking(_ id: Int) {
+        guard agents.agents.first(where: { $0.id == id })?.asks.isEmpty == false else { return }
+        askingNow = id
+        askSpoken = nil
+        deliverAsk()
+    }
+
+    /// Says the question of the helper next to the buddy, but never over Claude talking, you holding the
+    /// keys or typing (like reports). In a hands-free call you just answer; otherwise hold the keys and say yes or no.
+    private func deliverAsk() {
+        guard let id = askingNow, let a = agents.agents.first(where: { $0.id == id }), let ask = a.asks.first else { return }
+        let key = ask.requestID + "#" + (ask.currentQuestion?.text ?? "")
+        guard askSpoken != key, !askCheckPending else { return }
+        func later(_ secs: Double) {
+            askCheckPending = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + secs) { [weak self] in
+                self?.askCheckPending = false
+                self?.deliverAsk()
+            }
+        }
+        if Self.screenLocked() { later(2); return }
+        switch state {
+        case .idle:
+            if Self.secondsSinceTyping() < 2 { later(1); return }
+            askAfterStart = true
+            startSession(.push)
+        case .ready where !ptt.isDown:
+            if Self.secondsSinceTyping() < 2 { later(1); return }
+            sayAsk(a, ask, key: key)
+        case .listening where mode == .handsFree && listener.currentText.isEmpty && !ptt.isDown:
+            sayAsk(a, ask, key: key)
+        case .starting:
+            askAfterStart = true
+        default:
+            later(1)   // Claude is talking or you are: right after
+        }
+    }
+
+    private func sayAsk(_ a: AgentManager.Agent, _ ask: HelperAsk, key: String) {
+        askSpoken = key
+        lastActivity = ProcessInfo.processInfo.systemUptime
+        captionFade?.cancel()
+        overlay.setYouCaption(nil)
+        overlay.setClaudeCaption(nil)
+        sayQuick("\(a.name) \(ask.spoken)", said: "")
+        schedulePark(a.id, after: 30)
+    }
+
+    /// Nobody answered: it goes back to work at the edge, its hand still up, and the next one gets a turn.
+    private func schedulePark(_ id: Int, after secs: Double) {
+        parkWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, self.askingNow == id else { return }
+            // You're answering (or Poinky is still talking): give it a moment.
+            if self.ptt.isDown || self.pushCommitted || self.state == .thinking || self.state == .speaking
+                || (self.mode == .handsFree && !self.listener.currentText.isEmpty) {
+                self.schedulePark(id, after: 6); return
+            }
+            self.askingNow = nil
+            self.askSpoken = nil
+            self.helperScreen.park(id: id)
+        }
+        parkWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + secs, execute: work)
+    }
+
+    /// It's not waiting anymore (answered everything, withdrew, finished or was stopped).
+    private func askEnded(_ id: Int) {
+        guard askingNow == id, agents.agents.first(where: { $0.id == id })?.asks.isEmpty != false else { return }
+        askingNow = nil
+        askSpoken = nil
+        parkWork?.cancel(); parkWork = nil
+    }
+
+
+    /// Your answer goes to the helper, which thanks you and goes on (or asks its next question).
+    private func answerAsk(_ id: Int, _ reply: HelperAsk.Reply, said: String?) {
+        guard let before = agents.agents.first(where: { $0.id == id }), let ask = before.asks.first else { return }
+        lastActivity = ProcessInfo.processInfo.systemUptime
+        let wasNext = askingNow == id
+        let result = helperScreen.answer(id, reply)
+        guard let a = agents.agents.first(where: { $0.id == id }) else { return }
+        if let said { overlay.setYouCaption(said) }
+        var line: String?
+        switch result {
+        case .failed:
+            line = "\(a.name) isn't waiting for that anymore."
+        case .next:
+            if wasNext { askSpoken = nil }
+        case .sent:
+            var ok = true
+            if case .no = reply { ok = false }
+            if a.asks.isEmpty, wasNext { askingNow = nil; askSpoken = nil; parkWork?.cancel(); parkWork = nil }
+            else if wasNext { askSpoken = nil }   // its next one: said when it's up
+            if case .yes(true, _) = reply, ask.risky { line = "Okay. \(a.name) will still ask each time for that." }
+            else if !wasNext, said != nil {   // answered from afar (by name or pointing at its edge)
+                line = ok ? "Okay, \(a.name) can go ahead." : "Okay, I told \(a.name) no."
+            }
+        }
+        if let said, line == nil {
+            history.append((said, "(answered \(a.name)'s request)"))
+            if history.count > 6 { history.removeFirst() }
+        }
+        if let line { sayQuick(line, said: said ?? "") }
+        else if state == .listening || state == .thinking { state = restingState }
+    }
+
+    /// Allow / Don't allow (or You choose / Skip) on a helper's card.
+    private func cardAnswer(_ id: Int, _ yes: Bool) {
+        guard let ask = agents.agents.first(where: { $0.id == id })?.asks.first else { return }
+        let reply: HelperAsk.Reply = ask.kind == .question ? (yes ? .answer("No preference: you choose.") : .no(reason: ""))
+                                                           : (yes ? .yes(always: false, extra: "") : .no(reason: ""))
+        answerAsk(id, reply, said: nil)
     }
 
     /// A helper finished (its own celebration and sound happen on screen). It waits at the edge with a
@@ -1625,7 +1775,8 @@ final class CallController: NSObject, NSMenuDelegate {
 
     /// A hold-to-talk session that hasn't been used for a while ends by itself (frees the Claude sessions).
     private func checkIdle() {
-        guard mode == .push, state == .ready, guide == nil, !artistBusy, !ptt.isDown, agentReports.isEmpty, reportingIDs.isEmpty else { return }
+        guard mode == .push, state == .ready, guide == nil, !artistBusy, !ptt.isDown, agentReports.isEmpty, reportingIDs.isEmpty,
+              askingNow == nil else { return }
         if ProcessInfo.processInfo.systemUptime - lastActivity > Self.idleTimeout { endCall(quietly: true) }
     }
 

@@ -1,0 +1,97 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>running</title>
+<!-- Checks raising a hand (Phase 6): one helper at a time flies to the buddy with its question, a second
+     question from the same helper is asked right away, a helper nobody answers goes back to the edge with
+     a "?" (and stops needing smooth frames), it can be answered there later, and its card shows the exact
+     command with Allow / Don't allow (You choose / Skip for a question). Run by tools/tests/run-web-tests.mjs. -->
+<body style="margin:0;width:1400px;height:900px;position:relative">
+<script src="../../web/helpers.js"></script>
+<script>
+(function () {
+  const results = [], fail = [];
+  const check = (ok, what) => { results.push((ok ? 'ok   ' : 'FAIL ') + what); if (!ok) fail.push(what); };
+  const root = document.createElement('div'); root.style.cssText = 'position:absolute;inset:0'; document.body.appendChild(root);
+  const asks = [], actions = [];
+  const main = { x: 620, y: 520 };
+  const layer = new HelperLayer(root, {
+    main: { pos: () => main, react: (k, d) => { if (k === 'ask') asks.push([+layer.time.toFixed(2), d.id, d.text]); } },
+    sound: () => {}, params: { dock: 'auto', hold: true },
+    onAction: (id, a) => actions.push(id + ':' + a),
+  });
+  const H = id => layer.helpers.get(id);
+  const phase = id => { const h = H(id); return h ? h.phase + (h.phase === 'fly' ? '>' + h.fly.kind : '') : 'gone'; };
+  let pointer = null, busyWhileParked = 0, framesParked = 0;
+  const script = [
+    [0, () => ['a', 'b', 'c'].forEach((id, i) => layer.spawn(id, { name: ['Mint', 'Coral', 'Violet'][i], color: '#3c9', task: 'Task ' + id, note: i }))],
+    [8, () => { layer.raiseHand('a', 'Can I run npm install?', 'npm install left-pad --no-save'); layer.raiseHand('b', 'Can I open example.com?', 'https://example.com/docs'); }],
+    [10.5, () => {
+      check(phase('a') === 'asking' && phase('b') === 'dock', `one at a time: the first one asks, the other waits its turn (${phase('a')}, ${phase('b')})`);
+      check(asks.length === 1 && asks[0][1] === 'a', `the app hears that it's asking (${JSON.stringify(asks)})`);
+      check(H('a').bub === 'Can I run npm install?', `its bubble says what it wants (“${H('a').bub}”)`);
+    }],
+    // Answered, but it has another question: it stays and asks that one.
+    [11, () => layer.resolveHand('a', true, 'Can I run npm test?', 'npm test')],
+    [11.5, () => {
+      check(phase('a') === 'asking' && H('a').bub === 'Can I run npm test?', `its next question comes right away (${phase('a')}: “${H('a').bub}”)`);
+      check(asks.length === 2 && asks[1][1] === 'a', 'the app hears the next question too');
+    }],
+    [12, () => layer.resolveHand('a', true)],
+    [12.3, () => check(phase('a') === 'thanks' && H('a').bub === 'Thanks!', `it thanks you (${phase('a')}: “${H('a').bub}”)`)],
+    [15, () => check(phase('a') === 'dock' && phase('b') === 'asking', `then it goes back to work and the next one comes (${phase('a')}, ${phase('b')})`)],
+    // Nobody answers Coral: it parks at the edge with its hand up, and Violet gets a turn.
+    [16, () => { layer.park('b'); layer.raiseHand('c', 'Which database?', 'Which database should I use?\nSQLite · Postgres', 'question'); }],
+    [19, () => {
+      check(phase('b') === 'dock' && H('b').ask && H('b').parked, `nobody answered: it goes back to the edge, hand still up (${phase('b')})`);
+      check(phase('c') === 'asking', `the next helper with a question gets its turn (${phase('c')})`);
+    }],
+    [20, () => layer.resolveHand('c', false)],
+    [20.3, () => check(H('c').bub === 'Okay, skipping it', `a no: “${H('c').bub}”`)],
+    [24, () => {
+      const b = H('b');
+      check(b.badgeA > .9 && b.el.badge.textContent === '?', `a "?" on it while it waits (${b.el.badge.textContent}, ${b.badgeA.toFixed(2)})`);
+      // Rest the pointer on it: its card opens with the exact command and the buttons.
+      pointer = { x: b.x + 6, y: b.y + 6 };
+    }],
+    [27, () => {
+      const b = H('b'), e = b.el;
+      check(b.open > .9, `its card opens (${b.open.toFixed(2)})`);
+      check(e.askq.textContent === 'https://example.com/docs', `the card shows exactly what it wants (“${e.askq.textContent}”)`);
+      check(e.abtns.classList.contains('on') && e.abtns.children[0].textContent === 'Allow', `with Allow / Don’t allow (${e.abtns.children[0].textContent} / ${e.abtns.children[1].textContent})`);
+      check(e.cur.textContent === 'Waiting for your OK', `its line says it's waiting (“${e.cur.textContent}”)`);
+      e.abtns.children[0].click();
+      check(actions.includes('b:allow'), `Allow tells the app (${actions})`);
+      layer.resolveHand('b', true);   // what the app does then
+    }],
+    [27.4, () => {
+      const b = H('b');
+      check(!b.ask && b.el.cur.textContent === '✓ Thanks', `answered at the edge: “${b.el.cur.textContent}”, hand down`);
+      pointer = null;
+    }],
+    // A question on a card: You choose / Skip.
+    [28, () => { layer.raiseHand('c', 'Tabs or spaces?', 'Tabs or spaces?\nTabs · Spaces', 'question'); layer.park('c'); }],
+    [30, () => { const c = H('c'); pointer = { x: c.x + 6, y: c.y + 6 }; }],
+    [33, () => {
+      const c = H('c'), e = c.el;
+      check(e.abtns.children[0].textContent === 'You choose' && e.abtns.children[1].textContent === 'Skip', `a question's card offers You choose / Skip (${e.abtns.children[0].textContent} / ${e.abtns.children[1].textContent}; ${c.phase} open ${c.open.toFixed(2)} kind ${c.askKind} ask “${c.ask}”)`);
+      pointer = null;
+      layer.resolveHand('c', true);
+    }],
+    [36, () => { layer.park('a'); layer.raiseHand('a', 'Can I push?', 'git push'); layer.park('a'); }],
+  ];
+  let t = 0, i = 0;
+  while (t < 46) {
+    while (i < script.length && script[i][0] <= t) script[i++][1]();
+    layer.setPointer(pointer);
+    layer.update(1 / 60); layer.render(); t += 1 / 60;
+    // A parked question doesn't keep the loop at full speed (once things settle).
+    if (t > 40) { framesParked++; if (layer.busy) busyWhileParked++; }
+  }
+  check(H('a').parked && framesParked > 100 && busyWhileParked === 0, `a parked question doesn't need smooth frames (${busyWhileParked} busy of ${framesParked})`);
+  root.remove();
+  document.body.textContent = results.join('\n');
+  document.title = fail.length ? 'FAIL' : 'PASS';
+  window.testResults = { pass: !fail.length, lines: results };
+})();
+</script>
+</body>

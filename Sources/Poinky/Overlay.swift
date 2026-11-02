@@ -16,6 +16,8 @@ final class Overlay: NSObject, WKNavigationDelegate {
     var onClear: (() -> Void)?        // the Clear button on the overlay was clicked
     /// A button on a helper's card: id, "stop" / "log" / "folder".
     var onHelperAction: ((Int, String) -> Void)?
+    /// A helper reached you with its question (it hops next to the buddy until you answer).
+    var onHelperAsking: ((Int) -> Void)?
     /// The helper the mouse is on (holding the talk keys there talks to it), or nil.
     private(set) var pointedHelper: Int?
 
@@ -142,6 +144,17 @@ final class Overlay: NSObject, WKNavigationDelegate {
     func helperListen(id: Int, on: Bool) { js("SB.helperListen(\(id), \(on))") }
     /// It heard you: "message" (a follow-up) or "status".
     func helperHeard(id: Int, kind: String) { js("SB.helperHeard(\(id), \(jsString(kind)))") }
+    /// It needs your OK or has a question: it raises its hand and flies to you when it's its turn.
+    /// `kind`: "permission" (Allow / Don't allow on its card) or "question" (You choose / Skip).
+    func helperAsk(id: Int, question: String, detail: String, kind: String) {
+        js("SB.helperAsk(\(id), \(jsString(question)), \(jsString(detail)), \(jsString(kind)))")
+    }
+    /// You answered it. `next`: its next question, if it has one (it stays next to you).
+    func helperAnswered(id: Int, ok: Bool, next: (question: String, detail: String, kind: String)? = nil) {
+        js("SB.helperAnswered(\(id), \(ok), \(jsString(next?.question ?? "")), \(jsString(next?.detail ?? "")), \(jsString(next?.kind ?? "")))")
+    }
+    /// No answer for a while: it goes back to the edge with its hand up.
+    func helperPark(id: Int) { js("SB.helperPark(\(id))") }
     /// Poinky is about to say what these helpers did: they fly to the buddy and wait there.
     func helperReport(ids: [Int]) { if !ids.isEmpty { js("SB.helperReport(\(ids))") } }
     /// Done saying it: they merge into the buddy.
@@ -374,6 +387,8 @@ final class Overlay: NSObject, WKNavigationDelegate {
             trackMouse()
         case "helperPointed":
             pointedHelper = (msg["id"] as? String).flatMap { Int($0) } ?? (msg["id"] as? NSNumber)?.intValue
+        case "helperAsking":
+            if let id = Int("\(msg["id"] ?? "")") { onHelperAsking?(id) }
         case "helperAction":
             if let id = Int("\(msg["id"] ?? "")"), let action = msg["action"] as? String { onHelperAction?(id, action) }
         default:

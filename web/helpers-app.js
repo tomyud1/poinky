@@ -1,6 +1,7 @@
 // Connects the app to the helpers on screen (web/helpers.js) and their sounds (web/sounds.js).
 // Adds to window.SB: helperSpawn, helperStep, helperChecklist, helperDone, helperReport, helperRelease, helperStop,
-// helperSounds, helperPos.
+// helperAsk, helperAnswered, helperPark, helperSounds, helperPos.
+// Posts {kind: 'helperAsking', id} when a helper reaches you with its question.
 // Tells the app how many helpers are on screen ({kind: 'helpers', count}), so the overlay stays up while they work.
 (function () {
   const SB = window.SB;
@@ -12,7 +13,11 @@
   const layer = new HelperLayer(document.body, {
     main: {
       pos: () => SB.buddyPos() || { x: innerWidth / 2, y: innerHeight / 2 },
-      react: (kind, d) => SB.buddyReact(kind, d),
+      react: (kind, d) => {
+        SB.buddyReact(kind, d);
+        // A helper reached you with its question: the app says it out loud and listens for the answer.
+        if (kind === 'ask') post({ kind: 'helperAsking', id: String(d.id) });
+      },
     },
     sound: (name, o) => {
       if (!soundOn) return;
@@ -71,6 +76,13 @@
     /** Poinky finished saying it (or was cut off): they merge into the buddy, one at a time. */
     helperRelease(ids) { (ids || []).forEach(id => layer.release(String(id))); wake(); },
     helperStop(id) { layer.stop(String(id)); wake(); },
+    /** It needs your OK (or has a question): it raises its hand and flies to you when it's its turn.
+     *  question: short, in its words ("Can I run npm install?"); detail: exactly what it wants to do. */
+    helperAsk(id, question, detail, kind) { layer.raiseHand(String(id), question, detail || '', kind || 'permission'); wake(); },
+    /** You answered. next/nextDetail/nextKind: its next question, if it has one. */
+    helperAnswered(id, ok, next, nextDetail, nextKind) { layer.resolveHand(String(id), !!ok, next || '', nextDetail || '', nextKind || 'permission'); wake(); },
+    /** No answer for a while: back to the edge with its hand up. */
+    helperPark(id) { layer.park(String(id)); wake(); },
     /** Holding the talk keys while pointing at it: it listens. */
     helperListen(id, on) { layer.listen(String(id), on); wake(); },
     /** It heard you: kind 'message' (a follow-up) or 'status'. */
@@ -92,6 +104,6 @@
       return JSON.stringify(r);
     },
     /** For tests: "1:dock 2:fly>report …". */
-    helperPhases() { return [...layer.helpers.values()].map(h => h.id + ':' + h.phase + (h.phase === 'fly' ? '>' + h.fly.kind : '') + (h.listening ? '(listening)' : '') + (h.gotUntil ? '(got it)' : '')).join(' '); },
+    helperPhases() { return [...layer.helpers.values()].map(h => h.id + ':' + h.phase + (h.phase === 'fly' ? '>' + h.fly.kind : '') + (h.listening ? '(listening)' : '') + (h.gotUntil ? '(got it)' : '') + (h.ask ? (h.parked ? '(parked)' : '(hand up)') : '')).join(' '); },
   });
 })();

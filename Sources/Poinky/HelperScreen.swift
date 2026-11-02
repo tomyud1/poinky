@@ -10,6 +10,10 @@ final class HelperScreen {
     private let overlay: Overlay
     private weak var agents: AgentManager?
     private var windowTimer: Timer?
+    /// The request each helper is showing (its hand is up for it), by helper id.
+    private var shownAsk: [Int: String] = [:]
+    /// A click on a helper card's Allow / Don't allow (or You choose / Skip) button: id, yes.
+    var onCardAnswer: ((Int, Bool) -> Void)?
 
     init(overlay: Overlay, agents: AgentManager) {
         self.overlay = overlay
@@ -35,7 +39,7 @@ final class HelperScreen {
         case .step(let s), .note(let s): overlay.helperStep(id: a.id, text: s)
         case .checklist(let items): overlay.helperChecklist(id: a.id, items: items)
         case .blocked(let what): overlay.helperStep(id: a.id, text: "Not allowed to " + Self.lowerFirst(what))
-        case .started, .turnEnded: break
+        case .started, .turnEnded, .asking, .askCancelled: break   // asks: see asksChanged
         }
     }
 
@@ -55,12 +59,91 @@ final class HelperScreen {
     func action(id: Int, _ action: String) {
         guard let a = agents?.agents.first(where: { $0.id == id }) else { return }
         switch action {
+        case "allow": onCardAnswer?(id, true)
+        case "deny": onCardAnswer?(id, false)
         case "stop": agents?.stop(id: id)
         case "log": NSWorkspace.shared.open(a.log)
         case "folder": NSWorkspace.shared.open(a.dir)
         default: break
         }
     }
+
+    // MARK: - Raising its hand
+
+    /// Its open requests changed: it raises its hand for the first one (one at a time), or lowers it.
+    func asksChanged(_ a: AgentManager.Agent) {
+        guard let first = a.asks.first else {
+            if shownAsk.removeValue(forKey: a.id) != nil { overlay.helperAnswered(id: a.id, ok: false) }
+            return
+        }
+        let key = Self.key(first)
+        guard shownAsk[a.id] != key else { return }
+        if shownAsk[a.id] == nil {
+            overlay.helperAsk(id: a.id, question: first.bubble, detail: first.detail, kind: Self.kind(first))
+        } else {
+            overlay.helperAnswered(id: a.id, ok: true, next: (first.bubble, first.detail, Self.kind(first)))
+        }
+        shownAsk[a.id] = key
+    }
+
+    /// You answered its request: "Thanks!" (or "Okay, skipping it"), then its next one if it has more.
+    func answered(_ a: AgentManager.Agent, ok: Bool) {
+        if let next = a.asks.first {
+            shownAsk[a.id] = Self.key(next)
+            overlay.helperAnswered(id: a.id, ok: ok, next: (next.bubble, next.detail, Self.kind(next)))
+        } else {
+            shownAsk[a.id] = nil
+            overlay.helperAnswered(id: a.id, ok: ok)
+        }
+    }
+
+    /// No answer for a while: back to work at the edge, hand still up.
+    func park(id: Int) { overlay.helperPark(id: id) }
+
+    /// Which waiting helper you answered, and what you meant, or nil (then it's for the talker).
+    /// Pointing at a helper (`pointing`) or saying its name answers it; otherwise it's for the one next to
+    /// the buddy (`asking`). Only ever given what the user said: nothing else can approve anything.
+    func askReply(_ text: String, pointing: Int?, asking: Int?) -> (id: Int, reply: HelperAsk.Reply)? {
+        let waiting = (agents?.running ?? []).filter { !$0.asks.isEmpty }
+        guard !waiting.isEmpty else { return nil }
+        // Pointing at it ("stop" still stops it).
+        if let id = pointing {
+            guard let a = waiting.first(where: { $0.id == id }), let ask = a.asks.first, HelperTalk.intent(text) != .stop else { return nil }
+            let r = ask.reply(to: text, addressed: true)
+            return r == .unclear ? nil : (id, r)
+        }
+        // By name: "Mint, yes", "tell Coral no, use yarn", "yes Violet".
+        for a in waiting {
+            guard let ask = a.asks.first, let rest = HelperTalk.without(name: a.name, in: text) else { continue }
+            if HelperTalk.intent(rest) == .stop { return nil }
+            let r = ask.reply(to: rest, addressed: true)
+            if r != .unclear { return (a.id, r) }
+        }
+        // The one next to the buddy, which just asked.
+        if let id = asking, let a = waiting.first(where: { $0.id == id }), let ask = a.asks.first {
+            let r = ask.reply(to: text, addressed: false)
+            return r == .unclear ? nil : (id, r)
+        }
+        return nil
+    }
+
+    /// Sends your answer: it thanks you and goes on, or asks its next question.
+    @discardableResult
+    func answer(_ id: Int, _ reply: HelperAsk.Reply) -> AgentManager.AnswerResult {
+        guard let agents else { return .failed }
+        let result = agents.answer(id: id, reply)
+        guard let a = agents.agents.first(where: { $0.id == id }) else { return result }
+        switch result {
+        case .next: asksChanged(a)   // its next question (the same request)
+        case .sent:
+            if case .no = reply { answered(a, ok: false) } else { answered(a, ok: true) }
+        case .failed: break
+        }
+        return result
+    }
+
+    private static func key(_ ask: HelperAsk) -> String { ask.requestID + "#" + (ask.currentQuestion?.text ?? "") }
+    private static func kind(_ ask: HelperAsk) -> String { ask.kind == .question ? "question" : "permission" }
 
     // MARK: - Talking to a helper
 

@@ -21,12 +21,51 @@ enum HelperTest {
         func counts() -> String { "running \(m.running.count), waiting \(m.queued.count)" }
         m.onEvent = { a, e in log("#\(a.id) \(a.name) event \(e)") }
         m.onChange = { log("change: " + counts()) }
-        m.onFinished = { a in
-            log("#\(a.id) \(a.name) FINISHED \(a.status.rawValue) turns=\(a.turns) steps=\(a.steps.count) checklist=\(a.checklist.count) blocked=\(a.blocked.count) followUps=\(a.followUps.count): \(a.summary.prefix(160))")
+        func finishIfDone() {
+            // Everyone else is done: one still waiting for an answer that never came keeps waiting (then we stop it).
+            let waitingOnly = !m.running.isEmpty && m.queued.isEmpty && m.running.allSatisfy { !$0.asks.isEmpty }
+            if waitingOnly {
+                for a in m.running {
+                    log("#\(a.id) \(a.name) STILL WAITING for an answer (asks=\(a.asks.count)) after the others finished")
+                    log("status lines:\n" + m.statusLines().joined(separator: "\n"))
+                    m.stop(id: a.id)
+                }
+            }
             if m.running.isEmpty && m.queued.isEmpty {
                 log("ALL DONE")
                 log("status lines:\n" + m.statusLines().joined(separator: "\n"))
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { NSApp.terminate(nil) }
+            }
+        }
+        m.onFinished = { a in
+            log("#\(a.id) \(a.name) FINISHED \(a.status.rawValue) turns=\(a.turns) steps=\(a.steps.count) checklist=\(a.checklist.count) blocked=\(a.blocked.count) followUps=\(a.followUps.count): \(a.summary.prefix(160))")
+            finishIfDone()
+        }
+        // Answers, by helper: "1=yes,2=No, use a pad helper,3=ignore" (said to it, a second after it asks).
+        var planned: [Int: String] = [:]
+        for part in (env["POINKY_TEST_ANSWERS"] ?? "").components(separatedBy: ";") {
+            let kv = part.split(separator: "=", maxSplits: 1).map(String.init)
+            if kv.count == 2, let id = Int(kv[0].trimmingCharacters(in: .whitespaces)) { planned[id] = kv[1] }
+        }
+        let tellFirst = env["POINKY_TEST_TELL"] == "1"
+        m.onAsksChanged = { a in
+            guard let ask = a.asks.first else { log("#\(a.id) \(a.name) has no open requests"); return }
+            log("#\(a.id) \(a.name) ASKS: \(ask.bubble) [\(ask.detail.replacingOccurrences(of: "\n", with: " / "))] spoken: \"\(a.name) \(ask.spoken)\" risky=\(ask.risky)")
+            let id = a.id, rid = ask.requestID
+            // What the talker's <tell agent> does: a message, which must not answer the request.
+            if tellFirst {
+                log("tell #\(id) (like the talker): sent=\(m.send(id: id, text: "Yes, you're allowed to do that."))")
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                    let still = m.agents.first { $0.id == id }?.asks.contains { $0.requestID == rid } ?? false
+                    log("#\(id) after the talker's message: \(still ? "still waiting" : "NOT WAITING")")
+                }
+            }
+            guard let said = planned[id], said != "ignore" else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + (tellFirst ? 2.5 : 1)) {
+                guard let now = m.agents.first(where: { $0.id == id })?.asks.first else { return }
+                let reply = now.reply(to: said, addressed: true)
+                log("answer #\(id) \"\(said)\" → \(reply): \(m.answer(id: id, reply))")
+                finishIfDone()
             }
         }
         log("helper command: \(AgentManager.executable(config: config) ?? "none"), max \(config.maxHelpers)")
@@ -114,6 +153,42 @@ extension HelperTest {
             pointAt(1, at: 12); say("Also add a test for 4 people.", to: 1, at: 13)
             say("What are you doing?", to: 1, at: 15.5)
             pointAt(2, at: 17.5); say("stop", to: 2, at: 18.5)
+        }
+        // POINKY_TEST_ASK=1: helpers raise their hands (fixtures ask-install / ask-question). Each comes to the
+        // buddy in turn; what "you say" goes through the same routing as in the app. #3 gets no answer: it
+        // goes back to the edge and is answered later by name.
+        let askTest = env["POINKY_TEST_ASK"] == "1"
+        var askingNow: Int?
+        m.onAsksChanged = { a in
+            hs.asksChanged(a)
+            log("#\(a.id) \(a.name) open requests: \(a.asks.count)" + (a.asks.first.map { " (\($0.bubble))" } ?? ""))
+        }
+        hs.onCardAnswer = { id, yes in log("card button: #\(id) \(yes ? "allow" : "deny") → \(hs.answer(id, yes ? .yes(always: false, extra: "") : .no(reason: "")))") }
+        func hear(_ text: String) {
+            guard let (id, reply) = hs.askReply(text, pointing: o.pointedHelper, asking: askingNow) else { log("said \"\(text)\" → not an answer"); return }
+            let r = hs.answer(id, reply)
+            log("said \"\(text)\" → #\(id) \(reply): \(r)")
+            if askingNow == id, m.agents.first(where: { $0.id == id })?.asks.isEmpty != false { askingNow = nil }
+        }
+        if askTest {
+            let plan = [1: "Yes, go ahead", 2: "No, write a small pad helper instead", 4: "The database"]
+            o.onHelperAsking = { id in
+                askingNow = id
+                let name = m.agents.first { $0.id == id }?.name ?? "?"
+                log("#\(id) \(name) is asking next to the buddy")
+                // A question back isn't an answer: it keeps waiting.
+                if id == 1 { DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { hear("Wait, what does it want?") } }
+                if let said = plan[id] {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) { hear(said) }
+                } else {
+                    // Nobody answers: back to the edge, hand up. Later: answered by name.
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 4) {
+                        guard askingNow == id else { return }
+                        askingNow = nil; hs.park(id: id); log("parked #\(id)")
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 5) { hear("\(name), yes") }
+                    }
+                }
+            }
         }
         hs.settings(config)
         m.onStarted = { a in log("#\(a.id) \(a.name) started"); hs.started(a) }
@@ -214,7 +289,7 @@ extension HelperTest {
         }
         m.onStopped = { a in log("#\(a.id) \(a.name) stopped"); hs.stopped(id: a.id) }
         // The session ends while helpers still work.
-        DispatchQueue.main.asyncAfter(deadline: .now() + (talkTest ? 22 : 0.6 + Double(tasks.count) * 2.6 + 3)) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + (askTest ? 34 : talkTest ? 22 : 0.6 + Double(tasks.count) * 2.6 + 3)) {
             sessionOn = false; o.hide(); log("session ended (overlay.hide)")
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 180) { log("TIMEOUT"); NSApp.terminate(nil) }
@@ -222,6 +297,90 @@ extension HelperTest {
 }
 
 extension HelperTest {
+    /// Phase 6: a helper's request in plain words, your spoken answer, and the response Claude Code gets.
+    static func askChecks(_ check: (Bool, String) -> Void) {
+        func request(_ tool: String, _ input: [String: Any], suggestions: [[String: Any]]? = nil) -> HelperAsk? {
+            var req: [String: Any] = ["subtype": "can_use_tool", "tool_name": tool, "input": input]
+            if let s = suggestions { req["permission_suggestions"] = s }
+            return HelperAsk.from(["type": "control_request", "request_id": "r1", "request": req])
+        }
+        let sugg: [[String: Any]] = [["type": "addRules", "rules": [["toolName": "Bash", "ruleContent": "make build"]], "behavior": "allow", "destination": "localSettings"]]
+        guard let npm = request("Bash", ["command": "npm install left-pad --no-save --prefix ./demo2", "description": "Install left-pad"]),
+              let mk = request("Bash", ["command": "mkdir -p demo && date > demo/hello.txt"]),
+              let make = request("Bash", ["command": "make build"], suggestions: sugg),
+              let web = request("WebFetch", ["url": "https://example.com/docs", "prompt": "read"]),
+              let q = request("AskUserQuestion", ["questions": [["question": "Do you prefer tabs or spaces for indentation?", "header": "Indent",
+                                                                  "options": [["label": "Tabs"], ["label": "Spaces"]], "multiSelect": false]]]),
+              let q2 = request("AskUserQuestion", ["questions": [["question": "Which database should I use?", "header": "DB",
+                                                                   "options": [["label": "SQLite"], ["label": "Postgres"]], "multiSelect": false],
+                                                                  ["question": "Add tests?", "header": "Tests", "options": [["label": "Yes"], ["label": "No"]]]]])
+        else { check(false, "requests parse"); return }
+        check(npm.bubble == "Can I run npm install left-pad?", "bubble: \(npm.bubble)")
+        check(npm.spoken == "wants to run npm install left-pad. Is that okay?", "spoken: \(npm.spoken)")
+        check(npm.detail == "npm install left-pad --no-save --prefix ./demo2", "card shows the exact command")
+        check(mk.spoken == "wants to run mkdir demo, then date into hello.txt. Is that okay?", "two commands: \(mk.spoken)")
+        let long = HelperAsk.speakable("cd /tmp/x/live && python3 -m unittest -v 2>&1 | tail -12 && python3 tipsplit.py 87.40 18 3 && python3 tipsplit.py 10 0 3")
+        check(long == "python3 unittest, then python3 tipsplit.py 87.40 18 3, and more", "a long command, said short: \(long)")
+        let del = "cd /tmp/live2 && ls -la one/notes-old.txt && git status && python3 x.py && rm one/notes-old.txt && ls one"
+        check(HelperAsk.speakable(del) == "git status, then rm notes-old.txt, and more", "the risky part is always said: \(HelperAsk.speakable(del))")
+        check(HelperAsk.shortCommand(del) == "rm notes-old.txt and more", "its bubble names the risky part: \(HelperAsk.shortCommand(del))")
+        check(web.bubble == "Can I open example.com?", "web: \(web.bubble)")
+        check(q.kind == .question && q.spoken == "asks: Do you prefer tabs or spaces for indentation?", "question: \(q.spoken)")
+        check(q2.spoken == "asks: Which database should I use? SQLite, or Postgres?", "question with its choices: \(q2.spoken)")
+        let risky = ["npm install left-pad", "rm -rf build", "git push origin main", "ls; rm notes.txt", "pip install requests", "gh pr create --fill"]
+        let safe = ["git status", "echo hi", "npm test", "python3 -m pytest", "grep -r rm .", "git commit -m 'x'"]
+        check(risky.allSatisfy(HelperAsk.isRisky(command:)), "risky: \(risky.filter { !HelperAsk.isRisky(command: $0) })")
+        check(!safe.contains(where: HelperAsk.isRisky(command:)), "not risky: \(safe.filter(HelperAsk.isRisky(command:)))")
+        let replies: [(String, HelperAsk.Reply)] = [
+            ("Yes.", .yes(always: false, extra: "")), ("Yeah, go ahead", .yes(always: false, extra: "")), ("Do it", .yes(always: false, extra: "")),
+            ("Sure, but use yarn instead", .yes(always: false, extra: "Use yarn instead")), ("Yes, always", .yes(always: true, extra: "")),
+            ("Okay and don't ask again", .yes(always: true, extra: "")), ("No problem", .yes(always: false, extra: "")),
+            ("No.", .no(reason: "")), ("Nope", .no(reason: "")), ("Not now", .no(reason: "")),
+            ("No, use yarn instead", .no(reason: "Use yarn instead")),
+            ("Okay, what does it want?", .unclear), ("No wait, what is it?", .unclear), ("What is npm?", .unclear), ("Yes no wait", .unclear),
+            ("You can tell me later", .unclear), ("Hmm", .unclear), ("Open Safari for me", .unclear), ("No idea", .unclear),
+        ]
+        for (said, want) in replies { let got = npm.reply(to: said, addressed: false); check(got == want, "\"\(said)\" → \(got)") }
+        let answers: [(String, Bool, HelperAsk.Reply)] = [
+            ("Spaces", false, .answer("Spaces")), ("the first one", false, .answer("Tabs")), ("Spaces, not tabs", false, .answer("Spaces")),
+            ("You choose", false, .answer("No preference: you choose.")), ("Skip", false, .no(reason: "")),
+            ("Two-space indentation please", true, .answer("Two-space indentation please")), ("Two-space indentation please", false, .unclear),
+            ("What's the difference?", true, .unclear),
+        ]
+        for (said, addressed, want) in answers { let got = q.reply(to: said, addressed: addressed); check(got == want, "question: \"\(said)\"\(addressed ? " (to it)" : "") → \(got)") }
+        // What Claude Code gets.
+        func body(_ r: [String: Any]?) -> [String: Any] { ((r?["response"] as? [String: Any])?["response"] as? [String: Any]) ?? [:] }
+        let yes = body(npm.response(.yes(always: false, extra: "")))
+        check(yes["behavior"] as? String == "allow" && (yes["updatedInput"] as? [String: Any])?["command"] as? String == npm.detail, "yes → allow, same command")
+        let no = body(npm.response(.no(reason: "Use yarn instead")))
+        check(no["behavior"] as? String == "deny" && no["message"] as? String == "The user said no: Use yarn instead", "no → deny: \(no["message"] ?? "")")
+        let always = body(make.response(.yes(always: true, extra: "")))
+        let rules = always["updatedPermissions"] as? [[String: Any]]
+        check(rules?.first?["destination"] as? String == "session", "yes, always → a rule for this session only")
+        check(body(npm.response(.yes(always: true, extra: "")))["updatedPermissions"] == nil, "risky: \"always\" doesn't stick")
+        let picked = body(q.response(.answer("Spaces")))
+        check(((picked["updatedInput"] as? [String: Any])?["answers"] as? [String: String])?["Do you prefer tabs or spaces for indentation?"] == "Spaces", "question → its answer")
+        check(npm.response(.unclear) == nil, "unclear → nothing sent")
+        // Two questions in one request: asked one at a time.
+        let after = q2.recording("SQLite")
+        check(after?.currentQuestion?.text == "Add tests?" && after?.answers["Which database should I use?"] == "SQLite", "two questions: the second comes next")
+        let both = ((body(after?.response(.answer("Yes")))["updatedInput"] as? [String: Any])?["answers"] as? [String: String]) ?? [:]
+        check(both == ["Which database should I use?": "SQLite", "Add tests?": "Yes"], "two questions: both answers sent (\(both))")
+        // Answering by name.
+        for (said, name, want) in [("Mint, yes", "Mint", "yes"), ("tell Coral no, use yarn", "Coral", "no, use yarn"), ("Yes Violet.", "Violet", "Yes"),
+                                    ("Let Mint do it", "Mint", "do it"), ("What's up?", "Mint", nil)] as [(String, String, String?)] {
+            let got = HelperTalk.without(name: name, in: said)
+            check(got == want, "\"\(said)\" to \(name) → \(got ?? "nil")")
+        }
+        // The stream: a request becomes an ask, a withdrawal cancels it.
+        var stream = HelperStream()
+        let line = #"{"type":"control_request","request_id":"abc","request":{"subtype":"can_use_tool","tool_name":"Bash","input":{"command":"npm install"}}}"# + "\n"
+            + #"{"type":"control_cancel_request","request_id":"abc"}"# + "\n"
+        let evs = stream.feed(Data(line.utf8))
+        if evs.count == 2, case .asking(let a) = evs[0], case .askCancelled(let id) = evs[1] { check(a.requestID == "abc" && id == "abc", "stream: request and withdrawal") }
+        else { check(false, "stream: request and withdrawal (\(evs))") }
+    }
+
     /// `--helper-talk-test <out.txt>`: what you say to a helper (stop / status / follow-up), by pointing or
     /// by name, its spoken status, and the talker's <tell>/<stop> tags. No model, no screen.
     static func talkSelfTest(out: String) {
@@ -269,6 +428,7 @@ extension HelperTest {
         check(ev.tells.first?.name == "Mint" && ev.tells.first?.text == "Also add a test for 4 people." && ev.stops == ["Coral"],
               "talker tags: tell \(ev.tells.map { "\($0.name): \($0.text)" }), stop \(ev.stops)")
         check(ev.sentences == ["I'll tell Mint."] || ev.sentences.isEmpty, "the tags aren't spoken (\(ev.sentences))")
+        askChecks(check)
         lines.append(fails == 0 ? "ALL OK" : "\(fails) FAILED")
         try? lines.joined(separator: "\n").write(toFile: out, atomically: true, encoding: .utf8)
         DispatchQueue.main.async { NSApp.terminate(nil) }

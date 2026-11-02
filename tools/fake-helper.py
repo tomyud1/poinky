@@ -17,6 +17,12 @@ POINKY_FAKE_SPEED=4 plays four times faster.
 
 Like Claude Code: a message that arrives while it works is folded into the current turn; one that
 arrives after a turn ended starts a new turn; when stdin closes it finishes the turn and exits.
+
+A run can ask for permission (or ask a question), like Claude Code with --permission-prompt-tool stdio:
+a line {"type": "_ask", "_t": ..., "request": {...can_use_tool...}, "allow": [...], "deny": [...]} sends a
+control_request and waits (as long as it takes) for the matching control_response, then plays the
+"allow" or "deny" events (their _t: seconds after the answer). In them, {answers} becomes the answers
+given to a question (JSON) and {message} the reason given with a no.
 """
 import json, os, queue, re, sys, threading, time, uuid
 
@@ -24,7 +30,9 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 RUNS = os.path.join(HERE, "helper-runs")
 SPEED = float(os.environ.get("POINKY_FAKE_SPEED", "1") or 1)
 
-inbox = queue.Queue()
+inbox = queue.Queue()      # user messages (text), None when stdin closes
+answers = {}               # control responses by request id
+answered = threading.Condition()
 
 def read_stdin():
     for line in sys.stdin:
@@ -35,11 +43,30 @@ def read_stdin():
             msg = json.loads(line)
         except ValueError:
             continue
+        if msg.get("type") == "control_response":
+            r = msg.get("response") or {}
+            with answered:
+                answers[r.get("request_id")] = r.get("response") or {}
+                answered.notify_all()
+            continue
         content = (msg.get("message") or {}).get("content", "")
         if isinstance(content, list):
             content = " ".join(c.get("text", "") for c in content if isinstance(c, dict))
         inbox.put(content)
     inbox.put(None)   # stdin closed
+    with answered:
+        answered.notify_all()
+
+stdin_closed = threading.Event()
+
+def wait_answer(rid):
+    """Waits (forever, like Claude Code) for the answer to a request. None if stdin closed first."""
+    with answered:
+        while rid not in answers:
+            if stdin_closed.is_set():
+                return None
+            answered.wait(0.2)
+        return answers.pop(rid)
 
 def emit(obj):
     obj = {k: v for k, v in obj.items() if k != "_t"}
@@ -61,6 +88,11 @@ def load(name):
     return turns
 
 def main():
+    # POINKY_FAKE_NO_AUTO=1: like a Claude Code without auto mode (fails before starting).
+    argv = sys.argv[1:]
+    if os.environ.get("POINKY_FAKE_NO_AUTO") == "1" and "--permission-mode" in argv and argv[argv.index("--permission-mode") + 1] == "auto":
+        sys.stderr.write("Error: permission mode auto is not available\n")
+        return 1
     threading.Thread(target=read_stdin, daemon=True).start()
     first = inbox.get()
     if first is None:
@@ -99,11 +131,46 @@ def main():
                         msg = inbox.get(timeout=left)
                         if msg is None:
                             closed = True
+                            stdin_closed.set()
                         else:
                             folded.append(msg)
                     except queue.Empty:
                         pass
             t_prev = t
+            if o.get("type") == "_ask":
+                rid = str(uuid.uuid4())
+                emit({"type": "control_request", "request_id": rid, "request": o["request"]})
+                # Messages that arrive while it waits are folded in, as usual.
+                got = threading.Event()
+                def collect():
+                    while not stdin_closed.is_set() and not got.is_set():
+                        try:
+                            msg = inbox.get(timeout=0.2)
+                        except queue.Empty:
+                            continue
+                        if msg is None:
+                            stdin_closed.set()
+                            with answered:
+                                answered.notify_all()
+                            return
+                        folded.append(msg)
+                collector = threading.Thread(target=collect, daemon=True)
+                collector.start()
+                resp = wait_answer(rid)
+                got.set()
+                collector.join()
+                if resp is None:
+                    return 1   # nobody to answer: Claude Code would end too
+                allowed = resp.get("behavior") == "allow"
+                given = json.dumps(((resp.get("updatedInput") or {}).get("answers")) or {})
+                branch = json.dumps(o.get("allow" if allowed else "deny", []))
+                branch = branch.replace("{answers}", given.replace('"', "'")).replace("{message}", (resp.get("message") or "").replace('"', "'"))
+                prev = 0
+                for b in json.loads(branch):
+                    time.sleep(max(0, b.get("_t", 0) - prev) / SPEED)
+                    prev = b.get("_t", 0)
+                    emit(dict(b, session_id=session) if "session_id" in b else b)
+                continue
             if o.get("type") == "_exit":
                 return o.get("code", 1)
             if o.get("type") == "result":

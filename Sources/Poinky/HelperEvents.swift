@@ -13,6 +13,10 @@ enum HelperEvent: Equatable {
     case checklist([HelperTask])
     /// It tried something it isn't allowed to do on its own ("Run curl -sI https://example.com").
     case blocked(String)
+    /// It needs your OK, or asked you a question: it waits for your answer.
+    case asking(HelperAsk)
+    /// Claude Code withdrew a request (by its id): no answer needed anymore.
+    case askCancelled(String)
     /// It finished answering. More may follow if a follow-up arrived while it worked.
     case turnEnded(ok: Bool, summary: String, seconds: Double, costUSD: Double?)
 }
@@ -96,6 +100,15 @@ struct HelperStream {
                 if let id = c["tool_use_id"] as? String { calls[id] = nil }
             }
             return out
+
+        case "control_request":
+            // Permission for something it isn't allowed to do on its own, or a question for you.
+            if let ask = HelperAsk.from(obj) { return [.asking(ask)] }
+            return []
+
+        case "control_cancel_request":
+            if let id = obj["request_id"] as? String { return [.askCancelled(id)] }
+            return []
 
         case "result":
             let ok = !((obj["is_error"] as? Bool) ?? false) && (obj["subtype"] as? String ?? "success") == "success"
@@ -203,6 +216,13 @@ struct HelperStream {
             t = String(t[..<r.lowerBound]) + (t[r.lowerBound] == ":" ? "" : String(t[r.lowerBound]))
         }
         return t.isEmpty ? nil : clip(t, 110)
+    }
+
+    /// Lowercase words and spaces only ("How's it going?" → "how s it going").
+    static func plain(_ s: String) -> String {
+        s.lowercased().replacingOccurrences(of: "’", with: "'")
+            .replacingOccurrences(of: "[^a-z0-9 ]", with: " ", options: .regularExpression)
+            .split(separator: " ").joined(separator: " ")
     }
 
     static func clip(_ s: String, _ n: Int = 70) -> String {

@@ -40,6 +40,8 @@ final class AgentManager {
         var blocked: [String] = []
         var followUps: [String] = []
         var turns = 0
+        /// What it's waiting for you to answer (permission or a question), oldest first. Shown one at a time.
+        var asks: [HelperAsk] = []
     }
 
     /// Helper names, in the order they're handed out, each with its own color (web/helpers.js).
@@ -54,6 +56,9 @@ final class AgentManager {
     private var lastTurn: [Int: (ok: Bool, summary: String)] = [:]
     private var closeWork: [Int: DispatchWorkItem] = [:]
     private var waiting: [(id: Int, req: AgentRequest, config: AppConfig)] = []
+    private var planOnly: Set<Int> = []
+    /// How each helper was started, to start it again without auto mode if that mode isn't available.
+    private var launched: [Int: (req: AgentRequest, config: AppConfig, exe: String)] = [:]
     private var nextID = 1
     /// How many helpers may work at once (the rest wait in line). From `AppConfig.maxHelpers`.
     var maxRunning = 3
@@ -68,6 +73,8 @@ final class AgentManager {
     var onStarted: ((Agent) -> Void)?
     /// The user stopped a helper.
     var onStopped: ((Agent) -> Void)?
+    /// A helper needs an answer (its first open one), or its open requests changed (answered or withdrawn).
+    var onAsksChanged: ((Agent) -> Void)?
 
     /// The name the next helper will get (so Poinky can say "I'll have Mint do that").
     var nextName: String { freeName() }
@@ -149,6 +156,51 @@ final class AgentManager {
         return true
     }
 
+    enum AnswerResult: Equatable {
+        case sent          // the helper has its answer and goes on
+        case next(HelperAsk)   // recorded; it has another question for you (the same request)
+        case failed        // not waiting for that anymore (or it couldn't be sent)
+    }
+
+    /// Your answer to a helper's open request (the first one unless `requestID` says otherwise).
+    /// Only ever called with what the user said or clicked: nothing else approves anything.
+    @discardableResult
+    func answer(id: Int, requestID: String? = nil, _ reply: HelperAsk.Reply) -> AnswerResult {
+        guard let i = agents.firstIndex(where: { $0.id == id }), agents[i].status == .running,
+              let k = requestID.map({ rid in agents[i].asks.firstIndex { $0.requestID == rid } }) ?? (agents[i].asks.isEmpty ? nil : 0)
+        else { return .failed }
+        let ask = agents[i].asks[k]
+        // A question with more to ask: keep the answer and ask the next one.
+        if case .answer(let a) = reply, let next = ask.recording(a) {
+            agents[i].asks[k] = next
+            appendLog(agents[i], "- The user answered: \(a)\n")
+            onChange?()
+            return .next(next)
+        }
+        guard let response = ask.response(reply), write(id, response) else { return .failed }
+        agents[i].asks.remove(at: k)
+        let said: String
+        switch reply {
+        case .yes(let always, let extra): said = "yes" + (always && !ask.risky ? " (always, for this session)" : "") + (extra.isEmpty ? "" : ". \(extra)")
+        case .no(let reason): said = "no" + (reason.isEmpty ? "" : ": \(reason)")
+        case .answer(let a): said = "answered: \(a)"
+        case .unclear: said = "?"
+        }
+        appendLog(agents[i], "- The user \(said.hasPrefix("answered") ? said : "said " + said)\n")
+        if case .yes(_, let extra) = reply, !extra.isEmpty { _ = send(id: id, text: extra) }
+        onChange?()
+        return .sent
+    }
+
+    /// One line on a helper's input (a control response). False if it can't be sent.
+    @discardableResult
+    private func write(_ id: Int, _ obj: [String: Any]) -> Bool {
+        guard let input = inputs[id], var d = try? JSONSerialization.data(withJSONObject: obj) else { return false }
+        d.append(0x0A)
+        do { try input.write(contentsOf: d) } catch { return false }
+        return true
+    }
+
     func stop(id: Int) {
         guard let i = agents.firstIndex(where: { $0.id == id }) else { return }
         let wasActive = agents[i].status == .running || agents[i].status == .queued
@@ -156,6 +208,7 @@ final class AgentManager {
             agents[i].status = .stopped
             agents[i].finished = Date()
         }
+        agents[i].asks.removeAll()
         waiting.removeAll { $0.id == id }
         closeWork[id]?.cancel()
         closeWork[id] = nil
@@ -187,6 +240,10 @@ final class AgentManager {
                     s += ". To-do: \(a.checklist.filter { $0.state == .done }.count) of \(a.checklist.count) done"
                 }
                 if !a.blocked.isEmpty { s += ". Wasn't allowed to: " + a.blocked.suffix(3).joined(separator: "; ") }
+                if let ask = a.asks.first {
+                    s += ask.kind == .question ? ". WAITING for the user to answer its question: \(ask.currentQuestion?.text ?? ask.detail)"
+                                               : ". WAITING for the user's OK to: \(ask.detail)"
+                }
                 return s
             case .done: return "\(who): done after \(mins) min. Summary: \(a.summary)"
             case .failed: return "\(who): failed. Last output: \(a.summary)"
@@ -207,19 +264,29 @@ final class AgentManager {
         \(req.task)
 
         Notes:
-        - The user can't answer questions while you work: make sensible choices and note them. They may send you follow-up messages; fold them into the work.
+        - Make sensible choices yourself and note them; the user may send you follow-up messages, so fold those into the work. Ask the user (AskUserQuestion: one short question, 2–4 options) only when a choice really changes the result and you can't undo it. They hear it out loud while doing other things.
+        - If you need something you aren't allowed to do on your own, just do it: the user is asked out loud and can say yes or no. If they say no, find another way or explain in your summary.
+        - Each request interrupts the user, so keep commands simple: one at a time, from the project folder (no `cd … &&`, no `| tail`), and prefer the ones that need no OK (the project's tests, git status/diff/log, ls).
         - \(req.dir == nil ? "The project's folder wasn't given. Find it under the home folder (look in ~/Desktop, ~/Developer, ~/Documents, ~/Projects, ~/code) by the names mentioned above." : "Work in \(dir.path).")
         - When the task has several distinct parts, keep a short to-do list with TodoWrite: the user sees it as your progress. Skip it for small tasks.
         - Don't commit, push, publish, send anything, or delete files the user made, unless the task says so.
         - Your last message is read aloud exactly as written, so make it only the summary: 2–3 plain sentences (no markdown, no remarks about your process or to-do list) saying what you did and what the user should check.
         """
         guard let first = Self.userLine(prompt) else { return false }
-        let mode = config.agentPermission.isEmpty ? "acceptEdits" : config.agentPermission
+        launched[id] = (req, config, exe)
+        let mode = config.agentPermission.isEmpty ? "auto" : config.agentPermission
         var args = ["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
-                    "--permission-mode", mode, "--name", "Poinky: \(req.title)"]
-        // Nobody can approve anything while it runs: pre-approve editing the project and a few
-        // safe commands (tests, git status/diff/log, listing files). Everything else is refused.
-        if mode != "plan" { args += ["--allowedTools", Self.safeTools.joined(separator: " ")] }
+                    "--permission-mode", mode, "--name", "Poinky: \(req.title)",
+                    // Anything it isn't allowed to do on its own comes to Poinky (a control_request on its
+                    // output), and it waits until the user says yes or no.
+                    "--permission-prompt-tool", "stdio"]
+        if mode == "plan" { planOnly.insert(id) } else {
+            // Editing the project and a few safe commands (tests, git status/diff/log, listing files) need no OK.
+            args += ["--allowedTools", Self.safeTools.joined(separator: " ")]
+            // Pushing, deleting and installing always ask, even in auto mode.
+            if let data = try? JSONSerialization.data(withJSONObject: ["permissions": ["ask": HelperAsk.askRules]]),
+               let json = String(data: data, encoding: .utf8) { args += ["--settings", json] }
+        }
         if !config.agentModel.isEmpty { args += ["--model", config.agentModel] }
         if AppConfig.efforts.contains(config.agentEffort) { args += ["--effort", config.agentEffort] }
 
@@ -305,6 +372,23 @@ final class AgentManager {
             case .blocked(let what):
                 agents[i].blocked.append(what)
                 appendLog(agents[i], "- Wasn't allowed to: \(what)\n")
+            case .asking(let ask):
+                // Plan only: it reports the plan instead of starting on it.
+                if planOnly.contains(id), ask.tool == "ExitPlanMode" {
+                    write(id, ["type": "control_response", "response": ["subtype": "success", "request_id": ask.requestID, "response":
+                        ["behavior": "deny", "message": "The user asked for a plan only. Give the plan as your final summary."]] as [String: Any]])
+                    continue
+                }
+                agents[i].asks.append(ask)
+                appendLog(agents[i], "- Asks the user: \(ask.kind == .question ? ask.detail : ask.bubble + " (" + ask.detail + ")")\n")
+                onChange?()
+                if agents[i].asks.count == 1 { onAsksChanged?(agents[i]) }
+            case .askCancelled(let rid):
+                guard let k = agents[i].asks.firstIndex(where: { $0.requestID == rid }) else { break }
+                agents[i].asks.remove(at: k)
+                appendLog(agents[i], "- (It withdrew the question.)\n")
+                onChange?()
+                onAsksChanged?(agents[i])
             case .turnEnded(let ok, let summary, _, _):
                 agents[i].turns += 1
                 lastTurn[id] = (ok, summary)
@@ -332,7 +416,20 @@ final class AgentManager {
         closeWork[id]?.cancel()
         closeWork[id] = nil
         defer { startWaiting() }
+        planOnly.remove(id)
+        let how = launched.removeValue(forKey: id)
         guard let i = agents.firstIndex(where: { $0.id == id }), agents[i].status == .running else { return }
+        // Auto mode isn't available (older Claude Code, or not on this plan): it ended before it even
+        // started. Start it again editing the project and asking for the rest.
+        if !exitOK, agents[i].session.isEmpty, agents[i].steps.isEmpty, let how, how.config.agentPermission == "auto" || how.config.agentPermission.isEmpty {
+            var cfg = how.config
+            cfg.agentPermission = "acceptEdits"
+            if launch(id: id, req: how.req, config: cfg, exe: how.exe) {
+                appendLog(agents[i], "- (Auto mode isn't available here, so it started again without it.)\n")
+                return
+            }
+        }
+        agents[i].asks.removeAll()
         let turn = lastTurn.removeValue(forKey: id)
         let ok = exitOK && (turn?.ok ?? false)
         agents[i].status = ok ? .done : .failed
