@@ -53,7 +53,8 @@ PY
 #   1. your Apple Development certificate (if you have one),
 #   2. the local "Poinky Local Signing" certificate (made here, once, if it doesn't exist),
 #   3. ad hoc (macOS would ask for permissions again after every update).
-# Set POINKY_KEYCHAIN to use a different keychain than your login keychain (used for testing).
+# Set POINKY_KEYCHAIN to use a different keychain than your login keychain (used for testing),
+# or POINKY_ADHOC=1 to skip certificates and sign ad hoc (used by CI, which has no screen to click on).
 CERT_NAME="Poinky Local Signing"
 KEYCHAIN="${POINKY_KEYCHAIN:-$HOME/Library/Keychains/login.keychain-db}"
 KC_ARGS=(); SIGN_KC=()   # search every keychain unless overridden
@@ -88,10 +89,24 @@ EOF
   rm -rf "$tmp"; return 1
 }
 
-IDENTITY=$(security find-identity -v -p codesigning 2>/dev/null | grep -m1 "Apple Development" | awk '{print $2}' || true)
-[ -n "$IDENTITY" ] || IDENTITY=$(find_identity "$CERT_NAME")
-[ -n "$IDENTITY" ] || IDENTITY=$(find_identity "ScreenBuddy Local Signing")   # the old name, still honored
-if [ -z "$IDENTITY" ]; then
+# Runs a command, but gives up (and fails) after N seconds. macOS can pop up a "codesign wants to use
+# your key" dialog; on a Mac nobody is looking at (CI, SSH) that would wait forever.
+with_timeout() {
+  local secs="$1"; shift
+  "$@" & local pid=$!
+  ( sleep "$secs"; kill "$pid" 2>/dev/null ) & local watcher=$!
+  local rc=0; wait "$pid" 2>/dev/null || rc=$?
+  kill "$watcher" 2>/dev/null || true; wait "$watcher" 2>/dev/null || true
+  return "$rc"
+}
+
+IDENTITY=""
+if [ "${POINKY_ADHOC:-0}" != 1 ]; then
+  IDENTITY=$(security find-identity -v -p codesigning 2>/dev/null | grep -m1 "Apple Development" | awk '{print $2}' || true)
+  [ -n "$IDENTITY" ] || IDENTITY=$(find_identity "$CERT_NAME")
+  [ -n "$IDENTITY" ] || IDENTITY=$(find_identity "ScreenBuddy Local Signing")   # the old name, still honored
+fi
+if [ -z "$IDENTITY" ] && [ "${POINKY_ADHOC:-0}" != 1 ]; then
   echo "Creating a local signing certificate (\"$CERT_NAME\") so macOS keeps Poinky's permissions between updates…"
   if make_local_certificate; then
     IDENTITY=$(find_identity "$CERT_NAME")
@@ -99,10 +114,10 @@ if [ -z "$IDENTITY" ]; then
   fi
 fi
 
-if [ -n "$IDENTITY" ] && codesign --force --sign "$IDENTITY" ${SIGN_KC[@]+"${SIGN_KC[@]}"} "$APP"; then
+if [ -n "$IDENTITY" ] && with_timeout "${POINKY_SIGN_TIMEOUT:-120}" codesign --force --sign "$IDENTITY" ${SIGN_KC[@]+"${SIGN_KC[@]}"} "$APP"; then
   echo "Signed with: $IDENTITY"
 else
-  [ -z "$IDENTITY" ] || echo "Signing with the certificate failed; falling back to ad hoc signing."
+  [ -z "$IDENTITY" ] || echo "Signing with the certificate failed or timed out; falling back to ad hoc signing (run the installer again later and click Always Allow when macOS asks)."
   codesign --force --sign - "$APP"
   echo "Signed ad hoc (macOS may ask for permissions again after each update)."
 fi

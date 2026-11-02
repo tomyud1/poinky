@@ -8,6 +8,7 @@ on:
 jobs:
   build:
     runs-on: macos-26
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
 
@@ -20,7 +21,10 @@ jobs:
           node --check web/kit.js
 
       - name: Build the app
+        env:
+          POINKY_ADHOC: "1"   # no screen to click "Always Allow" on, so skip the local certificate
         run: ./build.sh
+        timeout-minutes: 15
 
       - name: Check the app bundle
         run: |
