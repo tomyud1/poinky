@@ -45,6 +45,9 @@ final class Overlay: NSObject, WKNavigationDelegate {
 
     func show(on screen: NSScreen) {
         if panel == nil { build() }
+        wantsHidden = false
+        helperCursorTimer?.invalidate(); helperCursorTimer = nil
+        keepAwake(true)
         self.screen = screen
         guard let panel else { return }
         panel.setFrame(screen.frame, display: true)
@@ -81,7 +84,84 @@ final class Overlay: NSObject, WKNavigationDelegate {
         setCaption(you: nil, claude: nil)
         setPhase("off")
         setArtistBusy(false)
+        wantsHidden = true
+        // Helpers keep working after a session ends: the overlay stays up (click-through) until they're gone.
+        if helperCount > 0 { followCursorForHelpers() } else { panel?.orderOut(nil); keepAwake(false) }
+    }
+
+    /// While anything is on screen, macOS must not "nap" Poinky: with no session (no audio running)
+    /// it would slow its timers and pause the page's animations, and helpers would freeze mid-flight.
+    private var awake: NSObjectProtocol?
+    private func keepAwake(_ on: Bool) {
+        if on, awake == nil {
+            awake = ProcessInfo.processInfo.beginActivity(options: [.userInitiatedAllowingIdleSystemSleep, .latencyCritical],
+                                                          reason: "Poinky is animating on screen")
+        } else if !on, let a = awake {
+            ProcessInfo.processInfo.endActivity(a)
+            awake = nil
+        }
+    }
+
+    // MARK: Helpers (background agents) on screen, web/helpers-app.js
+
+    var isShown: Bool { panel?.isVisible == true }
+    /// Helpers on screen right now (reported by the page).
+    private(set) var helperCount = 0
+    private var wantsHidden = true
+    private var helperCursorTimer: Timer?
+
+    /// A helper is starting: make sure the overlay is up (on the screen with the mouse if no session has it).
+    func helperSpawn(id: Int, name: String, task: String, note: Int) {
+        if panel?.isVisible != true {
+            let mouse = NSEvent.mouseLocation
+            let s = NSScreen.screens.first { NSMouseInRect(mouse, $0.frame, false) } ?? NSScreen.main ?? NSScreen.screens[0]
+            let hidden = wantsHidden
+            show(on: s)
+            wantsHidden = hidden
+            if hidden { setPhase("off"); followCursorForHelpers() }
+        }
+        helperCount = max(helperCount, 1)   // until the page reports
+        js("SB.helperSpawn(\(id), \(jsString(name)), \(jsString(task)), \(note))")
+    }
+    func helperStep(id: Int, text: String) { js("SB.helperStep(\(id), \(jsString(text)))") }
+    func helperChecklist(id: Int, items: [HelperTask]) {
+        let list = items.map { ["text": $0.text, "state": $0.state.rawValue] }
+        let json = (try? JSONSerialization.data(withJSONObject: list)).flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
+        js("SB.helperChecklist(\(id), \(json))")
+    }
+    func helperDone(id: Int, ok: Bool, summary: String) { js("SB.helperDone(\(id), \(ok), \(jsString(summary)))") }
+    func helperStop(id: Int) { js("SB.helperStop(\(id))") }
+    func helperSounds(on: Bool, volume: Double) { js("SB.helperSounds(\(on), \(volume))") }
+
+    /// With no session running, the buddy is hidden but helpers still need to know where it would be.
+    private func followCursorForHelpers() {
+        guard helperCursorTimer == nil else { return }
+        helperCursorTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, let screen = self.screen else { return }
+                let loc = NSEvent.mouseLocation
+                let p = NSMouseInRect(loc, screen.frame, false) ? CGPoint(x: loc.x - screen.frame.minX, y: screen.frame.maxY - loc.y) : nil
+                self.tick(cursor: p, level: 0)
+            }
+        }
+    }
+
+    private func helpersChanged(_ count: Int) {
+        helperCount = count
+        guard count == 0, wantsHidden else { return }
+        helperCursorTimer?.invalidate(); helperCursorTimer = nil
         panel?.orderOut(nil)
+        keepAwake(false)
+    }
+
+    /// What the overlay shows right now, as a PNG (developer checks).
+    func snapshot(to url: URL, done: @escaping () -> Void) {
+        guard let web else { done(); return }
+        web.takeSnapshot(with: nil) { image, _ in
+            if let tiff = image?.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff),
+               let png = rep.representation(using: .png, properties: [:]) { try? png.write(to: url) }
+            done()
+        }
     }
 
     func setMarking(_ on: Bool) {
@@ -255,6 +335,8 @@ final class Overlay: NSObject, WKNavigationDelegate {
             onCardError?("\(msg["id"] ?? "")", "\(msg["type"] ?? "")", "\(msg["message"] ?? "")")
         case "clear":
             onClear?()
+        case "helpers":
+            helpersChanged((msg["count"] as? NSNumber)?.intValue ?? 0)
         default:
             break
         }

@@ -64,6 +64,15 @@ final class AgentManager {
     var onChange: (() -> Void)?
     /// A helper made progress (for the screen).
     var onEvent: ((Agent, HelperEvent) -> Void)?
+    /// A helper started working (right away, or later from the line).
+    var onStarted: ((Agent) -> Void)?
+    /// The user stopped a helper.
+    var onStopped: ((Agent) -> Void)?
+
+    /// The name the next helper will get (so Poinky can say "I'll have Mint do that").
+    var nextName: String { freeName() }
+    /// Its place in the name list (each helper has its own note in the sounds).
+    static func note(for name: String) -> Int { names.firstIndex(of: name.components(separatedBy: " ")[0]) ?? 0 }
 
     var running: [Agent] { agents.filter { $0.status == .running } }
     var queued: [Agent] { agents.filter { $0.status == .queued } }
@@ -114,6 +123,7 @@ final class AgentManager {
             return nil
         }
         onChange?()
+        onStarted?(agent)
         return agent
     }
 
@@ -146,7 +156,7 @@ final class AgentManager {
         try? inputs[id]?.close()
         inputs[id] = nil
         onChange?()
-        if wasActive { startWaiting() }
+        if wasActive { onStopped?(agents[i]); startWaiting() }
     }
 
     func stopAll() {
@@ -335,6 +345,7 @@ final class AgentManager {
             agents[i].status = .running
             if let exe = Self.executable(config: next.config), launch(id: next.id, req: next.req, config: next.config, exe: exe) {
                 onChange?()
+                onStarted?(agents[i])
             } else {
                 agents[i].status = .failed
                 agents[i].finished = Date()

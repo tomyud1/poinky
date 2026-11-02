@@ -66,6 +66,7 @@
   let cursor = null;                         // where your cursor is (points), or null (other screen)
   const B = { x: -200, y: -200, vx: 0, vy: 0, placed: false };
   let fly = null;                            // {x, y, until, pokeAt}: Claude is pointing at something
+  let look = null, lookRot = 0;              // a helper it's facing (id), and the extra turn
   let bubbleKind = null, bubbleText = '', bubbleW = 0, bubbleH = 0, fadeTimer = 0;
   const OFFSET = { x: 20, y: 23 };           // its tip sits this far below-right of the real cursor
   const BODY = { w: 21, h: 21 };             // its size, measured from the tip
@@ -94,6 +95,9 @@
       case 'pop': {    // appearing
         const k = p < .6 ? .5 + .56 * (p / .6) : 1.06 - .06 * ease((p - .6) / .4);
         o.sx = o.sy = k; break;
+      }
+      case 'squash': { // a helper buds off it: it squeezes, then springs back
+        o.sx = 1 + .22 * s; o.sy = 1 - .2 * s; break;
       }
       case 'poke': {   // a small tap toward what Claude is pointing at
         const d = -3 * Math.abs(Math.sin(p * Math.PI * 2)) * (1 - p * .5);
@@ -155,6 +159,17 @@
       else if (idle > 1500 && !flying) breathe = 1 + .02 * Math.sin(now / 900);
       if (fly && fly.pokeAt && now >= fly.pokeAt) { fly.pokeAt = 0; act('poke', 600); }
     }
+    // Facing a helper it's handing a task to (or hearing back from).
+    if (look && SB.helperPos) {
+      const t = SB.helperPos(look);
+      if (t) {
+        const d0 = Math.atan2(-fy, -fx) * 180 / Math.PI;           // where its tip points now
+        let want = Math.atan2(t.y - B.y, t.x - B.x) * 180 / Math.PI - d0;
+        want = ((want + 540) % 360) - 180;
+        lookRot += (((want - lookRot + 540) % 360) - 180) * Math.min(1, dt * 10);
+      }
+    } else lookRot += (((0 - lookRot + 540) % 360) - 180) * Math.min(1, dt * 8);
+    rot += lookRot;
     const P = pose(now);
     const sq = 1 + Math.min(speed / 6000, 0.08);
     const x = B.x + P.dx * side.x, y = B.y + P.dy * (P.dy < 0 ? 1 : side.y) + bob;
@@ -275,6 +290,18 @@
         r.style.left = x + 'px'; r.style.top = y + 'px';
         document.body.appendChild(r); setTimeout(() => r.remove(), 700);
       }, 380);
+    },
+    /** Where the buddy's tip is (points), for helpers to bud from and fly back to. */
+    buddyPos() {
+      if (B.placed) return { x: B.x, y: B.y };
+      return cursor ? { x: cursor.x + OFFSET.x, y: cursor.y + OFFSET.y } : null;
+    },
+    /** Helpers tell the buddy what's happening: bud, handoff, handoffEnd, report, absorb. */
+    buddyReact(kind, d) {
+      if (kind === 'bud') act('squash', 420);
+      else if (kind === 'handoff' || kind === 'report') look = d && d.id;
+      else if (kind === 'handoffEnd') look = null;
+      else if (kind === 'absorb') { look = null; act('happy', 600); }
     },
     buddyOn(on) {
       buddyOn = !!on;

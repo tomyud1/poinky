@@ -29,6 +29,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // tasks through AgentManager and writes every event, then quits. With
         // POINKY_HELPER_CMD=tools/fake-helper.py and tasks like "fixture:fix-bug" it spends no tokens.
         // POINKY_TEST_MAX: helpers at once (default 3). POINKY_TEST_FOLLOWUP="5|text": a follow-up to the first.
+        // `Poinky --helper-screen-test <outdir> <folder> <task>…`: the same, shown on screen through the real
+        // overlay, with snapshots of what it draws (outdir/shot-*.png) and a log (outdir/log.txt).
+        if let i = args.firstIndex(of: "--helper-screen-test"), i + 2 < args.count {
+            HelperTest.runOnScreen(outDir: args[i + 1], dir: args[i + 2], tasks: Array(args[(i + 3)...]))
+            return
+        }
         if let i = args.firstIndex(of: "--helper-test"), i + 2 < args.count {
             HelperTest.run(out: args[i + 1], dir: args[i + 2], tasks: Array(args[(i + 3)...]))
             return

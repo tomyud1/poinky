@@ -46,16 +46,18 @@ Turn each background agent into a live session the app can watch and talk to.
 - **Learned:** a follow-up sent while a helper works is folded into its current turn, and one sent just after it finished starts a new turn, so a helper counts as done 3 s after its last answer. Helpers often get refused for simple things, like running the program they just fixed, which makes Phase 6 (raise a hand) important.
 - **Run the tests:** `tools/test-helpers.sh` (add `--live` for a real Claude Code helper).
 
-### Phase 1: The Agent Lab (design first): built, being tuned
+### Phase 1: The Agent Lab (design first): done
 A web page, `web/agents-lab.html`, that plays the whole choreography with fake helpers: spawn, hand-off, flight, dock, working, done, report back, raise hand, failure. It has a timeline scrubber, a speed control, a sound toggle, and light and dark backgrounds. This is where the motion and sounds get tuned, together, before anything goes into the app.
 - **Tests:** play it in the browser pane, record GIFs of each moment, and review them together. Check the frame time with four helpers, Reduced Motion, and dark mode. Nothing moves on to Phase 2 until you're happy with the look and sound.
 - **Open it:** `open web/agents-lab.html`. Change any slider, then "Copy settings" and paste the result to Claude to make it the default. "Save sounds" writes every sound as a `.wav` file.
 
   ![Agent Lab preview: helpers bud off the main buddy, fly to the edge, raise a hand, and report back](media/agent-lab-preview.gif)
 
-### Phase 2: Spawn and hand-off
+### Phase 2: Spawn and hand-off: done
 When the main agent starts a helper, the main cursor pauses and a small cursor buds off it. The main cursor turns to it, and a short line shows the hand-off ("Mint, fix the failing login test"). The helper nods and arcs to the edge of the screen. Several helpers spawned at once fan out one after another. The main agent says one short line ("I'll have Mint fix that") and goes back to you.
 - **Tests:** in the real app, with fake helpers, spawn 1 and 3 helpers, on one screen and on two screens, and in a full-screen app. Then spawn a real helper on `demo/sample-project`. Measure the main agent's time to first word before and after, to confirm it isn't slower.
+- **Built:** helpers appear in the real overlay with the lab's motion and sounds, show their real progress, and fly back when done. The main buddy squashes as one buds, faces it during the hand-off and hops when it merges back. The overlay stays up while helpers work after a session ends. The talker names the helper out loud ("I'll have Mint look into that"). `tools/test-helpers.sh --screen` checks it through the real overlay.
+- **Learned:** with no session running, macOS "naps" Poinky and its animations freeze, so the overlay now keeps Poinky awake while anything is on screen. Still to check by hand: two screens and full-screen apps (Phase 3 handles where helpers sit).
 
 ### Phase 3: Working at the edge
 Helpers line up at the side of the screen, away from the window you're using and from your cursor. Each shows its color, its name, the latest progress line, and a progress ring from its checklist, with a small "working" motion and a tick for each finished item. Tasks waiting for a free slot show as small dots below the line. Hovering a helper opens a card: the task, its steps so far, the time elapsed, and Stop, Open log, and Open folder buttons.

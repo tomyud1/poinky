@@ -28,7 +28,7 @@
   function rng(seed) { let s = seed >>> 0; return () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296); }
 
   const CSS = `
-  .hl-root{position:absolute;inset:0;pointer-events:none;overflow:hidden;font:500 13px/1.3 -apple-system,system-ui,sans-serif}
+  .hl-root{position:absolute;inset:0;pointer-events:none;overflow:hidden;z-index:45;font:500 13px/1.3 -apple-system,system-ui,sans-serif}
   .hl-h{position:absolute;left:0;top:0;width:0;height:0;will-change:transform}
   .hl-tri{position:absolute;left:0;top:0;width:29px;height:29px;margin:-5.5px 0 0 -5.5px;transform-origin:5.5px 5.5px;will-change:transform;overflow:visible}
   .hl-tri path{stroke-width:4;stroke-linejoin:round}
@@ -52,6 +52,8 @@
   `;
 
   class HelperLayer {
+    // Each helper's color, by name (AgentManager.names). Never blue: that's the main buddy.
+    static colors = { Mint: '#34c98e', Coral: '#ff7a59', Violet: '#9b6bff', Amber: '#ffb020', Rose: '#ff5c9a', Sky: '#38bdf8' };
     static defaults = {
       size: .72,          // helper size, relative to the main buddy
       flight: .95,        // seconds for a flight across about half the screen
@@ -152,7 +154,15 @@
       }
     }
 
-    stop(id) { const h = this.helpers.get(id); if (h) this.remove(h); }
+    // Stopped by the user: a small puff where it was.
+    stop(id) {
+      const h = this.helpers.get(id); if (!h) return;
+      this.burst(h.x + 6, h.y + 6, h.color, 6, 45);
+      this.remove(h);
+    }
+
+    get count() { return this.helpers.size; }
+    pos(id) { const h = this.helpers.get(id); return h ? { x: h.x, y: h.y } : null; }
 
     // ---------- layout ----------
 

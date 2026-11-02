@@ -21,6 +21,7 @@ jobs:
           node --check web/kit.js
           node --check web/helpers.js
           node --check web/sounds.js
+          node --check web/helpers-app.js
 
       - name: Build the app
         env:
@@ -32,7 +33,7 @@ jobs:
         run: |
           APP=build/Poinky.app
           codesign --verify --verbose "$APP"
-          for f in Contents/MacOS/Poinky Contents/Info.plist Contents/Resources/web/libs.js \
+          for f in Contents/MacOS/Poinky Contents/Info.plist Contents/Resources/web/libs.js Contents/Resources/web/helpers.js Contents/Resources/web/helpers-app.js Contents/Resources/web/sounds.js \
                    Contents/Resources/talker-prompt.md Contents/Resources/kokoro_server.py \
                    Contents/Resources/kokoro/install.sh; do
             test -s "$APP/$f" || { echo "missing from the app: $f"; exit 1; }

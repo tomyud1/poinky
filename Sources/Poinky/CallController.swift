@@ -18,6 +18,7 @@ final class CallController: NSObject, NSMenuDelegate {
     private let speaker = Speaker()
     private let kokoro = KokoroVoice()      // stays loaded between calls so it starts instantly
     private let overlay = Overlay()
+    private lazy var helperScreen = HelperScreen(overlay: overlay)   // helpers (agents) on screen
     private let home = NotchHome()            // the status + controls at the notch
     private let agents = AgentManager()       // background Claude Code agents
     private var agentReports: [String] = []   // finished agents the user hasn't heard about yet
@@ -143,8 +144,12 @@ final class CallController: NSObject, NSMenuDelegate {
         ptt.onCommit = { [weak self] in self?.pushCommit() }
         ptt.onUp = { [weak self] send in self?.pushUp(send: send) }
         ptt.onTap = { [weak self] in self?.pushTap() }
-        agents.onFinished = { [weak self] a in self?.agentFinished(a) }
+        agents.onFinished = { [weak self] a in self?.helperScreen.finished(a); self?.agentFinished(a) }
         agents.onChange = { [weak self] in self?.refreshAgentsInHome() }
+        agents.onStarted = { [weak self] a in self?.helperScreen.started(a) }
+        agents.onEvent = { [weak self] a, e in self?.helperScreen.event(a, e) }
+        agents.onStopped = { [weak self] a in self?.helperScreen.stopped(id: a.id) }
+        helperScreen.settings(config)
         ptt.configure(config.pushToTalk)
         ScreenCapture.excludedBundleIDs = Set(config.excludedApps)
         let settings = SettingsWindowController.shared.model
@@ -710,6 +715,7 @@ final class CallController: NSObject, NSMenuDelegate {
         // Background agents, and any results the user hasn't heard yet.
         let status = agents.statusLines()
         if !status.isEmpty { lines.append("Background agents:\n" + status.joined(separator: "\n")) }
+        lines.append("If you start an agent now, it will be called \(agents.nextName).")
         if !proactive, !agentReports.isEmpty {
             lines.append("Also tell the user briefly, after answering: " + agentReports.joined(separator: " "))
             agentReports.removeAll()
@@ -1641,6 +1647,7 @@ final class CallController: NSObject, NSMenuDelegate {
         }
         ptt.configure(cfg.pushToTalk)
         overlay.setBuddy(cfg.buddy)
+        helperScreen.settings(cfg)
         refreshHomeLabels()
         if cfg.voiceEngine == "kokoro", KokoroVoice.isInstalled { try? kokoro.start() }
         // Voice changes apply right away, even in the middle of a call.

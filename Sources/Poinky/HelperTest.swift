@@ -47,3 +47,79 @@ enum HelperTest {
         DispatchQueue.main.asyncAfter(deadline: .now() + 600) { log("TIMEOUT"); NSApp.terminate(nil) }
     }
 }
+
+extension HelperTest {
+    private static var overlay: Overlay?
+    private static var screen: HelperScreen?
+
+    /// Helpers through the real overlay: a pretend session starts them, then ends (the overlay must
+    /// stay up for them), they finish, and the overlay goes away when the last one is gone.
+    static func runOnScreen(outDir: String, dir: String, tasks: [String]) {
+        let fm = FileManager.default
+        try? fm.createDirectory(atPath: outDir, withIntermediateDirectories: true)
+        let env = ProcessInfo.processInfo.environment
+        var config = AppConfig()
+        config.maxHelpers = Int(env["POINKY_TEST_MAX"] ?? "") ?? 3
+        config.soundVolume = 0.0001   // the test is silent
+        let o = Overlay(), m = AgentManager(), hs = HelperScreen(overlay: o)
+        overlay = o; manager = m; screen = hs
+        let display = NSScreen.main ?? NSScreen.screens[0]
+        let t0 = Date()
+        var lines: [String] = []
+        func log(_ s: String) {
+            lines.append(String(format: "%6.2f ", Date().timeIntervalSince(t0)) + s)
+            try? lines.joined(separator: "\n").write(toFile: outDir + "/log.txt", atomically: true, encoding: .utf8)
+        }
+        // A pretend session: the buddy sits at a fixed spot (not your real mouse).
+        o.show(on: display)
+        o.setBuddy(true)
+        o.setPhase("ready")
+        let cursor = CGPoint(x: display.frame.width * 0.42, y: display.frame.height * 0.55)
+        var sessionOn = true
+        let ticker = Timer.scheduledTimer(withTimeInterval: 1.0 / 30, repeats: true) { _ in
+            MainActor.assumeIsolated { if sessionOn { o.tick(cursor: cursor, level: 0) } }
+        }
+        hs.settings(config)
+        m.onStarted = { a in log("#\(a.id) \(a.name) started"); hs.started(a) }
+        m.onEvent = { a, e in hs.event(a, e) }
+        m.onStopped = { a in hs.stopped(id: a.id) }
+        m.onFinished = { a in
+            log("#\(a.id) \(a.name) finished \(a.status.rawValue)"); hs.finished(a)
+        }
+        // Snapshots: often at first (spawning, flying), then every second.
+        var n = 0
+        func shoot() {
+            let name = String(format: "%@/shot-%03d-%05.1fs.png", outDir, n, Date().timeIntervalSince(t0))
+            n += 1
+            o.snapshot(to: URL(fileURLWithPath: name)) {}
+        }
+        var schedule: [Double] = stride(from: 0.2, to: 9.0, by: 0.3).map { $0 }
+        schedule += stride(from: 9.0, to: 70.0, by: 1.0).map { $0 }
+        for t in schedule { DispatchQueue.main.asyncAfter(deadline: .now() + t) { if o.isShown { shoot() } } }
+        // Watch the overlay: it must stay up while helpers are on screen, and go away after.
+        var lastState = ""
+        let watcher = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { _ in
+            MainActor.assumeIsolated {
+                let s = "overlay \(o.isShown ? "shown" : "hidden"), helpers on screen \(o.helperCount), session \(sessionOn ? "on" : "off")"
+                if s != lastState { lastState = s; log(s) }
+                if !sessionOn, !o.isShown, m.running.isEmpty, m.queued.isEmpty {
+                    log("ALL DONE"); ticker.invalidate()
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { NSApp.terminate(nil) }
+                }
+            }
+        }
+        _ = watcher
+        log("display \(Int(display.frame.width))x\(Int(display.frame.height)), helper command \(AgentManager.executable(config: config) ?? "none")")
+        for (k, task) in tasks.enumerated() {
+            // Spaced like a real conversation that asks for a few things.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6 + Double(k) * 2.6) {
+                _ = m.start(AgentRequest(title: "Task \(k + 1)", dir: dir, task: task), config: config)
+            }
+        }
+        // The session ends while helpers still work.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6 + Double(tasks.count) * 2.6 + 3) {
+            sessionOn = false; o.hide(); log("session ended (overlay.hide)")
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 180) { log("TIMEOUT"); NSApp.terminate(nil) }
+    }
+}

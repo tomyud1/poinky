@@ -2,7 +2,8 @@
 # Tests helpers (background agents) without spending tokens:
 #   1. the stream parser (HelperEvents.swift) against every recorded run in tools/helper-runs/
 #   2. AgentManager end to end with the fake helper: waiting line, follow-ups, stop, crash, error.
-# Usage: tools/test-helpers.sh            (add --live to also run one real Claude Code helper, ~1 min)
+# Usage: tools/test-helpers.sh   (--screen: also show helpers through the real overlay, ~35 s;
+#                                 --live: also run one real Claude Code helper, ~1 min)
 set -uo pipefail
 cd "$(dirname "$0")/.."
 ROOT="$PWD"
@@ -44,8 +45,22 @@ expect "$TMP/B.txt" "Coral \"Test 2\": stopped by the user" "stop works"
 expect "$TMP/B.txt" "#3 Violet FINISHED failed .*I hit an error" "an error result counts as failed"
 pgrep -f "fake-helper.py" >/dev/null && bad "no helper processes left behind" || pass "no helper processes left behind"
 
+if [ "${1:-}" = "--screen" ] || [ "${2:-}" = "--screen" ]; then
+  echo "5. Helpers on screen through the real overlay (draws on your screen for ~35 s, silent)"
+  [ -d build/Poinky.app ] || ./build.sh >/dev/null 2>&1
+  env POINKY_AGENT_LOG_DIR="$TMP/logs-screen" POINKY_HELPER_CMD="$ROOT/tools/fake-helper.py" POINKY_FAKE_SPEED=3 \
+    build/Poinky.app/Contents/MacOS/Poinky --helper-screen-test "$TMP/screen" "$TMP/proj" fixture:fix-bug fixture:todo-blocked fixture:error 2>/dev/null
+  L="$TMP/screen/log.txt"
+  expect "$L" "helpers on screen 3, session on" "all three helpers appear on screen"
+  expect "$L" "session ended" "the session ends while they work"
+  expect "$L" "overlay shown, helpers on screen [1-3], session off" "the overlay stays up for them after the session"
+  expect "$L" "overlay hidden, helpers on screen 0, session off" "it goes away after the last one reports"
+  n=$(ls "$TMP/screen"/shot-*.png 2>/dev/null | wc -l | tr -d ' ')
+  [ "$n" -gt 20 ] && pass "snapshots of what it drew ($n)" || bad "snapshots of what it drew ($n)"
+fi
+
 if [ "${1:-}" = "--live" ]; then
-  echo "5. A real Claude Code helper (uses your Claude plan)"
+  echo "6. A real Claude Code helper (uses your Claude plan)"
   cp -R demo/sample-project "$TMP/live"
   env POINKY_AGENT_LOG_DIR="$TMP/logs-live" POINKY_TEST_FOLLOWUP="10|Also add a short Usage section to the README." "$BIN" --helper-test "$TMP/live.txt" "$TMP/live" \
     "Fix the known issue described in the README of the tipsplit project (shares don't add up to the total), and add a test for it."
