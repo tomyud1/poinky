@@ -11,7 +11,7 @@
     opacity:0;transition:opacity .3s;will-change:transform;transform-origin:5.5px 5.5px}
   #buddy.on{opacity:1}
   #buddy .tri,#buddy .dots,#buddy .ring{position:absolute;inset:0}
-  #buddy .tri{transition:transform .35s cubic-bezier(.3,1.6,.5,1),opacity .2s;transform-origin:5.5px 5.5px}
+  #buddy .tri{transition:transform .35s cubic-bezier(.3,1.6,.5,1),opacity .2s;transform-origin:5.5px 5.5px;overflow:visible}
   #buddy .tri path{fill:#3b82ff;stroke:#3b82ff;stroke-width:4;stroke-linejoin:round;
     filter:drop-shadow(0 0 6px rgba(59,130,255,.75)) drop-shadow(0 2px 3px rgba(0,0,0,.25))}
   #buddy .ring{left:-5.5px;top:-5.5px;width:22px;height:22px;border-radius:50%;border:2px solid rgba(59,130,255,.55);

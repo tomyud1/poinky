@@ -42,8 +42,9 @@ final class AgentManager {
         var turns = 0
     }
 
-    /// Helper names, in the order they're handed out. Each will get its own color and shape.
-    static let names = ["Blue", "Mint", "Coral", "Violet", "Amber", "Rose"]
+    /// Helper names, in the order they're handed out, each with its own color (web/helpers.js).
+    /// No "Blue": the main buddy is blue.
+    static let names = ["Mint", "Coral", "Violet", "Amber", "Rose", "Sky"]
     /// After a turn ends, how long to wait for more (a follow-up that just arrived) before letting it finish.
     static var turnGrace: TimeInterval = 3
 

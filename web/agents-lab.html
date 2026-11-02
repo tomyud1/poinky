@@ -1,0 +1,461 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Poinky Agent Lab</title>
+<style>
+  :root{
+    --panel:#141417;--panel2:#1c1c21;--line:rgba(255,255,255,.08);--text:#ececf1;--dim:#9a9aa6;--accent:#3b82ff;
+    --wall-a:#d9dee8;--wall-b:#b9c3d6;--win:#ffffff;--win-bar:#f0f0f3;--win-text:#2b2b31;--win-dim:#8a8a95;--code-kw:#b8338f;--code-fn:#2563eb;
+  }
+  :root[data-bg="dark"]{--wall-a:#1d2230;--wall-b:#0d1018;--win:#1e1f24;--win-bar:#2a2b31;--win-text:#e3e3e8;--win-dim:#7b7b86;--code-kw:#f472b6;--code-fn:#60a5fa}
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--panel);color:var(--text);font:13px/1.4 -apple-system,system-ui,sans-serif;overflow:hidden}
+  #app{display:flex;height:100%}
+
+  /* ---------- the stage: a pretend Mac desktop ---------- */
+  #stage{position:relative;flex:1;min-width:0;overflow:hidden;background:radial-gradient(120% 90% at 20% 10%,var(--wall-a),var(--wall-b));cursor:default}
+  #menubar{position:absolute;left:0;right:0;top:0;height:26px;background:rgba(255,255,255,.55);-webkit-backdrop-filter:blur(20px);backdrop-filter:blur(20px);
+    display:flex;align-items:center;gap:16px;padding:0 14px;font:600 12.5px -apple-system,system-ui;color:#1d1d1f;z-index:1}
+  :root[data-bg="dark"] #menubar{background:rgba(30,30,36,.6);color:#eee}
+  #menubar span{font-weight:500;opacity:.85}
+  #notch{position:absolute;left:50%;top:0;transform:translateX(-50%);width:170px;height:26px;background:#000;border-radius:0 0 12px 12px;z-index:2}
+  #window{position:absolute;left:5%;top:70px;width:min(56%,620px);height:min(66%,430px);background:var(--win);border-radius:11px;overflow:hidden;
+    box-shadow:0 24px 60px rgba(0,0,0,.28),0 0 0 .5px rgba(0,0,0,.2)}
+  #window .bar{height:30px;background:var(--win-bar);display:flex;align-items:center;gap:7px;padding:0 12px;color:var(--win-dim);font-size:12px}
+  #window .bar i{width:11px;height:11px;border-radius:50%;display:inline-block}
+  #window pre{margin:0;padding:14px 18px;font:12.5px/1.65 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--win-text);white-space:pre}
+  #window .kw{color:var(--code-kw)} #window .fn{color:var(--code-fn)} #window .cm{color:var(--win-dim)}
+  #cursor{position:absolute;left:0;top:0;width:22px;height:22px;z-index:60;pointer-events:none}
+
+  /* the main buddy, drawn exactly like web/buddy.js */
+  #main{position:absolute;left:0;top:0;width:29px;height:29px;margin:-5.5px 0 0 -5.5px;z-index:55;pointer-events:none;transform-origin:5.5px 5.5px;will-change:transform}
+  #main svg{overflow:visible}
+  #main path{fill:#3b82ff;stroke:#3b82ff;stroke-width:4;stroke-linejoin:round;filter:drop-shadow(0 0 6px rgba(59,130,255,.75)) drop-shadow(0 2px 3px rgba(0,0,0,.25))}
+  #main .dots{position:absolute;inset:0}
+  #main .dots i{position:absolute;left:5.5px;top:5.5px;width:7px;height:7px;margin:-3.5px;border-radius:50%;background:#3b82ff;box-shadow:0 0 6px rgba(59,130,255,.8)}
+  .bubble{position:absolute;left:0;top:0;max-width:330px;padding:7px 12px;border-radius:13px;pointer-events:none;z-index:56;
+    font:500 14px/1.35 -apple-system,system-ui,sans-serif;color:#fff;background:#3b82ff;box-shadow:0 6px 22px rgba(30,80,200,.35),0 1px 2px rgba(0,0,0,.2);
+    transform-origin:0 0;opacity:0}
+  .bubble.you{background:rgba(24,24,28,.84);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);color:rgba(255,255,255,.92);font-style:italic;box-shadow:0 6px 22px rgba(0,0,0,.3)}
+  .ripple{position:absolute;left:0;top:0;width:34px;height:34px;margin:-17px 0 0 -17px;border-radius:50%;border:2.5px solid #3b82ff;pointer-events:none;z-index:54;opacity:0;box-shadow:0 0 10px rgba(59,130,255,.6)}
+
+  /* ---------- the control panel ---------- */
+  #panel{width:340px;flex:none;display:flex;flex-direction:column;background:var(--panel);border-left:1px solid var(--line)}
+  #transport{padding:14px 14px 12px;border-bottom:1px solid var(--line);background:var(--panel2)}
+  #transport h1{margin:0 0 10px;font:650 14px -apple-system,system-ui;letter-spacing:.01em;display:flex;align-items:center;gap:8px}
+  #transport h1 small{margin-left:auto;font:500 11px ui-monospace,Menlo,monospace;color:var(--dim)}
+  .row{display:flex;align-items:center;gap:8px}
+  button{white-space:nowrap;font:600 12px -apple-system,system-ui;color:var(--text);background:#2b2b33;border:0;border-radius:7px;padding:6px 10px;cursor:pointer}
+  button:hover{background:#34343e} button:active{transform:translateY(1px)}
+  button.primary{background:var(--accent);color:#fff;min-width:64px} button.primary:hover{background:#4c8dff}
+  button.ghost{background:transparent;color:var(--dim);padding:4px 6px} button.ghost:hover{color:var(--text);background:#26262d}
+  select{font:12px -apple-system,system-ui;color:var(--text);background:#2b2b33;border:0;border-radius:7px;padding:5px 6px}
+  #time{font:500 12px ui-monospace,Menlo,monospace;color:var(--dim);min-width:84px;text-align:right}
+  #scrub{width:100%;margin:10px 0 8px;accent-color:var(--accent)}
+  #moments{display:flex;flex-wrap:wrap;gap:5px}
+  #moments button{font-weight:500;padding:4px 8px;background:#24242b;color:#cfcfd8;border-radius:20px}
+  #moments button.on{background:rgba(59,130,255,.22);color:#fff}
+  #controls{flex:1;overflow-y:auto;padding:4px 14px 18px}
+  details{border-bottom:1px solid var(--line);padding:6px 0}
+  summary{cursor:pointer;list-style:none;font:650 12px -apple-system,system-ui;color:#d7d7df;padding:6px 0;display:flex;align-items:center;gap:6px;text-transform:uppercase;letter-spacing:.06em}
+  summary::before{content:'›';display:inline-block;transition:transform .15s;color:var(--dim);font-size:14px}
+  details[open]>summary::before{transform:rotate(90deg)}
+  .ctl{display:grid;grid-template-columns:96px 1fr 38px;align-items:center;gap:8px;margin:5px 0}
+  .ctl label{color:var(--dim);font-size:12px}
+  .ctl input[type=range]{width:100%;accent-color:var(--accent)}
+  .ctl output{font:500 11px ui-monospace,Menlo,monospace;color:#c8c8d2;text-align:right}
+  .seg{display:flex;gap:4px;margin:6px 0}
+  .seg button{flex:1;background:#24242b;color:#cfcfd8;font-weight:500}
+  .seg button.on{background:rgba(59,130,255,.25);color:#fff}
+  .voice{background:#1b1b20;border-radius:9px;padding:8px 10px 4px;margin:8px 0}
+  .voice .head{display:flex;align-items:center;gap:6px;font-weight:600;color:#e2e2ea;margin-bottom:2px}
+  .voice .head .play{background:var(--accent);color:#fff;width:24px;height:24px;padding:0;border-radius:50%;font-size:10px}
+  .voice .head .save{margin-left:auto}
+  .voice .ctl{grid-template-columns:70px 1fr 34px;margin:2px 0}
+  .hint{color:var(--dim);font-size:11.5px;margin:6px 0 2px}
+  #foot{padding:10px 14px;border-top:1px solid var(--line);display:flex;gap:6px;flex-wrap:wrap;background:var(--panel2)}
+  #toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%) translateY(20px);background:#2b2b33;color:#fff;padding:8px 14px;border-radius:10px;
+    opacity:0;transition:all .25s;pointer-events:none;font-weight:500;z-index:99;box-shadow:0 8px 24px rgba(0,0,0,.35)}
+  #toast.on{opacity:1;transform:translateX(-50%)}
+  #copybox{position:fixed;inset:0;background:rgba(0,0,0,.5);display:none;align-items:center;justify-content:center;z-index:98}
+  #copybox.on{display:flex}
+  #copybox div{background:var(--panel2);border-radius:12px;padding:14px;width:min(520px,90vw)}
+  #copybox textarea{width:100%;height:260px;background:#111;color:#ddd;border:1px solid var(--line);border-radius:8px;font:11.5px ui-monospace,Menlo,monospace;padding:8px}
+  @media (max-width:820px){#app{flex-direction:column}#panel{width:auto;height:46%;border-left:0;border-top:1px solid var(--line)}}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="stage">
+    <div id="menubar"><b>Poinky</b><span>File</span><span>Edit</span><span>View</span><span>Window</span></div>
+    <div id="notch"></div>
+    <div id="window">
+      <div class="bar"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i>&nbsp; tipsplit — tipsplit.py</div>
+<pre><span class="cm">"""Split a restaurant bill (with tip) between friends."""</span>
+<span class="kw">import</span> sys
+
+
+<span class="kw">def</span> <span class="fn">split_bill</span>(total, tip_percent, people):
+    with_tip = total * (<span class="fn">1</span> + tip_percent / <span class="fn">100</span>)
+    share = <span class="fn">round</span>(with_tip / people, <span class="fn">2</span>)
+    <span class="kw">return</span> [share] * people
+
+
+<span class="kw">def</span> <span class="fn">main</span>():
+    total, tip, people = sys.argv[<span class="fn">1</span>:<span class="fn">4</span>]
+    shares = split_bill(<span class="fn">float</span>(total), <span class="fn">float</span>(tip), <span class="fn">int</span>(people))
+    <span class="kw">for</span> i, s <span class="kw">in</span> <span class="fn">enumerate</span>(shares, <span class="fn">1</span>):
+        <span class="fn">print</span>(f<span class="cm">"Person {i}: ${s:.2f}"</span>)
+</pre>
+    </div>
+    <div id="main"><svg width="29" height="29" viewBox="-3 -3 26 26"><path d="M2,2 L17,8 L8,17 Z"/></svg><div class="dots"><i></i><i></i><i></i></div></div>
+    <div id="say" class="bubble"></div>
+    <div id="you" class="bubble you"></div>
+    <div id="ripple" class="ripple"></div>
+    <svg id="cursor" viewBox="0 0 22 22"><path d="M3 2 L3 18 L7.5 13.8 L10.6 20.5 L13.4 19.3 L10.4 12.8 L16.5 12.6 Z" fill="#000" stroke="#fff" stroke-width="1.4" stroke-linejoin="round"/></svg>
+  </div>
+
+  <div id="panel">
+    <div id="transport">
+      <h1>Agent Lab <small id="fps"></small></h1>
+      <div class="row">
+        <button class="primary" id="play">Play</button>
+        <button id="restart" title="Back to the start">↺</button>
+        <select id="speed" title="Playback speed"><option value=".25">¼×</option><option value=".5">½×</option><option value="1" selected>1×</option><option value="2">2×</option></select>
+        <button id="mute" title="Sound on or off">Sound on</button>
+        <span id="time" style="margin-left:auto">0.0 / 45.0</span>
+      </div>
+      <input id="scrub" type="range" min="0" max="45" step="0.01" value="0" aria-label="Timeline">
+      <div id="moments"></div>
+    </div>
+
+    <div id="controls">
+      <details open>
+        <summary>Scene</summary>
+        <div class="hint">Background</div>
+        <div class="seg" data-key="bg"><button data-v="light">Light</button><button data-v="dark">Dark</button></div>
+        <div class="hint">Helpers work at the</div>
+        <div class="seg" data-key="dock"><button data-v="right">Right edge</button><button data-v="left">Left edge</button></div>
+        <div class="hint">Motion</div>
+        <div class="seg" data-key="calm"><button data-v="false">Full</button><button data-v="true">Reduced Motion</button></div>
+      </details>
+      <details open>
+        <summary>Motion</summary>
+        <div id="motion"></div>
+      </details>
+      <details open>
+        <summary>Sound</summary>
+        <div id="soundglobal"></div>
+        <div class="hint">Each sound: ▶ to hear it alone. Helpers each have their own note, so you can tell them apart.</div>
+        <div id="voices"></div>
+      </details>
+    </div>
+
+    <div id="foot">
+      <button id="copy" title="Copy every setting, to paste to Claude">Copy settings</button>
+      <button id="saveall" title="Save every sound as a .wav file">Save sounds</button>
+      <button id="reset" class="ghost" title="Back to the default look and sound">Reset to defaults</button>
+    </div>
+  </div>
+</div>
+<div id="toast"></div>
+<div id="copybox"><div><div class="row" style="margin-bottom:8px"><b>Your settings</b><button class="ghost" id="closecopy" style="margin-left:auto">Close</button></div>
+  <textarea id="copytext" readonly></textarea><div class="hint">Select all and copy, then paste it to Claude.</div></div></div>
+
+<script src="sounds.js"></script>
+<script src="helpers.js"></script>
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const stage = $('stage');
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  const lerp = (a, b, t) => a + (b - a) * t;
+  const easeOutBack = (t, s = 1.7) => 1 + (s + 1) * Math.pow(t - 1, 3) + s * Math.pow(t - 1, 2);
+
+  // ---------- settings (kept in this browser) ----------
+  const sounds = new Sounds();
+  const DEFAULT = { scene: { bg: 'light', dock: 'right', calm: 'false' }, motion: { ...HelperLayer.defaults }, sound: { ...sounds.params }, voices: JSON.parse(JSON.stringify(sounds.voices)) };
+  delete DEFAULT.motion.dock; delete DEFAULT.motion.calm;
+  let S = JSON.parse(JSON.stringify(DEFAULT));
+  try { const saved = JSON.parse(localStorage.getItem('poinky-agent-lab') || 'null'); if (saved) S = merge(S, saved); } catch (e) {}
+  function merge(a, b) { for (const k in b) { if (b[k] && typeof b[k] === 'object' && a[k] && typeof a[k] === 'object') merge(a[k], b[k]); else if (k in a) a[k] = b[k]; } return a; }
+  function save() { try { localStorage.setItem('poinky-agent-lab', JSON.stringify(S)); } catch (e) {} }
+  function applySound() { Object.assign(sounds.params, S.sound); for (const n in S.voices) Object.assign(sounds.voices[n], S.voices[n]); }
+  applySound();
+
+  // ---------- the main buddy (a stand-in for web/buddy.js with the same look) ----------
+  class Main {
+    constructor() {
+      this.x = 0; this.y = 0; this.vx = 0; this.vy = 0; this.rot = 0; this.vrot = 0; this.placed = false;
+      this.look = null; this.squash = -1; this.hop = -1; this.ripple = -1; this.thinking = false;
+      this.say = { text: '', t: 0, a: 0 }; this.you = { text: '', t: 0, a: 0 };
+    }
+    pos() { return { x: this.x, y: this.y }; }
+    react(kind, d) {
+      if (kind === 'bud') this.squash = 0;
+      if (kind === 'handoff') { this.look = { x: d.x, y: d.y, id: d.id }; this.speak(`${d.name}, ${d.task.charAt(0).toLowerCase() + d.task.slice(1)}.`); }
+      if (kind === 'handoffEnd') { this.look = null; this.speak(''); }
+      if (kind === 'report') { this.look = { id: d.id }; this.speak(d.summary); }
+      if (kind === 'absorb') { this.look = null; this.hop = 0; this.ripple = 0; this.speak(''); }
+    }
+    speak(text) { this.say = { text, t: 0, a: this.say.a }; }
+    hear(text) { this.you = { text, t: 0, a: this.you.a }; }
+    update(dt, cursor, layer) {
+      const tx = cursor.x + 20, ty = cursor.y + 23;
+      if (!this.placed) { this.x = tx; this.y = ty; this.placed = true; }
+      this.vx += ((tx - this.x) * 300 - this.vx * 22) * dt; this.vy += ((ty - this.y) * 300 - this.vy * 22) * dt;
+      this.x += this.vx * dt; this.y += this.vy * dt;
+      // Facing whoever it's talking to.
+      let want = Math.max(-12, Math.min(12, this.vx * .012));
+      if (this.look) {
+        const h = this.look.id && layer.helpers.get(this.look.id);
+        const lx = h ? h.x : this.look.x, ly = h ? h.y : this.look.y;
+        want = Math.atan2(ly - this.y, lx - this.x) * 180 / Math.PI + 135;
+        want = ((want + 540) % 360) - 180;
+      }
+      const diff = ((want - this.rot) % 360 + 540) % 360 - 180;
+      this.vrot += (diff * 160 - this.vrot * 20) * dt; this.rot += this.vrot * dt;
+      for (const k of ['squash', 'hop', 'ripple']) if (this[k] >= 0) { this[k] += dt; if (this[k] > .6) this[k] = -1; }
+      this.say.t += dt; this.you.t += dt;
+      this.say.a = lerp(this.say.a, this.say.text ? 1 : 0, 1 - Math.exp(-dt * 14));
+      this.you.a = lerp(this.you.a, this.you.text ? 1 : 0, 1 - Math.exp(-dt * 14));
+      this.time = (this.time || 0) + dt;
+    }
+    render() {
+      let sx = 1, sy = 1, dy = 0;
+      if (this.squash >= 0) { const p = clamp(this.squash / .4, 0, 1), s = Math.sin(p * Math.PI); sx = 1 + s * .22; sy = 1 - s * .2; }
+      if (this.hop >= 0) { const p = clamp(this.hop / .45, 0, 1); dy = -5 * Math.sin(p * Math.PI); }
+      const m = $('main');
+      m.style.transform = `translate(${this.x.toFixed(1)}px,${(this.y + dy).toFixed(1)}px) rotate(${this.rot.toFixed(1)}deg) scale(${sx.toFixed(3)},${sy.toFixed(3)})`;
+      m.querySelector('svg').style.opacity = this.thinking ? 0 : 1;
+      m.querySelectorAll('.dots i').forEach((d, i) => {
+        if (!this.thinking) { d.style.opacity = 0; return; }
+        const a = (i * 120 + this.time * 327) * Math.PI / 180, r = 7.5 + 1.5 * Math.sin(this.time * 5.7 + i);
+        d.style.opacity = 1; d.style.transform = `translate(${(Math.cos(a) * r).toFixed(1)}px,${(Math.sin(a) * r).toFixed(1)}px)`;
+      });
+      const rp = $('ripple');
+      if (this.ripple >= 0) { const p = clamp(this.ripple / .6, 0, 1); rp.style.opacity = (1 - p).toFixed(3); rp.style.transform = `translate(${this.x + 6}px,${this.y + 6}px) scale(${(.3 + p * 1.1).toFixed(3)})`; }
+      else rp.style.opacity = 0;
+      // Speech: types in at about speaking speed, like the real captions.
+      this.bubble($('say'), this.say, 24, 32, 26);
+      this.bubble($('you'), this.you, 24, -40, 22);
+    }
+    bubble(el, b, dx, dy, cps) {
+      const shown = b.text.slice(0, Math.floor(b.t * cps));
+      if (b.text && el.dataset.t !== shown) { el.textContent = shown || ' '; el.dataset.t = shown; }
+      const W = stage.clientWidth, w = el.offsetWidth || 120;
+      let x = this.x + dx; if (x + w > W - 12) x = W - 12 - w;
+      const s = b.text ? .85 + .15 * easeOutBack(clamp(b.t / .3, 0, 1)) : 1;
+      el.style.transform = `translate(${x.toFixed(1)}px,${(this.y + dy).toFixed(1)}px) scale(${s.toFixed(3)})`;
+      el.style.opacity = b.a.toFixed(3);
+    }
+  }
+
+  // ---------- the scene: 45 seconds, three helpers ----------
+  const COLORS = { Mint: '#34c98e', Coral: '#ff7a59', Violet: '#9b6bff', Amber: '#ffb020', Rose: '#ff5c9a', Sky: '#38bdf8' };
+  const END = 45;
+  const cursorPath = [[0, .4, .56], [3, .41, .57], [12, .43, .55], [16, .42, .57], [28, .4, .58], [45, .41, .57]];
+  function cursorAt(t) {
+    let a = cursorPath[0], b = cursorPath[cursorPath.length - 1];
+    for (let i = 0; i < cursorPath.length - 1; i++) if (t >= cursorPath[i][0] && t <= cursorPath[i + 1][0]) { a = cursorPath[i]; b = cursorPath[i + 1]; break; }
+    const u = b[0] === a[0] ? 0 : (t - a[0]) / (b[0] - a[0]), e = u * u * (3 - 2 * u);
+    return { x: stage.clientWidth * lerp(a[1], b[1], e), y: stage.clientHeight * lerp(a[2], b[2], e) };
+  }
+  const items = (states, texts) => texts.map((text, i) => ({ text, state: states[i] }));
+  const MINT_TODO = ['Find the rounding bug', 'Fix split_bill', 'Add a test for uneven splits'];
+  const SCRIPT = [
+    [0.6, s => s.main.hear('Fix the failing tip test, document the --json flag, and update the dependencies.')],
+    [2.9, s => { s.main.hear(''); s.main.thinking = true; }],
+    [3.6, s => { s.main.thinking = false; s.main.speak('On it. I’ll split that between three helpers.'); }],
+    [4.3, s => s.layer.spawn('mint', { name: 'Mint', color: COLORS.Mint, task: 'Fix the failing tip test', note: 0 })],
+    [6.9, s => s.layer.spawn('coral', { name: 'Coral', color: COLORS.Coral, task: 'Document the --json flag', note: 2 })],
+    [9.5, s => s.layer.spawn('violet', { name: 'Violet', color: COLORS.Violet, task: 'Update the dependencies', note: 3 })],
+    // Mint: a bug fix with a to-do list
+    [8.4, s => s.layer.step('mint', 'Reading tipsplit.py')],
+    [9.7, s => s.layer.step('mint', 'Reading test_tipsplit.py')],
+    [10.9, s => s.layer.checklist('mint', items(['active', 'pending', 'pending'], MINT_TODO))],
+    [12.5, s => s.layer.step('mint', 'Running the tests')],
+    [14.1, s => s.layer.step('mint', 'Two tests fail, confirming the bug.')],
+    [15.6, s => s.layer.checklist('mint', items(['done', 'active', 'pending'], MINT_TODO))],
+    [16.2, s => s.layer.step('mint', 'Editing tipsplit.py')],
+    [18.3, s => s.layer.checklist('mint', items(['done', 'done', 'active'], MINT_TODO))],
+    [18.8, s => s.layer.step('mint', 'Editing test_tipsplit.py')],
+    [20.2, s => s.layer.step('mint', 'Running the tests')],
+    [21.1, s => s.layer.checklist('mint', items(['done', 'done', 'done'], MINT_TODO))],
+    [21.7, s => s.layer.done('mint', { ok: true, summary: 'Mint fixed the rounding, so the shares add up to the total now, and added a test for it.' })],
+    // Coral: needs a permission
+    [11.4, s => s.layer.step('coral', 'Reading README.md')],
+    [12.9, s => s.layer.step('coral', 'Reading tipsplit.py')],
+    [14.6, s => s.layer.raiseHand('coral', 'Can I run tipsplit.py to copy its output?')],
+    [16.7, s => s.main.hear('Yes, go ahead.')],
+    [17.5, s => { s.main.hear(''); s.layer.resolveHand('coral', true); }],
+    [20.1, s => s.layer.step('coral', 'Running tipsplit.py --json')],
+    [22.6, s => s.layer.step('coral', 'Writing the Usage section')],
+    [25.6, s => s.layer.step('coral', 'Editing README.md')],
+    [29.6, s => s.layer.done('coral', { ok: true, summary: 'Coral added a Usage section to the README, with a --json example.' })],
+    // Violet: can't finish
+    [12.6, s => s.layer.step('violet', 'Reading requirements.txt')],
+    [14.8, s => s.layer.step('violet', 'Checking for newer versions')],
+    [17.4, s => s.layer.step('violet', 'Can’t reach the package index, trying again')],
+    [24.0, s => s.layer.step('violet', 'Trying a different mirror')],
+    [31.0, s => s.layer.step('violet', 'Still can’t reach it')],
+    [36.2, s => s.layer.done('violet', { ok: false, summary: 'Violet couldn’t reach the package server, so nothing changed. Try again when you’re online.' })],
+  ].sort((a, b) => a[0] - b[0]);
+  const MOMENTS = [['Ask', .5], ['Spawn', 4.2], ['Hand-off', 4.85], ['Flight', 6.65], ['Working', 12], ['Raise hand', 14.5], ['Done', 21.6], ['Report', 23.6], ['Failure', 36.1], ['End', 44]];
+
+  // ---------- simulation: everything is a function of time, so scrubbing is exact ----------
+  const DT = 1 / 120;
+  let sim = null, playing = false, speed = 1;
+  function fresh() {
+    if (sim) sim.layer.destroy();
+    const main = new Main();
+    const layer = new HelperLayer(stage, {
+      main,
+      sound: (name, o) => {
+        if (!sim || !sim.audible) return;
+        const W = stage.clientWidth || 1;
+        sounds.play(name, Object.assign({}, o, { x: o.x !== undefined ? o.x / W * 2 - 1 : 0, x2: o.x2 !== undefined ? o.x2 / W * 2 - 1 : undefined }));
+      },
+      params: Object.assign({}, S.motion, { dock: S.scene.dock, calm: S.scene.calm === 'true' }),
+    });
+    sim = { t: 0, i: 0, main, layer, audible: false };
+  }
+  function advance(dt) {
+    sim.t += dt;
+    while (sim.i < SCRIPT.length && SCRIPT[sim.i][0] <= sim.t) { SCRIPT[sim.i][1](sim); sim.i++; }
+    sim.main.update(dt, cursorAt(sim.t), sim.layer);
+    sim.layer.update(dt);
+  }
+  function seek(t) {
+    t = clamp(t, 0, END);
+    const keep = playing;
+    if (!sim || t < sim.t) fresh();
+    sim.audible = false;
+    while (sim.t < t - 1e-6) advance(Math.min(DT, t - sim.t));
+    sim.audible = keep;
+    draw();
+  }
+  function draw() {
+    const c = cursorAt(sim.t);
+    $('cursor').style.transform = `translate(${c.x.toFixed(1)}px,${c.y.toFixed(1)}px)`;
+    sim.main.render(); sim.layer.render();
+    $('scrub').value = sim.t;
+    $('time').textContent = `${sim.t.toFixed(1)} / ${END.toFixed(1)}`;
+    document.querySelectorAll('#moments button').forEach(b => b.classList.toggle('on', Math.abs(+b.dataset.t - sim.t) < .6));
+  }
+
+  let last = performance.now(), frames = [], acc = 0;
+  function loop(now) {
+    const real = Math.min(.1, (now - last) / 1000); last = now;
+    frames.push(real); if (frames.length > 60) frames.shift();
+    if (playing) {
+      acc += real * speed;
+      while (acc >= DT) { advance(DT); acc -= DT; }
+      if (sim.t >= END) setPlaying(false);
+      draw();
+    }
+    if ((now | 0) % 20 < 17) { const avg = frames.reduce((a, b) => a + b, 0) / frames.length; $('fps').textContent = avg ? `${Math.round(1 / avg)} fps` : ''; }
+    requestAnimationFrame(loop);
+  }
+  function setPlaying(on) {
+    playing = on; sim.audible = on; acc = 0;
+    $('play').textContent = on ? 'Pause' : (sim.t >= END ? 'Replay' : 'Play');
+    if (on) sounds.live();
+  }
+
+  // ---------- controls ----------
+  $('play').onclick = () => { if (sim.t >= END) seek(0); setPlaying(!playing); };
+  $('restart').onclick = () => { seek(0); setPlaying(true); };
+  $('speed').onchange = e => { speed = +e.target.value; };
+  $('scrub').oninput = e => { const was = playing; playing = false; seek(+e.target.value); playing = was; sim.audible = was; };
+  $('mute').onclick = () => { S.sound.muted = !S.sound.muted; applySound(); save(); $('mute').textContent = S.sound.muted ? 'Sound off' : 'Sound on'; };
+  $('mute').textContent = S.sound.muted ? 'Sound off' : 'Sound on';
+  document.addEventListener('keydown', e => { if (e.code === 'Space' && e.target.tagName !== 'INPUT') { e.preventDefault(); $('play').click(); } });
+  MOMENTS.forEach(([name, t]) => {
+    const b = document.createElement('button'); b.textContent = name; b.dataset.t = t;
+    b.onclick = () => { seek(Math.max(0, t - .25)); setPlaying(true); };
+    $('moments').appendChild(b);
+  });
+
+  document.querySelectorAll('.seg').forEach(seg => {
+    const key = seg.dataset.key;
+    const mark = () => seg.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.v === S.scene[key]));
+    seg.querySelectorAll('button').forEach(b => b.onclick = () => {
+      S.scene[key] = b.dataset.v; save(); mark(); applyScene();
+      if (key !== 'bg') { const t = sim.t; sim = (sim.layer.destroy(), null); seek(t); }
+    });
+    mark();
+  });
+  function applyScene() { document.documentElement.dataset.bg = S.scene.bg; }
+  applyScene();
+
+  function slider(parent, label, get, set, min, max, step, fmt = v => v, after) {
+    const row = document.createElement('div'); row.className = 'ctl';
+    row.innerHTML = `<label>${label}</label><input type="range" min="${min}" max="${max}" step="${step}"><output></output>`;
+    const input = row.querySelector('input'), out = row.querySelector('output');
+    const show = () => { input.value = get(); out.textContent = fmt(+get()); };
+    input.oninput = () => { set(+input.value); out.textContent = fmt(+input.value); save(); after && after(); };
+    show(); parent.appendChild(row); row.refresh = show;
+    return row;
+  }
+  const pct = v => Math.round(v * 100) + '%', secs = v => v.toFixed(2) + 's', mult = v => v.toFixed(2) + '×', semi = v => (v > 0 ? '+' : '') + v;
+  const motionRows = [];
+  const restage = () => { if (sim) sim.layer.setParams(S.motion); };
+  [['Helper size', 'size', .45, 1, .01, pct], ['Flight time', 'flight', .4, 2, .05, secs], ['Flight curve', 'arc', 0, .7, .01, pct],
+   ['Bounciness', 'bounce', 0, 1, .01, pct], ['Trail', 'trail', 0, 1, 1, v => v ? 'on' : 'off'], ['Sparkle', 'particles', 0, 2, .05, mult],
+   ['Typing speed', 'typing', .3, 3, .05, mult], ['Hand-off time', 'handoff', 1, 3.5, .05, secs]]
+    .forEach(([l, k, a, b, st, f]) => motionRows.push(slider($('motion'), l, () => S.motion[k], v => { S.motion[k] = v; }, a, b, st, f, restage)));
+  const globalRows = [
+    slider($('soundglobal'), 'Volume', () => S.sound.master, v => { S.sound.master = v; applySound(); }, 0, 1.2, .01, pct),
+    slider($('soundglobal'), 'Room (echo)', () => S.sound.room, v => { S.sound.room = v; applySound(); }, 0, 1.2, .01, pct),
+    slider($('soundglobal'), 'Key', () => S.sound.key, v => { S.sound.key = v; applySound(); }, -7, 7, 1, semi),
+  ];
+  const voiceRows = [];
+  Sounds.names.forEach(name => {
+    const v = S.voices[name], box = document.createElement('div'); box.className = 'voice';
+    box.innerHTML = `<div class="head"><button class="play" title="Play">▶</button><span>${sounds.voices[name].label}</span><button class="ghost save" title="Save as a .wav file">Save .wav</button></div>`;
+    box.querySelector('.play').onclick = () => { const was = S.sound.muted; sounds.params.muted = false; sounds.play(name, { x: 0, x2: name === 'whoosh' ? .9 : undefined, dur: .9, note: 0 }); sounds.params.muted = was; };
+    box.querySelector('.save').onclick = () => saveWav(name);
+    const after = () => applySound();
+    voiceRows.push(
+      slider(box, 'Volume', () => v.vol, x => { v.vol = x; }, 0, 1.5, .01, pct, after),
+      slider(box, 'Pitch', () => v.pitch, x => { v.pitch = x; }, -12, 12, 1, semi, after),
+      slider(box, 'Tone', () => v.bright, x => { v.bright = x; }, 0, 1, .01, v2 => v2 < .33 ? 'soft' : v2 < .66 ? 'mid' : 'bright', after),
+      slider(box, 'Length', () => v.length, x => { v.length = x; }, .4, 2.5, .05, mult, after),
+      slider(box, 'Echo', () => v.room, x => { v.room = x; }, 0, 1.2, .01, pct, after),
+    );
+    $('voices').appendChild(box);
+  });
+
+  async function saveWav(name) {
+    const blob = await sounds.renderWav(name);
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `poinky-${name}.wav`;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  }
+  $('saveall').onclick = async () => { for (const n of Sounds.names) { await saveWav(n); await new Promise(r => setTimeout(r, 350)); } toast('Saved every sound as .wav'); };
+  $('copy').onclick = async () => {
+    const text = JSON.stringify(S, null, 2);
+    try { await navigator.clipboard.writeText(text); toast('Copied. Paste it to Claude.'); }
+    catch (e) { $('copytext').value = text; $('copybox').classList.add('on'); $('copytext').select(); }
+  };
+  $('closecopy').onclick = () => $('copybox').classList.remove('on');
+  $('reset').onclick = () => {
+    S = JSON.parse(JSON.stringify(DEFAULT)); save(); applySound(); applyScene();
+    for (const name in sounds.voices) Object.assign(sounds.voices[name], S.voices[name]);
+    location.reload();
+  };
+  function toast(t) { const el = $('toast'); el.textContent = t; el.classList.add('on'); clearTimeout(el._t); el._t = setTimeout(() => el.classList.remove('on'), 2200); }
+
+  // For automated checks and recordings.
+  window.lab = { seek, play: () => setPlaying(true), pause: () => setPlaying(false), get t() { return sim.t; }, get sim() { return sim; }, END, MOMENTS };
+
+  fresh(); seek(0);
+  addEventListener('resize', () => { const t = sim.t; sim.layer.destroy(); sim = null; seek(t); });
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>

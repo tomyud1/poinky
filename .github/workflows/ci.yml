@@ -19,6 +19,8 @@ jobs:
           node --check web/lesson.js
           node --check web/buddy.js
           node --check web/kit.js
+          node --check web/helpers.js
+          node --check web/sounds.js
 
       - name: Build the app
         env:

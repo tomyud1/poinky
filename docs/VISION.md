@@ -17,7 +17,7 @@ It should look, move, and sound like something Apple made. HeyClicky's visuals a
 - **Motion is physical.** Everything moves on springs, nothing moves linearly, and nothing teleports. One set of timings is shared across the app, so the main cursor and the helpers feel like one family. A helper keeps a little momentum when it lands, and turns to face where it's going.
 - **Calm by default.** Helpers stay small and quiet at the edge of the screen, and only the newest progress line shows. They never cover what you're working on: they slide away from your cursor and from the window you're using.
 - **Sounds that belong together.** Short and soft, all tuned to one key so that overlapping sounds harmonize instead of clashing. A sound is panned left or right to where its helper is on screen, and it ducks under Poinky's voice. Spawning, finishing, needing you and failing each have their own sound, and a sound is only heard when something actually happens. Volume and mute are in settings, and the app respects Focus.
-- **Colors that work for everyone.** Each helper has a color and a name ("Blue", "Mint", "Coral"), so you and the main agent can refer to it. Color is never the only cue: each helper also has a letter or shape, for color-blind users.
+- **Colors that work for everyone.** Each helper has a color and a name ("Mint", "Coral", "Violet"; never blue, which is the main buddy's color), so you and the main agent can refer to it. Color is never the only cue: each helper also has a letter or shape, for color-blind users.
 - **Accessible.** Reduced Motion swaps flights for fades. VoiceOver announces spawns, hand-raises, and finished tasks. It looks right in light and dark mode.
 - **Fast.** The main agent never does long work itself. It answers in a second or two and hands anything longer to a helper. Four working helpers should stay at 120 fps, with no fans spinning up.
 
@@ -46,9 +46,12 @@ Turn each background agent into a live session the app can watch and talk to.
 - **Learned:** a follow-up sent while a helper works is folded into its current turn, and one sent just after it finished starts a new turn, so a helper counts as done 3 s after its last answer. Helpers often get refused for simple things, like running the program they just fixed, which makes Phase 6 (raise a hand) important.
 - **Run the tests:** `tools/test-helpers.sh` (add `--live` for a real Claude Code helper).
 
-### Phase 1: The Agent Lab (design first)
+### Phase 1: The Agent Lab (design first): built, being tuned
 A web page, `web/agents-lab.html`, that plays the whole choreography with fake helpers: spawn, hand-off, flight, dock, working, done, report back, raise hand, failure. It has a timeline scrubber, a speed control, a sound toggle, and light and dark backgrounds. This is where the motion and sounds get tuned, together, before anything goes into the app.
 - **Tests:** play it in the browser pane, record GIFs of each moment, and review them together. Check the frame time with four helpers, Reduced Motion, and dark mode. Nothing moves on to Phase 2 until you're happy with the look and sound.
+- **Open it:** `open web/agents-lab.html`. Change any slider, then "Copy settings" and paste the result to Claude to make it the default. "Save sounds" writes every sound as a `.wav` file.
+
+  ![Agent Lab preview: helpers bud off the main buddy, fly to the edge, raise a hand, and report back](media/agent-lab-preview.gif)
 
 ### Phase 2: Spawn and hand-off
 When the main agent starts a helper, the main cursor pauses and a small cursor buds off it. The main cursor turns to it, and a short line shows the hand-off ("Mint, fix the failing login test"). The helper nods and arcs to the edge of the screen. Several helpers spawned at once fan out one after another. The main agent says one short line ("I'll have Mint fix that") and goes back to you.
