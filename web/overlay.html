@@ -1,0 +1,453 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<style>
+  html,body{margin:0;height:100%;background:transparent;overflow:hidden;-webkit-user-select:none;cursor:default}
+  body{font-family:"Chalkboard SE","Marker Felt","Bradley Hand",ui-rounded,system-ui}
+  #draw{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+  .ink{fill:none;stroke:#2f6bff;stroke-width:4.5;stroke-linecap:round;stroke-linejoin:round;filter:drop-shadow(0 1px 1.5px rgba(0,0,0,.25))}
+  .lbl{font-family:Noteworthy,"Chalkboard SE","Marker Felt",ui-rounded,system-ui;font-size:20px;font-weight:700;fill:#1e4fd8}
+  .tagbg{fill:rgba(255,255,255,.95);stroke:rgba(30,79,216,.22);stroke-width:1;filter:drop-shadow(0 3px 8px rgba(0,0,0,.22))}
+  .hl{fill:rgba(255,224,64,.33);stroke:rgba(230,180,0,.55);stroke-width:2}
+  .draw-in{stroke-dasharray:var(--len);stroke-dashoffset:var(--len);animation:dr .55s ease-out forwards}
+  @keyframes dr{to{stroke-dashoffset:0}}
+  g.fade{transition:opacity .3s}
+
+  .card{position:absolute;display:flex;flex-direction:column;animation:pop .4s cubic-bezier(.2,.9,.3,1.15)}
+  .card.paper{border-radius:14px;overflow:hidden;background:#fbf8f0;box-shadow:0 22px 60px rgba(0,0,0,.35),0 0 0 1px rgba(0,0,0,.08)}
+  .card .bar{height:30px;flex:none;display:flex;align-items:center;justify-content:center;position:relative;cursor:grab;
+    font:500 13px ui-monospace,Menlo,monospace;color:#8a8577;background:rgba(0,0,0,.045);border-bottom:1px solid rgba(0,0,0,.06)}
+  .card .bar span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:80%}
+  .card .x{position:absolute;right:8px;top:5px;width:20px;height:20px;border-radius:10px;border:0;background:rgba(0,0,0,.08);
+    color:#666;font:600 13px -apple-system,system-ui;line-height:20px;padding:0;cursor:pointer;opacity:.5;transition:opacity .2s;z-index:3}
+  .card:hover .x{opacity:1}
+  .card iframe{flex:1;border:0;width:100%;background:transparent;display:block}
+  /* 3D models float on the screen with no card around them */
+  .card.float .bar{position:absolute;top:0;left:50%;transform:translateX(-50%);width:auto;padding:0 34px 0 14px;border-radius:0 0 10px 10px;
+    background:rgba(255,255,255,.85);border:1px solid rgba(0,0,0,.08);border-top:0;opacity:0;transition:opacity .2s;z-index:2}
+  .card.float:hover .bar{opacity:1}
+  .card.float iframe{position:absolute;inset:0;height:100%}
+  /* 3D models sit on a light "studio" panel: easy to see on any screen, with a title bar to drag and a close button */
+  .card.studio{border-radius:16px;overflow:hidden;background:linear-gradient(180deg,#fbfcfd 0%,#eef1f5 100%);
+    box-shadow:0 22px 60px rgba(0,0,0,.32),0 0 0 1px rgba(0,0,0,.07)}
+  .card.studio .bar{color:#7d8592;background:rgba(0,0,0,.035)}
+  /* A photo of the real thing, pinned like a polaroid next to the model */
+  .card.photo{animation:drop .5s cubic-bezier(.2,.9,.3,1.2)}
+  .card.photo .note{position:relative;flex:1;background:#fff;padding:12px 12px 0;border-radius:3px;cursor:grab;
+    box-shadow:0 16px 36px rgba(0,0,0,.33),0 0 0 1px rgba(0,0,0,.05);transform:rotate(var(--tilt,3deg))}
+  .card.photo img{display:block;width:100%;aspect-ratio:4/3;object-fit:cover;background:#ddd;-webkit-user-drag:none;pointer-events:none}
+  .card.photo .pcap{font:700 26px/1.1 Noteworthy,"Chalkboard SE","Marker Felt",ui-rounded,system-ui;color:#25282d;
+    text-align:center;padding:12px 6px 14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .card.photo .tape{position:absolute;top:-11px;left:50%;width:96px;height:24px;margin-left:-48px;transform:rotate(-5deg);
+    background:rgba(120,165,235,.55);box-shadow:0 1px 2px rgba(0,0,0,.12)}
+  .card.photo .x{top:-6px;right:-6px;background:#fff;box-shadow:0 2px 6px rgba(0,0,0,.25)}
+  @keyframes drop{from{opacity:0;transform:translateY(-30px) rotate(-6deg) scale(.9)}to{opacity:1;transform:none}}
+  .pill.clear{pointer-events:auto;cursor:pointer;border:0;background:rgba(22,22,26,.82)}
+  .pill.clear:hover{background:#ff3b30}
+  @keyframes pop{from{opacity:0;transform:translateY(12px) scale(.97)}to{opacity:1;transform:none}}
+  .card.leaving{transition:opacity .25s,transform .25s;opacity:0;transform:scale(.97)}
+
+  #hud{position:absolute;left:50%;bottom:44px;transform:translateX(-50%);width:min(720px,70vw);
+    display:flex;flex-direction:column;align-items:center;gap:5px;pointer-events:none;transition:opacity .5s}
+  #hud.top{bottom:auto;top:46px}
+  #hud.faded{opacity:0}
+  #draw,#cards{transition:opacity .25s}
+  .hidden-content{opacity:0 !important;pointer-events:none !important}
+  .cap{max-width:100%;box-sizing:border-box;padding:6px 12px;border-radius:11px;
+    font:13.5px/1.35 -apple-system,system-ui,sans-serif;color:#fff;background:rgba(22,22,26,.78);
+    -webkit-backdrop-filter:blur(12px);box-shadow:0 6px 20px rgba(0,0,0,.25)}
+  .cap.you{color:rgba(255,255,255,.75);font-style:italic}
+  .cap[hidden]{display:none}
+  #pills{position:absolute;top:40px;right:18px;display:flex;flex-direction:column;align-items:flex-end;gap:6px}
+  .pill{padding:6px 12px;border-radius:999px;font:600 13px -apple-system,system-ui,sans-serif;color:#fff;
+    background:rgba(22,22,26,.82);-webkit-backdrop-filter:blur(12px);box-shadow:0 4px 14px rgba(0,0,0,.25)}
+  .pill[hidden]{display:none}
+  .pill.marking{background:#ff3b30}
+  .pill.artist{background:rgba(59,110,246,.9)}
+</style></head>
+<body>
+<svg id="draw" xmlns="http://www.w3.org/2000/svg"></svg>
+<div id="cards"></div>
+<div id="hud"><div id="you" class="cap you" hidden></div><div id="claude" class="cap" hidden></div></div>
+<div id="pills"><button id="clearBtn" class="pill clear" hidden title="Clear the screen">✕ Clear</button><div id="status" class="pill" hidden></div><div id="artist" class="pill artist" hidden>🎨 Drawing…</div></div>
+<script src="libs.js"></script>
+<script>
+(function(){
+  const NS = "http://www.w3.org/2000/svg";
+  const svg = document.getElementById('draw');
+  const cards = document.getElementById('cards');
+  const statusEl = document.getElementById('status');
+  let statusText = null, marking = false, autoId = 0;
+  const MAX_CARDS = 4;
+
+  // ---------- messages to the app ----------
+  function post(msg){ try { window.webkit.messageHandlers.sb.postMessage(msg); } catch(e){} }
+  function report(){
+    const items = [];
+    svg.querySelectorAll(':scope > g[data-id]').forEach(g => items.push({id:g.dataset.id, type:g.dataset.type, label:g.dataset.label||''}));
+    const rects = [];
+    cards.querySelectorAll('.card:not(.leaving)').forEach(c => {
+      const r = c.getBoundingClientRect();
+      rects.push([r.left, r.top, r.width, r.height]);
+      items.push({id:c.dataset.id, type:c.dataset.type, label:c.dataset.label||'',
+                  box:[Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)]});
+    });
+    const btn = document.getElementById('clearBtn');
+    btn.hidden = !items.length && !document.querySelector('.card.lpaper');
+    if (!btn.hidden) { const r = btn.getBoundingClientRect(); rects.push([r.left, r.top, r.width, r.height]); }
+    post({kind:'scene', items, rects});
+  }
+  document.getElementById('clearBtn').addEventListener('click', () => { SB.clearAll(); post({kind:'clear'}); });
+
+  // ---------- hand-drawn annotations ----------
+  const rnd = a => (Math.random()*2-1)*a;
+  function el(tag, attrs, parent){
+    const e = document.createElementNS(NS, tag);
+    for (const k in attrs) e.setAttribute(k, attrs[k]);
+    (parent||svg).appendChild(e); return e;
+  }
+  function ink(g, d){ const p = el('path', {d, class:'ink'}, g); try{ const L = p.getTotalLength(); p.style.setProperty('--len', L); p.classList.add('draw-in'); }catch(e){} return p; }
+  // A label is a small white tag with handwriting that writes itself on, left to right.
+  // (x, y) is the top-left of the tag; anchor 'end' means x is its right edge.
+  let clipN = 0;
+  function tag(g, x, y, text, anchor, delay){
+    if (!text) return;
+    const t = el('g', {class:'tag', opacity:0}, g);
+    const r = el('rect', {class:'tagbg', rx:9, ry:9}, t);
+    const tx = el('text', {class:'lbl'}, t);
+    tx.textContent = text;
+    const bb = tx.getBBox();
+    const padX = 10, w = bb.width + padX*2, h = 34;
+    if (anchor === 'end') x -= w;
+    x = Math.max(8, Math.min(innerWidth - w - 8, x)); y = Math.max(30, Math.min(innerHeight - h - 8, y));
+    r.setAttribute('x', x); r.setAttribute('y', y); r.setAttribute('width', w); r.setAttribute('height', h);
+    tx.setAttribute('x', x + padX); tx.setAttribute('y', y + h/2 + 7);
+    // Write-on: reveal the handwriting with a growing clip.
+    const id = 'lc' + (++clipN);
+    const cp = el('clipPath', {id}, t);
+    const cr = el('rect', {x: x + padX - 2, y, width: 0, height: h}, cp);
+    tx.setAttribute('clip-path', `url(#${id})`);
+    const start = performance.now() + (delay ?? 380), dur = Math.min(900, 180 + text.length * 38);
+    setTimeout(() => t.animate([{opacity:0, transform:'translateY(3px)'},{opacity:1, transform:'none'}], {duration:220, fill:'forwards'}), (delay ?? 380) - 120);
+    const step = now => {
+      const u = Math.max(0, Math.min(1, (now - start) / dur));
+      cr.setAttribute('width', (bb.width + 4) * (1 - Math.pow(1 - u, 2)));
+      if (u < 1) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  }
+  // Older call style: (x, y) is where the text's baseline starts.
+  function label(g, x, y, text){
+    if (!text) return;
+    tag(g, x > innerWidth - 260 ? x : x - 10, y - 24, text, x > innerWidth - 260 ? 'end' : 'start');
+  }
+  // A smooth hand-drawn loop: gentle, slow wobble (no jitter), slightly tilted,
+  // overlapping a little at the end like a real pen stroke.
+  function loop(cx, cy, rx, ry){
+    const n = 96, start = Math.random()*Math.PI*2, sweep = Math.PI*2*1.07, tilt = rnd(0.12);
+    const p1 = Math.random()*6.28, p2 = Math.random()*6.28;
+    let d = '';
+    for (let i=0;i<=n;i++){
+      const u = i/n, a = start + sweep*u;
+      const w = 1 + 0.03*Math.sin(a + p1) + 0.015*Math.sin(2*a + p2) - 0.05*u*u;
+      const x = Math.cos(a)*rx*w, y = Math.sin(a)*ry*w;
+      d += (i?'L':'M') + (cx + x*Math.cos(tilt) - y*Math.sin(tilt)).toFixed(1) + ',' + (cy + x*Math.sin(tilt) + y*Math.cos(tilt)).toFixed(1);
+    }
+    return d;
+  }
+  function wobblyLine(x1,y1,x2,y2){
+    const dx=x2-x1, dy=y2-y1, len=Math.hypot(dx,dy)||1, bend=len*0.07*(Math.random()<.5?-1:1);
+    const cx=(x1+x2)/2 - dy/len*bend, cy=(y1+y2)/2 + dx/len*bend;
+    return {d:`M${x1},${y1} Q${cx},${cy} ${x2},${y2}`, cx, cy};
+  }
+  function arrowHead(x2,y2,cx,cy){
+    const a=Math.atan2(y2-cy,x2-cx), s=18;
+    return `M${x2-s*Math.cos(a-0.5)},${y2-s*Math.sin(a-0.5)} L${x2},${y2} L${x2-s*Math.cos(a+0.5)},${y2-s*Math.sin(a+0.5)}`;
+  }
+  function wobblyRect(x,y,w,h){ const j=()=>rnd(2.5);
+    return `M${x+j()},${y+j()} L${x+w+j()},${y+j()} L${x+w+j()},${y+h+j()} L${x+j()},${y+h+j()} Z`; }
+
+  function annotation(it, k){
+    const s = v => (+v||0)*k;
+    const g = el('g', {'data-id': it.id, 'data-type': it.type, 'data-label': it.label || it.text || ''});
+    // The app found a spot for the label that covers the least text: use it.
+    if (it.lx != null && it.ly != null && it.label && it.type !== 'label') {
+      const text = it.label; it = Object.assign({}, it, {label: ''});
+      setTimeout(() => tag(g, s(it.lx), s(it.ly), text, it.la), 0);
+    }
+    switch (it.type) {
+      case 'circle': { const cx=s(it.x), cy=s(it.y), r=Math.max(s(it.r),16);
+        ink(g, loop(cx,cy,r*1.15,r)); label(g, cx+r*1.15+10, cy-r*0.55, it.label); break; }
+      case 'box': { const x=s(it.x), y=s(it.y), w=s(it.w), h=s(it.h);
+        ink(g, wobblyRect(x-4,y-4,w+8,h+8)); label(g, x, y-14, it.label); break; }
+      case 'arrow': { const x1=s(it.x1), y1=s(it.y1), x2=s(it.x2), y2=s(it.y2);
+        const l = wobblyLine(x1,y1,x2,y2); ink(g, l.d); setTimeout(()=>ink(g, arrowHead(x2,y2,l.cx,l.cy)), 450);
+        label(g, x1+(x1<x2?-6:6), y1+(y1<y2?-12:26), it.label); break; }
+      case 'underline': { const x=s(it.x), y=s(it.y), w=s(it.w);
+        // Nearly straight, like a quick pen stroke under the text (a big curve would cross it).
+        ink(g, `M${x},${y} Q${x+w/2},${y+rnd(1.5)} ${x+w},${y+rnd(1)}`); label(g, x, y+30, it.label); break; }
+      case 'bracket': { const x=s(it.x)-12, y=s(it.y), h=Math.max(s(it.h), 18), c=Math.min(10, h/4);
+        // A slim pen bracket in the margin: points at a whole block without covering it.
+        ink(g, `M${x+6},${y+rnd(1)} Q${x},${y} ${x},${y+c} L${x+rnd(1)},${y+h-c} Q${x},${y+h} ${x+6},${y+h+rnd(1)}`);
+        if (it.label) tag(g, x-8, y+h/2-17, it.label, 'end'); break; }
+      case 'highlight': {
+        const r = el('rect', {x:s(it.x)-3, y:s(it.y)-3, width:s(it.w)+6, height:s(it.h)+6, rx:6, class:'hl'}, g);
+        r.animate([{opacity:0},{opacity:1}], {duration:300}); label(g, s(it.x), s(it.y)-12, it.label); break; }
+      case 'label': tag(g, s(it.x), s(it.y) - 24, it.text || it.label, 'start', 120); break;
+      default: g.remove(); return;
+    }
+  }
+
+  // ---------- cards (diagram panels and 3D models) ----------
+  const esc = s => String(s).replace(/<\/script/gi, '<\\/script');
+  const CSP = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:">`;
+  // 3D code is run with new Function so syntax errors can be caught and sent back for a fix.
+  const CSP3D = CSP.replace("script-src 'unsafe-inline'", "script-src 'unsafe-inline' 'unsafe-eval'");
+  const REPORT_ERRORS = `<script>window.onerror=function(m,s,l,c,e){parent.postMessage({sbError:String(m)+(l?' (line '+l+')':'')},'*')};<\/script>`;
+
+  const CARD_CSS = `
+  :root{--ink:#2b2b2b;--blue:#3b6ef6;--green:#2fa36b;--red:#e5484d;--yellow:#e0a800;--purple:#8e4ec6;--orange:#f76b15;--teal:#12a594;--pink:#d6409f;--gray:#8b8d98}
+  html,body{margin:0;height:100%}
+  body{background:#fbf8f0;background-image:linear-gradient(rgba(0,0,0,.035) 1px,transparent 1px),linear-gradient(90deg,rgba(0,0,0,.035) 1px,transparent 1px);
+    background-size:22px 22px;font-family:"Chalkboard SE","Marker Felt",ui-rounded,system-ui;color:var(--ink);padding:16px 22px;box-sizing:border-box;overflow:hidden}
+  h1{font-size:30px;margin:0 0 12px;font-weight:700;line-height:1.15} h2{font-size:20px;margin:10px 0 6px}
+  p,.note{font-size:16px;line-height:1.4;margin:6px 0} small,.muted{color:#777}
+  .row{display:flex;align-items:center;gap:18px} .col{display:flex;flex-direction:column;gap:12px} .center{justify-content:center;align-items:center}
+  .grow{flex:1}
+  .box{border:2px solid #9aa3b2;background:#eef1f6;border-radius:8px;padding:8px 14px;font-size:18px;text-align:center}
+  .box.blue{border-color:var(--blue);background:#e5edff}.box.green{border-color:var(--green);background:#e4f6ec}.box.red{border-color:var(--red);background:#fde8e8}
+  .box.yellow{border-color:var(--yellow);background:#fff6d6}.box.purple{border-color:var(--purple);background:#f1e7fb}.box.orange{border-color:var(--orange);background:#ffeadb}
+  .tag{display:inline-block;border:2px solid currentColor;border-radius:6px;padding:1px 9px;font:600 14px ui-rounded,-apple-system,system-ui;background:#fff}
+  .tag.blue{color:var(--blue);background:#eef3ff}.tag.green{color:var(--green);background:#eafaf1}.tag.red{color:var(--red);background:#fdeeee}
+  .tag.yellow{color:#b78900;background:#fff8dc}.tag.purple{color:var(--purple);background:#f5edfc}.tag.orange{color:var(--orange);background:#fff1e6}.tag.teal{color:var(--teal);background:#e6f7f5}.tag.pink{color:var(--pink);background:#fcebf5}
+  .arrow{font-size:26px;color:#666}
+  svg{overflow:visible} svg text{font-family:"Chalkboard SE","Marker Felt",ui-rounded,system-ui;fill:var(--ink)}
+  .step{opacity:0;transform:translateY(6px);animation:sb-rise .5s ease-out forwards;animation-delay:calc(var(--i,0)*.55s + .15s)}
+  @keyframes sb-rise{to{opacity:1;transform:none}}
+  .flow{stroke-dasharray:5 11;animation:sb-flow .9s linear infinite} @keyframes sb-flow{to{stroke-dashoffset:-16}}
+  .pulse{animation:sb-pulse 1.6s ease-in-out infinite;transform-box:fill-box;transform-origin:center} @keyframes sb-pulse{50%{opacity:.55;transform:scale(1.06)}}
+  .spin{animation:sb-spin 2s linear infinite;transform-box:fill-box;transform-origin:center} @keyframes sb-spin{to{transform:rotate(360deg)}}
+  .float{animation:sb-float 2.4s ease-in-out infinite} @keyframes sb-float{50%{transform:translateY(-6px)}}`;
+
+  // Numbers .step elements in order and draws .draw paths on in sequence.
+  const CARD_JS = `
+  (function(){
+    document.querySelectorAll('.step').forEach((e,i)=>{ if(!e.style.getPropertyValue('--i')) e.style.setProperty('--i', i); });
+    document.querySelectorAll('.draw').forEach((p,i)=>{ try{ const L=p.getTotalLength(); if(!(L>0)) return;
+      const d = (+p.getAttribute('data-delay')||i*0.35);
+      p.style.strokeDasharray=L; p.style.strokeDashoffset=L;
+      const a = p.animate([{strokeDashoffset:L},{strokeDashoffset:0}],{duration:700,delay:d*1000+200,easing:'ease-out'});
+      a.onfinish = () => { p.style.strokeDasharray=''; p.style.strokeDashoffset=''; }; }catch(e){} });
+  })();`;
+
+  function panelDoc(html){
+    return `<!doctype html><html><head><meta charset="utf-8">${CSP}${REPORT_ERRORS}<style>${CARD_CSS}</style></head><body>${html}<script>${CARD_JS}<\/script></body></html>`;
+  }
+  function sceneDoc(code, stream){
+    const L = window.LIBS || {};
+    return `<!doctype html><html><head><meta charset="utf-8">${CSP3D}${REPORT_ERRORS}<style>${L.kitCss||''}</style></head><body>
+      <div id="stage"></div><svg id="lines"></svg><div id="tags"></div><div id="err"></div>
+      <script>${esc(L.three||'')}<\/script><script>${esc(L.kit||'')}<\/script>
+      <script>
+        (function(){
+          var kit, writer;
+          function fail(e){ parent.postMessage({sbError: String(e && e.message || e)}, '*'); }
+          try { kit = Kit(); kit.start(); writer = kit.writer(); }
+          catch(e){ document.getElementById('err').textContent = '3D error: ' + e.message; fail(e); return; }
+          // The model's code arrives (all at once, or line by line while it's being written) and
+          // runs statement by statement. Later steps (narration, follow-ups) run in the same scene.
+          function end(){ var errs = writer.end(); if (errs.length) fail(errs[0]); }
+          ${stream ? '' : `writer.feed(${esc(JSON.stringify(code))}); end();`}
+          parent.postMessage({sbReady: true}, '*');
+          addEventListener('message', function(ev){
+            var d = ev.data; if (!d) return;
+            if (typeof d.sbFeed === 'string') { writer.feed(d.sbFeed); return; }
+            if (d.sbEnd) { end(); return; }
+            if (typeof d.sbRun === 'string') { try { kit.run(d.sbRun); } catch(e){ fail(e); } }
+          });
+        })();
+      <\/script></body></html>`;
+  }
+
+  function addCard(it, k){
+    const s = v => (+v||0)*k;
+    const is3d = it.type === 'scene3d';
+    let w = Math.max(s(it.w) || (is3d ? 560 : 520), 260), h = Math.max(s(it.h) || (is3d ? 420 : 360), 180);
+    w = Math.min(w, innerWidth-24); h = Math.min(h, innerHeight-24);
+    let x = Math.max(12, Math.min(innerWidth-w-12, s(it.x) || (innerWidth-w)/2));
+    let y = Math.max(12, Math.min(innerHeight-h-12, s(it.y) || 80));
+
+    const old = cards.querySelector(`.card[data-id="${CSS.escape(it.id)}"]`);
+    const c = document.createElement('div');
+    c.className = 'card ' + (is3d ? 'studio' : 'paper');
+    c.dataset.id = it.id; c.dataset.type = it.type; c.dataset.label = it.title || '';
+    Object.assign(c.style, {left:x+'px', top:y+'px', width:w+'px', height:h+'px'});
+    c.innerHTML = '<div class="bar"><span></span><button class="x" title="Close">✕</button></div>';
+    c.querySelector('.bar span').textContent = it.title || (is3d ? '3D model' : '');
+    const f = document.createElement('iframe');
+    f.setAttribute('sandbox', 'allow-scripts');
+    f.srcdoc = is3d ? sceneDoc(it.code || '', !!it.stream) : panelDoc(it.html || it.svg || '');
+    c.appendChild(f);
+    c.querySelector('.x').addEventListener('click', () => removeCard(c));
+    dragBy(c.querySelector('.bar'), c);
+    if (is3d) { c._waiting = pending3d[it.id] || []; delete pending3d[it.id]; }
+    if (old) old.replaceWith(c); else cards.appendChild(c);
+    // One 3D model at a time: a new model ("try again", "show me another") replaces the old one.
+    if (is3d) cards.querySelectorAll('.card[data-type="scene3d"]:not(.leaving), .card[data-type="photo"]:not(.leaving)').forEach(o => { if (o !== c && o.dataset.for !== it.id) removeCard(o); });
+    // Keep the screen from filling up: drop the oldest cards.
+    const all = [...cards.querySelectorAll('.card:not(.leaving)')];
+    while (all.length > MAX_CARDS) removeCard(all.shift());
+  }
+  function removeCard(c){ if (!c || c.classList.contains('leaving')) return; c.classList.add('leaving'); setTimeout(()=>{ c.remove(); report(); }, 260); report(); }
+  function dragBy(handle, card){
+    handle.addEventListener('mousedown', e => {
+      if (e.target.closest('.x')) return;
+      const sx = e.clientX, sy = e.clientY, ox = card.offsetLeft, oy = card.offsetTop;
+      handle.style.cursor = 'grabbing';
+      const move = ev => { card.style.left = (ox + ev.clientX - sx) + 'px'; card.style.top = (oy + ev.clientY - sy) + 'px'; };
+      const up = () => { removeEventListener('mousemove', move); removeEventListener('mouseup', up); handle.style.cursor=''; report(); };
+      addEventListener('mousemove', move); addEventListener('mouseup', up);
+    });
+  }
+  // Errors from inside a card (e.g. broken 3D code) go back to the app so the artist can fix them.
+  addEventListener('message', e => {
+    if (e.data && e.data.sbReady) {
+      // A 3D model finished loading: run any steps that arrived before it was ready.
+      for (const f of cards.querySelectorAll('iframe')) {
+        if (f.contentWindow !== e.source) continue;
+        const c = f.closest('.card'); c.dataset.ready = '1';
+        (c._waiting || []).forEach(msg => f.contentWindow.postMessage(msg, '*'));
+        c._waiting = [];
+      }
+      return;
+    }
+    if (!e.data || !e.data.sbError) return;
+    for (const f of cards.querySelectorAll('iframe')) {
+      if (f.contentWindow === e.source) { const c = f.closest('.card'); post({kind:'error', id:c.dataset.id, type:c.dataset.type, message:e.data.sbError}); }
+    }
+  });
+
+  function byId(id){ return svg.querySelector(`:scope > g[data-id="${CSS.escape(id)}"]`) || cards.querySelector(`.card[data-id="${CSS.escape(id)}"]`); }
+
+  const SB = {
+    apply(spec, k){
+      if (!spec) return;
+      k = k || 1;
+      if (spec.clear === true) SB.clearAll(true);
+      (spec.remove||[]).forEach(id => { const n = byId(String(id)); if (!n) return; if (n.classList.contains('card')) removeCard(n); else n.remove(); });
+      (spec.items||[]).forEach((it, i) => {
+        it.id = String(it.id || ('auto' + (++autoId)));
+        if (it.type === 'scene3d') pending3d[it.id] = pending3d[it.id] || [];   // its code may arrive before the card exists
+        const prev = byId(it.id);
+        setTimeout(() => {
+          try {
+            if (it.type === 'panel' || it.type === 'scene3d') addCard(it, k);
+            else { if (prev && !prev.classList.contains('card')) prev.remove(); annotation(it, k); }
+          } catch(e){}
+          report();
+        }, i*120);
+      });
+      setTimeout(report, 50);
+    },
+    clearAnnotations(){ while (svg.firstChild) svg.firstChild.remove(); report(); },
+    /** Claude is done: let the quick marks fade away (papers and 3D models stay). */
+    fadeAnnotations(){
+      const gs = [...svg.children];
+      if (!gs.length) return;
+      gs.forEach(g => { g.style.transition = 'opacity .6s'; g.style.opacity = '0'; });
+      setTimeout(() => { gs.forEach(g => g.remove()); report(); }, 650);
+    },
+    clearAll(silent){ while (svg.firstChild) svg.firstChild.remove(); cards.querySelectorAll('.card').forEach(c=>c.remove()); if(!silent) report(); },
+    caption(which, text){
+      const e = document.getElementById(which);
+      if (!text) { e.hidden = true; e.textContent=''; return; }
+      // Keep long captions short: just the latest part.
+      e.textContent = text.length > 240 ? '…' + text.slice(-240) : text; e.hidden = false;
+      document.getElementById('hud').classList.remove('faded');
+    },
+    /** Captions at the top or bottom of the screen, and fading them out when idle. */
+    captionsAt(top){ document.getElementById('hud').classList.toggle('top', !!top); },
+    fadeCaptions(){ document.getElementById('hud').classList.add('faded'); },
+    /** Drawings follow their window: move them by dx,dy (points) from where they were drawn. */
+    shift(dx, dy){
+      const t = (dx || dy) ? `translate(${dx}px, ${dy}px)` : '';
+      svg.style.transform = t; cards.style.transform = t;
+      setTimeout(report, 30);
+    },
+    /** Make the current position permanent (before drawing for a new question). */
+    bake(){
+      const m = /translate\(([-\d.]+)px, ([-\d.]+)px\)/.exec(cards.style.transform || '');
+      if (m) {
+        const dx = +m[1], dy = +m[2];
+        cards.querySelectorAll('.card').forEach(c => { c.style.left = (c.offsetLeft + dx) + 'px'; c.style.top = (c.offsetTop + dy) + 'px'; });
+      }
+      svg.style.transform = ''; cards.style.transform = '';
+      report();
+    },
+    /** Hide the drawings while their window is minimized, covered or on another desktop. */
+    setVisible(on){
+      svg.classList.toggle('hidden-content', !on); cards.classList.toggle('hidden-content', !on);
+      const pen = document.getElementById('pen'); if (pen && !on) pen.style.opacity = 0;
+    },
+    status(text){ statusText = text; paint(); },
+    marking(on){ marking = on; paint(); },
+    artist(on){ document.getElementById('artist').hidden = !on; },
+    /** A photo of the real thing as a tilted polaroid with tape and a caption, pinned to the top corner of
+        the card it belongs to (for: its id). src is a data URL. */
+    photo(o){
+      if (!o || !o.src) return;
+      const id = 'photo-' + (o.for || ++autoId);
+      const old = cards.querySelector(`.card[data-id="${CSS.escape(id)}"]`); if (old) old.remove();
+      const owner = o.for ? cards.querySelector(`.card[data-id="${CSS.escape(String(o.for))}"]:not(.leaving)`) : null;
+      const w = Math.round(Math.max(200, Math.min(300, owner ? owner.offsetWidth * 0.32 : 260))), h = Math.round(w * 0.75 + 24 + 52);
+      let x, y;
+      if (owner) {
+        const r = owner.getBoundingClientRect();
+        x = r.right + 18 + w <= innerWidth - 8 ? r.right - w * 0.25 : r.left - w * 0.75;   // overlap the outer top corner
+        if (x + w > innerWidth - 8) x = r.right - w - 8;
+        x = Math.max(8, x); y = Math.max(46, r.top + 44);   // below the card's title bar, so its close button stays free
+      } else { x = innerWidth - w - 40; y = 90; }
+      const c = document.createElement('div');
+      c.className = 'card photo'; c.dataset.id = id; c.dataset.type = 'photo'; c.dataset.label = o.caption || '';
+      if (o.for) c.dataset.for = String(o.for);
+      Object.assign(c.style, {left:x+'px', top:y+'px', width:w+'px', height:h+'px'});
+      c.innerHTML = '<div class="note"><div class="tape"></div><img><div class="pcap"></div><button class="x" title="Close">✕</button></div>';
+      c.querySelector('.note').style.setProperty('--tilt', (o.tilt ?? (x < (owner ? owner.getBoundingClientRect().left : 0) ? -3 : 3)) + 'deg');
+      c.querySelector('img').src = o.src;
+      c.querySelector('.pcap').textContent = o.caption || '';
+      c.querySelector('.x').addEventListener('click', () => removeCard(c));
+      dragBy(c.querySelector('.note'), c);
+      cards.appendChild(c);
+      report();
+    },
+    /** Run more code in an existing 3D model (by id). */
+    run3d(id, code){ send3d(id, {sbRun: code}); },
+    /** More code of a model that's still being written, and the end of it. */
+    feed3d(id, code){ send3d(id, {sbFeed: code}); },
+    end3d(id){ send3d(id, {sbEnd: true}); }
+  };
+  // Messages wait (in order) until the model's frame has loaded.
+  const pending3d = {};   // id → messages for a model whose card is about to be (re)created
+  function send3d(id, msg){
+    id = String(id);
+    if (pending3d[id]) { pending3d[id].push(msg); return; }
+    const c = cards.querySelector(`.card[data-id="${CSS.escape(id)}"]`);
+    const f = c && c.querySelector('iframe');
+    if (!f) return;
+    if (c.dataset.ready === '1') f.contentWindow.postMessage(msg, '*');
+    else (c._waiting = c._waiting || []).push(msg);
+  }
+  function paint(){
+    if (marking) { statusEl.textContent = '✏️ Marking — click to pin, drag to circle'; statusEl.className='pill marking'; statusEl.hidden=false; return; }
+    statusEl.className='pill';
+    if (!statusText) { statusEl.hidden = true; return; }
+    statusEl.textContent = statusText; statusEl.hidden = false;
+  }
+  window.SB = SB;
+  // Shared with lesson.js (the paper + pen).
+  window.SBX = { cards, report, removeCard, dragBy };
+  report();
+})();
+</script>
+<script src="lesson.js"></script>
+<script src="buddy.js"></script>
+</body></html>

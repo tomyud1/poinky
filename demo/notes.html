@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Lake Ardmore camping trip · Pagebook</title>
+<style>
+  :root{--ink:#37352f;--muted:#787774;--line:#e9e9e7;--side:#f7f7f5;--hover:#efefed}
+  *{box-sizing:border-box}
+  body{margin:0;color:var(--ink);font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;background:#fff}
+  .app{display:grid;grid-template-columns:250px 1fr;min-height:100vh}
+  .side{background:var(--side);border-right:1px solid var(--line);padding:10px 8px;font-size:14px;color:#5f5e5b}
+  .ws{display:flex;align-items:center;gap:8px;padding:6px 8px;font-weight:600;color:var(--ink)}
+  .ws i{width:22px;height:22px;border-radius:5px;background:#e16259;color:#fff;font-style:normal;display:grid;place-items:center;font-size:12px}
+  .side .item{padding:4px 8px;border-radius:5px;display:flex;gap:8px;align-items:center}
+  .side .item:hover{background:var(--hover)}.side .on{background:#ebebea;color:var(--ink);font-weight:500}
+  .side h5{margin:16px 8px 4px;font-size:12px;color:#91918e;font-weight:600}
+  .side .sub{padding-left:28px}
+  .top{display:flex;align-items:center;justify-content:space-between;padding:10px 16px;font-size:14px;color:var(--muted)}
+  .top .crumb b{color:var(--ink);font-weight:500}
+  .top .acts{display:flex;gap:16px}
+  .page{max-width:760px;margin:0 auto;padding:40px 60px 120px}
+  .icon{font-size:70px;line-height:1}
+  h1{font-size:40px;line-height:1.2;margin:14px 0 12px;font-weight:700;letter-spacing:-.01em}
+  .props{display:grid;grid-template-columns:150px 1fr;gap:6px 8px;font-size:14px;margin-bottom:22px;color:var(--ink)}
+  .props>span{color:var(--muted);display:flex;gap:8px;align-items:center}
+  .chip{display:inline-block;padding:0 7px;border-radius:4px;font-size:13.5px;margin-right:4px}
+  hr{border:0;border-top:1px solid var(--line);margin:20px 0}
+  h2{font-size:24px;margin:30px 0 6px;font-weight:600}
+  p{margin:4px 0}
+  .todo{display:flex;align-items:flex-start;gap:10px;padding:3px 0}
+  .box{width:17px;height:17px;border:1.5px solid #8f8e8a;border-radius:3px;margin-top:4px;flex:none;display:grid;place-items:center}
+  .done .box{background:#2383e2;border-color:#2383e2;color:#fff;font-size:12px}
+  .done .t{color:#9b9a97;text-decoration:line-through}
+  .num{color:var(--muted);font-variant-numeric:tabular-nums;width:18px;flex:none;text-align:right}
+  .callout{display:flex;gap:12px;background:#fbf3db;border-radius:6px;padding:16px;margin:18px 0}
+  table{border-collapse:collapse;width:100%;font-size:14.5px;margin-top:8px}
+  th,td{border:1px solid var(--line);padding:7px 10px;text-align:left}
+  th{color:var(--muted);font-weight:500;background:#fafaf9}
+  .comment{font-size:13px;color:var(--muted);margin-top:28px;display:flex;gap:10px;align-items:center}
+  .av{width:24px;height:24px;border-radius:50%;display:grid;place-items:center;color:#fff;font-size:11px;font-weight:600}
+  [contenteditable]{outline:none}
+  .todo .box{cursor:pointer;transition:background .12s,border-color .12s}.todo .box:hover{background:#f1f1ef}
+  .done .box:hover{background:#1f74c9}
+  .t{flex:1}
+  .add{color:#9b9a97;padding:4px 0 4px 28px;cursor:pointer;font-size:15px}.add:hover{color:var(--ink)}
+  .chip.click{cursor:pointer}.chip.click:hover{filter:brightness(.95)}
+  .menu{position:absolute;background:#fff;border-radius:8px;box-shadow:0 0 0 1px rgba(15,15,15,.05),0 3px 6px rgba(15,15,15,.1),0 9px 24px rgba(15,15,15,.2);padding:6px;z-index:5;min-width:180px;font-size:14px}
+  .menu div{padding:5px 8px;border-radius:4px;cursor:pointer;display:flex;align-items:center;gap:8px}.menu div:hover{background:var(--hover)}
+  .menu small{color:var(--muted);display:block;padding:4px 8px 6px;font-size:12px}
+  td.pk{cursor:pointer;text-align:center;width:90px}td.pk:hover{background:#fafaf9}
+  .acts span{cursor:pointer;padding:2px 6px;border-radius:4px}.acts span:hover{background:var(--hover)}
+  .comment.reply{margin-top:10px}
+  .comment input{flex:1;border:0;outline:0;font:inherit;font-size:14px;color:var(--ink);background:none}
+  .toast{position:fixed;left:50%;bottom:28px;transform:translate(-50%,10px);background:#2f2f2f;color:#fff;padding:9px 16px;border-radius:6px;font-size:14px;opacity:0;transition:.2s;pointer-events:none;z-index:9}
+  .toast.on{opacity:1;transform:translate(-50%,0)}
+</style></head>
+<body>
+<div class="app">
+  <div class="side">
+    <div class="ws"><i>M</i>My pages ⌄</div>
+    <div class="item">🔍 Search</div><div class="item">🏠 Home</div><div class="item">📥 Inbox</div>
+    <h5>Private</h5>
+    <div class="item">📒 Journal</div>
+    <div class="item">✈️ Trips</div>
+    <div class="item sub on">⛺ Lake Ardmore camping trip</div>
+    <div class="item sub">🏔️ Alps 2027 ideas</div>
+    <div class="item">📚 Reading list</div>
+    <div class="item">💡 Side projects</div>
+    <h5>Shared</h5>
+    <div class="item">🏡 House admin</div><div class="item">🎁 Gift ideas</div>
+  </div>
+  <div>
+    <div class="top"><div class="crumb">Trips / <b>⛺ Lake Ardmore camping trip</b></div><div class="acts"><span id="edited">Edited 2h ago</span><span id="share">Share</span><span id="star">☆</span><span>⋯</span></div></div>
+    <div class="page">
+      <div class="icon">⛺</div>
+      <h1>Lake Ardmore camping trip</h1>
+      <div class="props">
+        <span>📅 Dates</span><div>Oct 17 → Oct 19</div>
+        <span>👥 Going</span><div><span class="chip" style="background:#e3f0ff">Sam</span><span class="chip" style="background:#fdecc8">Juniper</span><span class="chip" style="background:#eae4f2">You</span></div>
+        <span>📍 Site</span><div>North shore, pitch 14</div>
+        <span>⏳ Status</span><div><span class="chip click" id="status" style="background:#dbeddb">Planning</span></div>
+      </div>
+      <hr>
+      <p>Two nights at the north shore. We drive up Friday after work, hike to the upper lake on Saturday (about 11 km round trip) and pack up Sunday morning.</p>
+
+      <h2>Before we go</h2>
+      <div class="todo done"><span class="num">1.</span><span class="box">✓</span><span class="t">Check the weather forecast for Saturday and Sunday night.</span></div>
+      <div class="todo done"><span class="num">2.</span><span class="box">✓</span><span class="t">Charge the headlamps and the power bank, and pack spare batteries.</span></div>
+      <div class="todo"><span class="num">3.</span><span class="box"></span><span class="t">Buy food for three dinners, plus snacks for the hike up to the lake.</span></div>
+      <div class="todo"><span class="num">4.</span><span class="box"></span><span class="t">Confirm the campsite booking and print the parking permit for the dashboard.</span></div>
+      <div class="todo"><span class="num">5.</span><span class="box"></span><span class="t">Pack the first-aid kit: bandages, blister plasters, painkillers, tweezers.</span></div>
+      <div class="todo"><span class="num">6.</span><span class="box"></span><span class="t">Tell someone at home the route and when you expect to be back.</span></div>
+      <div id="todos-end"></div>
+      <div class="add" id="addTodo">+ Add a to-do</div>
+
+      <div class="callout"><span>⚠️</span><div><b>Fire ban until Oct 31.</b> Gas stoves are fine, but no campfires. The ranger said fines start at $250.</div></div>
+
+      <h2>Gear split</h2>
+      <table>
+        <tr><th>Item</th><th>Who</th><th>Packed</th></tr>
+        <tr><td>Tent (3-person)</td><td>Sam</td><td>✓</td></tr>
+        <tr><td>Stove + 2 gas canisters</td><td>Juniper</td><td></td></tr>
+        <tr><td>Water filter</td><td>You</td><td></td></tr>
+        <tr><td>Cooler</td><td>Sam</td><td>✓</td></tr>
+      </table>
+      <div class="comment"><div class="av" style="background:#2a9d8f">S</div>Sam: I can bring the canoe if we get the lakeside pitch!</div>
+      <div id="comments"></div>
+      <div class="comment reply"><div class="av" style="background:#9065b0">Y</div><input id="commentBox" placeholder="Add a comment…"></div>
+    </div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+<script>
+  // Works like a real notes page (nothing is saved: reload to start over).
+  const $ = id => document.getElementById(id);
+  function toast(t) { const n = $('toast'); n.textContent = t; n.classList.add('on'); clearTimeout(n._t); n._t = setTimeout(() => n.classList.remove('on'), 2000); }
+  function edited() { $('edited').textContent = 'Edited just now'; }
+  // Text is editable, like any page.
+  document.querySelectorAll('.page p, .page h1, .todo .t, td:not(.pk), .callout div').forEach(e => e.contentEditable = 'true');
+  document.addEventListener('input', edited);
+  // Checkboxes.
+  function setDone(todo, on) {
+    todo.classList.toggle('done', on);
+    todo.querySelector('.box').textContent = on ? '✓' : '';
+    edited();
+  }
+  document.addEventListener('click', e => {
+    const box = e.target.closest('.todo .box');
+    if (box) setDone(box.closest('.todo'), !box.closest('.todo').classList.contains('done'));
+  });
+  function renumber() { document.querySelectorAll('.todo .num').forEach((n, i) => n.textContent = (i + 1) + '.'); }
+  $('addTodo').onclick = () => {
+    const d = document.createElement('div');
+    d.className = 'todo';
+    d.innerHTML = '<span class="num"></span><span class="box"></span><span class="t" contenteditable="true"></span>';
+    $('todos-end').before(d); renumber();
+    const t = d.querySelector('.t'); t.focus();
+    t.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); t.blur(); if (!t.textContent.trim()) { d.remove(); renumber(); } } });
+  };
+  // Packed column in the gear table.
+  document.querySelectorAll('table tr').forEach((r, i) => {
+    if (i === 0) return;
+    const c = r.cells[2]; c.classList.add('pk');
+    c.onclick = () => { c.textContent = c.textContent.trim() ? '' : '✓'; edited(); };
+  });
+  // Status picker.
+  const STATUSES = [['Planning', '#dbeddb'], ['Booked', '#d3e5ef'], ['Packed', '#fdecc8'], ['Done', '#e8deee']];
+  let menu = null;
+  function closeMenu() { if (menu) { menu.remove(); menu = null; } }
+  $('status').onclick = e => {
+    e.stopPropagation(); if (menu) return closeMenu();
+    const r = $('status').getBoundingClientRect();
+    menu = document.createElement('div'); menu.className = 'menu';
+    menu.innerHTML = '<small>Select an option</small>' + STATUSES.map(([n, c]) => `<div data-s="${n}"><span class="chip" style="background:${c}">${n}</span></div>`).join('');
+    menu.style.left = r.left + scrollX + 'px'; menu.style.top = r.bottom + scrollY + 6 + 'px';
+    document.body.append(menu);
+    menu.onclick = ev => {
+      const it = ev.target.closest('[data-s]'); if (!it) return;
+      const [n, c] = STATUSES.find(s => s[0] === it.dataset.s);
+      $('status').textContent = n; $('status').style.background = c; closeMenu(); edited();
+    };
+  };
+  document.addEventListener('click', e => { if (menu && !menu.contains(e.target)) closeMenu(); });
+  // Star and share.
+  $('star').onclick = () => { const on = $('star').textContent === '☆'; $('star').textContent = on ? '★' : '☆'; $('star').style.color = on ? '#e6a100' : ''; toast(on ? 'Added to Favorites' : 'Removed from Favorites'); };
+  $('share').onclick = () => toast('Link copied to clipboard');
+  // Comments.
+  $('commentBox').addEventListener('keydown', e => {
+    if (e.key !== 'Enter' || !e.target.value.trim()) return;
+    const c = document.createElement('div'); c.className = 'comment';
+    c.innerHTML = '<div class="av" style="background:#9065b0">Y</div><span></span>';
+    c.querySelector('span').textContent = 'You: ' + e.target.value.trim();
+    $('comments').append(c); e.target.value = '';
+  });
+</script>
+</body></html>

@@ -1,0 +1,90 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<!-- Plays a teacher reply the way the app does: the model's code streams in while it's "written",
+     lines are "spoken" one after another, and each <step3d> runs when its line starts. Driven by shoot.py. -->
+<link rel="stylesheet" href="../web/kit.css">
+<style>
+  html, body { background: linear-gradient(180deg,#fbfcfd 0%,#eef1f5 100%); }   /* the app's 3D panel */
+  #caption { position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%); max-width: 86%;
+    background: rgba(0,0,0,.72); color: #fff; font: 500 15px -apple-system, system-ui, sans-serif;
+    padding: 7px 14px; border-radius: 10px; z-index: 10; }
+  #clock { position: fixed; left: 10px; top: 8px; color: #8a8f98; font: 12px ui-monospace, Menlo, monospace; z-index: 10; }
+</style></head>
+<body>
+<div id="stage"></div><svg id="lines"></svg><div id="tags"></div><div id="err"></div>
+<div id="caption" hidden></div><div id="clock"></div>
+<script src="../vendor/three.min.js"></script>
+<script src="../web/kit.js"></script>
+<script>
+const errors = [];
+addEventListener('error', e => errors.push('page: ' + e.message));
+let kit = null, writer = null, sceneId = null;
+const WPS = 3.0;   // spoken words per second (Kokoro at 1.35x)
+
+// The reply as a list of pieces with the text offset where each one is complete.
+function parse(reply) {
+  const out = [], re = /<say>([\s\S]*?)<\/say>|<scene3d\b([^>]*)>|<\/scene3d>|<step3d\b([^>]*)>([\s\S]*?)<\/step3d>/g;
+  let m, scene = null;
+  while ((m = re.exec(reply))) {
+    if (m[1] !== undefined) out.push({ kind: 'say', text: m[1].trim(), end: re.lastIndex });
+    else if (m[0].startsWith('<scene3d')) { scene = { kind: 'scene', attrs: m[2], open: re.lastIndex }; out.push(scene); }
+    else if (m[0] === '</scene3d>' && scene) { scene.close = m.index; scene.code = reply.slice(scene.open, m.index); scene = null; }
+    else if (m[3] !== undefined) out.push({ kind: 'step', id: (/id="([^"]*)"/.exec(m[3]) || [])[1], code: m[4], end: re.lastIndex });
+  }
+  if (scene && scene.close === undefined) { scene.close = reply.length; scene.code = reply.slice(scene.open); }
+  return out;
+}
+
+// Build the timeline: when each thing is written (at cps characters per second) and when each line is spoken.
+function schedule(reply, cps, startAt) {
+  const pieces = parse(reply), ev = [], snaps = [];
+  let speechFree = startAt, lastSay = null;
+  for (const p of pieces) {
+    if (p.kind === 'scene') {
+      const id = (/id="([^"]*)"/.exec(p.attrs) || [])[1] || 'model';
+      ev.push({ t: startAt + p.open / cps, run: () => openScene(id) });
+      let off = 0;
+      for (const line of p.code.split(/(?<=\n)/)) {
+        off += line.length;
+        ev.push({ t: startAt + (p.open + off) / cps, run: () => writer && writer.feed(line) });
+      }
+      ev.push({ t: startAt + p.close / cps, run: () => { if (writer) for (const e of writer.end()) errors.push('scene: ' + e); } });
+      snaps.push({ t: startAt + p.close / cps + 2.2, label: 'model written' });
+    } else if (p.kind === 'say') {
+      const written = startAt + p.end / cps, start = Math.max(written, speechFree), dur = p.text.split(/\s+/).length / WPS + 0.3;
+      speechFree = start + dur;
+      lastSay = { start, end: start + dur };
+      ev.push({ t: start, run: () => caption(p.text) });
+      snaps.push({ t: start + dur - 0.05, label: p.text.slice(0, 60) });
+    } else if (p.kind === 'step') {
+      const t = Math.max(startAt + p.end / cps, lastSay ? lastSay.start : 0);
+      ev.push({ t, run: () => { try { kit.run(p.code); } catch (e) { errors.push('step: ' + e.message); } } });
+    }
+  }
+  const end = Math.max(speechFree, ...ev.map(e => e.t)) + 2.5;
+  snaps.push({ t: end, label: 'end' });
+  return { ev: ev.sort((a, b) => a.t - b.t), snaps, end };
+}
+
+function openScene(id) {
+  if (kit && sceneId === id) return;            // a follow-up with the same id keeps the model
+  if (kit) { errors.push(`note: a second model "${id}" replaced "${sceneId}"`); resetStage(); }
+  kit = Kit(); kit.start(); writer = kit.writer(); sceneId = id;
+}
+function resetStage() {
+  for (const id of ['stage', 'lines', 'tags']) document.getElementById(id).innerHTML = '';
+}
+function caption(t) { const c = document.getElementById('caption'); c.textContent = t; c.hidden = !t; }
+
+let t0 = 0;
+/** Start playing a reply now. Returns the snapshot times (seconds from now) for shoot.py. */
+window.play = function (reply, cps) {
+  t0 = performance.now();
+  const s = schedule(reply, cps || 250, 0.6);
+  for (const e of s.ev) setTimeout(e.run, e.t * 1000);
+  return { snaps: s.snaps, end: s.end };
+};
+window.errorsSoFar = () => errors.slice();
+setInterval(() => { document.getElementById('clock').textContent = ((performance.now() - t0) / 1000).toFixed(1) + 's'; }, 100);
+</script>
+</body></html>

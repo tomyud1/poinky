@@ -1,0 +1,13 @@
+html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; }
+body { font-family: ui-rounded, -apple-system, system-ui, sans-serif; }
+#stage { position: absolute; inset: 0; }
+#stage canvas { display: block; cursor: grab; }
+#stage canvas:active { cursor: grabbing; }
+#lines { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
+#lines line, #lines circle { transition: opacity .3s; }
+#tags { position: absolute; inset: 0; pointer-events: none; }
+.tag { position: absolute; left: 0; top: 0; white-space: nowrap; padding: 3px 11px 2px 9px; color: #1f2328;
+       background: #fffdf8; border-left: 5px solid var(--c, #3b6ef6); border-radius: 3px;
+       font: 700 18px Noteworthy, "Chalkboard SE", "Marker Felt", ui-rounded, system-ui, sans-serif; opacity: 0;
+       transition: opacity .35s; box-shadow: 0 2px 8px rgba(0,0,0,.2), 0 0 0 1px rgba(0,0,0,.08); }
+#err { position: absolute; left: 12px; bottom: 12px; right: 12px; font: 12px ui-monospace, Menlo, monospace; color: #b42318; }

@@ -1,0 +1,8 @@
+.build/
+build/
+voice-samples/
+.DS_Store
+*.p12
+*.pem
+__pycache__/
+eval3d/runs/

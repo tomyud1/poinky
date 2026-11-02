@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Lumen Notes</title>
+<style>
+  :root{--bg:#fff;--side:#f5f4f1;--list:#fbfaf8;--ink:#1d1d1f;--muted:#86868b;--line:#e6e4df;--sel:#ffd75e;--acc:#d89b00;--chrome:#ecebe7}
+  .dark{--bg:#1e1e1f;--side:#262628;--list:#222224;--ink:#ececee;--muted:#8e8e93;--line:#38383b;--sel:#6b5617;--chrome:#2c2c2e}
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:#d9d6cf;font:14px/1.45 -apple-system,BlinkMacSystemFont,system-ui,sans-serif}
+  .win{position:absolute;inset:28px 40px;border-radius:12px;overflow:hidden;background:var(--bg);color:var(--ink);box-shadow:0 30px 80px rgba(0,0,0,.28),0 0 0 1px rgba(0,0,0,.12);display:grid;grid-template-rows:52px 1fr;transition:background .3s,color .3s}
+  .bar{display:grid;grid-template-columns:220px 300px 1fr;background:var(--chrome);border-bottom:1px solid var(--line)}
+  .bar>div{display:flex;align-items:center;gap:10px;padding:0 14px}
+  .lights{display:flex;gap:8px}.lights i{width:12px;height:12px;border-radius:50%;display:block}
+  .tb{width:30px;height:28px;border-radius:7px;display:grid;place-items:center;color:var(--muted);cursor:pointer;border:0;background:none;font-size:16px}
+  .tb:hover{background:rgba(127,127,127,.15)}
+  .bar .right{justify-content:flex-end;gap:6px}
+  .bar .search{flex:1;background:rgba(127,127,127,.12);border-radius:7px;padding:5px 10px;color:var(--muted);font-size:13px}
+  .body{display:grid;grid-template-columns:220px 300px 1fr;min-height:0}
+  .side{background:var(--side);border-right:1px solid var(--line);padding:12px 10px;font-size:13.5px}
+  .side h6{margin:10px 8px 4px;color:var(--muted);font-size:11px;font-weight:600}
+  .side div.i{padding:5px 8px;border-radius:6px;display:flex;justify-content:space-between}
+  .side .on{background:rgba(216,155,0,.18)}
+  .side small{color:var(--muted)}
+  .list{background:var(--list);border-right:1px solid var(--line);overflow:auto}
+  .list .n{padding:12px 16px;border-bottom:1px solid var(--line)}
+  .list .n.on{background:var(--sel)}
+  .list b{display:block;font-size:14px}.list span{color:var(--muted);font-size:12.5px}
+  .list p{margin:2px 0 0;color:var(--muted);font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .editor{padding:26px 48px;overflow:auto}
+  .editor .date{color:var(--muted);text-align:center;font-size:12px;margin-bottom:14px}
+  .editor h1{font-size:26px;margin:0 0 10px}
+  .editor li{margin:4px 0}
+  .menu{position:absolute;right:14px;top:46px;background:var(--bg);border:1px solid var(--line);border-radius:10px;box-shadow:0 14px 40px rgba(0,0,0,.2);padding:5px;display:none;z-index:5;min-width:200px;color:var(--ink)}
+  .menu button{display:flex;justify-content:space-between;width:100%;text-align:left;border:0;background:none;padding:6px 10px;border-radius:6px;font:inherit;color:inherit;cursor:pointer}
+  .menu button:hover{background:#3b82f6;color:#fff}.menu button:hover small{color:#e6eeff}
+  .menu small{color:var(--muted)}.menu hr{border:0;border-top:1px solid var(--line);margin:4px 6px}
+  .sheet{position:absolute;left:50%;top:52px;transform:translateX(-50%);width:560px;background:var(--bg);color:var(--ink);border:1px solid var(--line);border-top:0;border-radius:0 0 12px 12px;box-shadow:0 24px 60px rgba(0,0,0,.3);display:none;z-index:6;overflow:hidden}
+  .sheet .tabs{display:flex;justify-content:center;gap:4px;padding:10px;background:var(--chrome);border-bottom:1px solid var(--line)}
+  .sheet .tabs button{border:0;background:none;color:var(--ink);padding:6px 14px;border-radius:7px;cursor:pointer;font:inherit;display:flex;flex-direction:column;align-items:center;gap:2px;font-size:12px}
+  .sheet .tabs button span{font-size:20px}
+  .sheet .tabs button.on{background:rgba(127,127,127,.18)}
+  .sheet .pane{padding:18px 28px}
+  .sheet .row{display:grid;grid-template-columns:150px 1fr;align-items:center;padding:9px 0;gap:14px}
+  .sheet .row label{text-align:right;color:var(--ink)}
+  .sheet select{font:inherit;padding:3px 6px;border-radius:6px;border:1px solid var(--line);background:var(--bg);color:var(--ink);width:180px}
+  .sheet .foot{display:flex;justify-content:flex-end;padding:12px 18px;border-top:1px solid var(--line)}
+  .sheet .foot button{font:inherit;padding:5px 18px;border-radius:7px;border:0;background:#3b82f6;color:#fff;cursor:pointer}
+  .list .n{cursor:pointer}.list .n:not(.on):hover{background:rgba(127,127,127,.08)}
+  .editor [contenteditable]{outline:none}
+  .editor .check{list-style:none;padding-left:4px}.editor .check li{display:flex;gap:8px;align-items:center}
+  .editor .check input{accent-color:var(--acc);width:15px;height:15px}
+  .side div.i{cursor:pointer}
+  .toast{position:absolute;left:50%;bottom:24px;transform:translateX(-50%);background:rgba(30,30,30,.92);color:#fff;padding:8px 16px;border-radius:999px;font-size:13px;display:none;z-index:7}
+</style></head>
+<body>
+<div class="win" id="win">
+  <div class="bar">
+    <div><div class="lights"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i></div><span style="flex:1"></span><button class="tb" title="Sidebar">▤</button></div>
+    <div><b style="flex:1">All Notes</b><button class="tb" title="Sort">⇅</button></div>
+    <div class="right"><button class="tb" id="checklist" title="Checklist">☑</button><button class="tb" title="Table">▦</button><button class="tb" id="shareBtn" title="Share">⇪</button><div class="search">🔍 Search</div><button class="tb" id="more" title="More">⋯</button></div>
+  </div>
+  <div class="body">
+    <div class="side">
+      <h6>LIBRARY</h6>
+      <div class="i on">📝 All Notes <small>24</small></div><div class="i">⭐ Favorites <small>5</small></div><div class="i">🗑 Recently Deleted <small>2</small></div>
+      <h6>FOLDERS</h6>
+      <div class="i">🏕 Trips <small>6</small></div><div class="i">📚 Reading <small>9</small></div><div class="i">💡 App ideas <small>7</small></div><div class="i">🍳 Recipes <small>2</small></div>
+    </div>
+    <div class="list" id="list">
+      <div class="n on"><b>Trip ideas</b><span>Today 10:42</span><p>Lake loop in October. Bring the good camera…</p></div>
+      <div class="n"><b>Books to read</b><span>Yesterday</span><p>The Overstory, Project Hail Mary, Piranesi…</p></div>
+      <div class="n"><b>Voice assistant ideas</b><span>Mon</span><p>Hold a key to talk, notch status, a buddy at…</p></div>
+      <div class="n"><b>Pasta for four</b><span>Sat</span><p>400 g spaghetti, 2 cans tomatoes, garlic…</p></div>
+      <div class="n"><b>Garden plan</b><span>Oct 2</span><p>Tomatoes along the fence, basil by the door…</p></div>
+    </div>
+    <div class="editor" id="editor"></div>
+  </div>
+  <div class="menu" id="menu">
+    <button id="newNote">New Note <small>⌘N</small></button><button>New Folder <small>⇧⌘N</small></button><hr>
+    <button>Export as PDF…</button><button>Print… <small>⌘P</small></button><hr>
+    <button id="prefs">Preferences… <small>⌘,</small></button><button>Help</button>
+  </div>
+  <div class="sheet" id="sheet">
+    <div class="tabs"><button class="on" data-t="general"><span>⚙️</span>General</button><button data-t="appearance"><span>🎨</span>Appearance</button><button data-t="sync"><span>☁️</span>Sync</button><button data-t="shortcuts"><span>⌨️</span>Shortcuts</button></div>
+    <div class="pane" id="pane"></div>
+    <div class="foot"><button id="done">Done</button></div>
+  </div>
+  <div class="toast" id="toast"></div>
+</div>
+<script>
+  const $ = id => document.getElementById(id);
+  const panes = {
+    general: `<div class="row"><label>Default folder:</label><select><option>All Notes</option><option>Trips</option></select></div>
+              <div class="row"><label>New notes start with:</label><select><option>Title</option><option>Body</option></select></div>
+              <div class="row"><label>Spell check:</label><div><input type="checkbox" checked> Check spelling while typing</div></div>`,
+    appearance: `<div class="row"><label>Theme:</label><select id="theme"><option>Light</option><option>Dark</option><option>Match System</option></select></div>
+                 <div class="row"><label>Text size:</label><select><option>Medium</option><option>Large</option></select></div>
+                 <div class="row"><label>Accent color:</label><select><option>Gold</option><option>Blue</option></select></div>`,
+    sync: `<div class="row"><label>Sync:</label><div><input type="checkbox"> Keep notes in sync across devices</div></div>`,
+    shortcuts: `<div class="row"><label>New note:</label><div>⌘N</div></div><div class="row"><label>Search:</label><div>⌘F</div></div>`
+  };
+  function show(t){
+    document.querySelectorAll('.sheet .tabs button').forEach(b => b.classList.toggle('on', b.dataset.t === t));
+    $('pane').innerHTML = panes[t];
+    const th = $('theme');
+    if (th) { th.value = $('win').classList.contains('dark') ? 'Dark' : 'Light';
+      th.onchange = () => { $('win').classList.toggle('dark', th.value === 'Dark'); toast(th.value + ' theme on'); }; }
+  }
+  function toast(t){ const n = $('toast'); n.textContent = t; n.style.display = 'block'; clearTimeout(n._t); n._t = setTimeout(() => n.style.display = 'none', 1800); }
+  $('more').onclick = e => { e.stopPropagation(); $('menu').style.display = $('menu').style.display === 'block' ? 'none' : 'block'; };
+  document.addEventListener('click', e => { if (!$('menu').contains(e.target)) $('menu').style.display = 'none'; });
+  $('prefs').onclick = () => { $('menu').style.display = 'none'; $('sheet').style.display = 'block'; show('general'); };
+  $('done').onclick = () => $('sheet').style.display = 'none';
+  document.querySelectorAll('.sheet .tabs button').forEach(b => b.onclick = () => show(b.dataset.t));
+
+  // Notes: pick one in the list to open it; everything is editable (nothing is saved).
+  const notes = [
+    { t: 'Trip ideas', d: 'Today 10:42', when: 'Today at 10:42', html: '<p>Lake loop in October. Bring the good camera and the small tripod.</p><ul><li>Ask Sam about the canoe</li><li>Sunrise hike to the upper lake</li><li>Try the bakery in the village on the way back</li></ul><p>Budget: about $120 each for gas, food and the campsite.</p>' },
+    { t: 'Books to read', d: 'Yesterday', when: 'Yesterday at 21:15', html: '<ul><li>The Overstory</li><li>Project Hail Mary</li><li>Piranesi</li><li>The Dispossessed</li></ul><p>Ask Juniper which one to start with.</p>' },
+    { t: 'Voice assistant ideas', d: 'Mon', when: 'Monday at 18:02', html: '<p>Hold a key to talk, notch status, a buddy at the cursor that points at things.</p><ul><li>Marks that fade when it\'s done talking</li><li>Walk me through settings, one click at a time</li><li>Remember my name</li></ul>' },
+    { t: 'Pasta for four', d: 'Sat', when: 'Saturday at 12:30', html: '<ul><li>400 g spaghetti</li><li>2 cans tomatoes</li><li>3 cloves garlic</li><li>Basil, parmesan</li></ul><p>Simmer the sauce 20 min. Salt the water well.</p>' },
+    { t: 'Garden plan', d: 'Oct 2', when: 'October 2 at 08:44', html: '<p>Tomatoes along the fence, basil by the door, lettuce in the shady bed.</p><p>Order seeds before March.</p>' },
+  ];
+  let cur = 0;
+  function preview(n) { const d = document.createElement('div'); d.innerHTML = n.html; return d.textContent.trim().slice(0, 60) + '…'; }
+  function drawList() {
+    $('list').innerHTML = notes.map((n, i) => `<div class="n${i === cur ? ' on' : ''}" data-i="${i}"><b>${n.t}</b><span>${n.d}</span><p>${preview(n)}</p></div>`).join('');
+  }
+  function openNote(i) {
+    cur = i; drawList();
+    const n = notes[i];
+    $('editor').innerHTML = `<div class="date">${n.when}</div><h1 contenteditable="true">${n.t}</h1><div class="body" contenteditable="true">${n.html}</div>`;
+    const h = $('editor').querySelector('h1'), b = $('editor').querySelector('.body');
+    h.oninput = () => { n.t = h.textContent; n.d = 'Just now'; drawList(); };
+    b.oninput = () => { n.html = b.innerHTML; n.d = 'Just now'; drawList(); };
+  }
+  $('list').onclick = e => { const n = e.target.closest('.n'); if (n) openNote(+n.dataset.i); };
+  $('newNote').onclick = () => {
+    $('menu').style.display = 'none';
+    notes.unshift({ t: 'New Note', d: 'Just now', when: 'Today at ' + new Date().toTimeString().slice(0, 5), html: '<p><br></p>' });
+    openNote(0); const h = $('editor').querySelector('h1'); h.focus(); getSelection().selectAllChildren(h);
+  };
+  $('checklist').onclick = () => {
+    const b = $('editor').querySelector('.body');
+    b.insertAdjacentHTML('beforeend', '<ul class="check"><li><input type="checkbox"><span>New item</span></li></ul>');
+    notes[cur].html = b.innerHTML; toast('Checklist added');
+  };
+  $('shareBtn').onclick = () => toast('Link to “' + notes[cur].t + '” copied');
+  document.querySelectorAll('.side div.i').forEach(d => d.onclick = () => {
+    document.querySelectorAll('.side div.i').forEach(x => x.classList.toggle('on', x === d));
+  });
+  openNote(0);
+</script>
+</body></html>

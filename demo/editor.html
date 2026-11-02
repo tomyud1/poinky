@@ -1,0 +1,297 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>tipsplit.py — sample-project</title>
+<style>
+  :root{--bg:#1f1f1f;--side:#181818;--panel:#181818;--line:#2b2b2b;--ink:#cccccc;--dim:#858585;--sel:#37373d;--blue:#0078d4}
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0;background:var(--bg);color:var(--ink);font:13px/1.4 -apple-system,BlinkMacSystemFont,system-ui,sans-serif;overflow:hidden}
+  .win{display:grid;grid-template-rows:36px 1fr 22px;height:100vh}
+  .title{display:flex;align-items:center;justify-content:center;position:relative;background:#181818;border-bottom:1px solid var(--line);color:var(--dim);font-size:12.5px}
+  .lights{position:absolute;left:14px;display:flex;gap:8px}.lights i{width:12px;height:12px;border-radius:50%;display:block}
+  .title .search{background:#2a2a2a;border:1px solid #3a3a3a;border-radius:6px;padding:4px 120px;color:#9d9d9d}
+  .main{display:grid;grid-template-columns:48px 240px 1fr;min-height:0;overflow:hidden}
+  .act{background:var(--side);border-right:1px solid var(--line);display:flex;flex-direction:column;align-items:center;gap:22px;padding-top:12px}
+  .act svg{width:24px;height:24px;color:#858585}.act svg.on{color:#e7e7e7}
+  .explorer{background:var(--side);border-right:1px solid var(--line);padding-top:8px;font-size:13px}
+  .explorer h4{margin:0 0 6px;padding:0 20px;font-size:11px;letter-spacing:.06em;color:#bbb;font-weight:600}
+  .tree div{padding:3px 20px;display:flex;gap:6px;align-items:center;color:#cccccc;cursor:pointer}
+  .tree .dir{font-weight:600;color:#ccc;padding-left:12px;cursor:default}
+  .tree .file{padding-left:32px}.tree .file:hover{background:#2a2d2e}.tree .on,.tree .on:hover{background:var(--sel)}
+  .tree .err{color:#f48771}.tree .err .cnt{margin-left:auto;color:#f48771;font-size:11px}
+  .tree .mod{color:#e2c08d}.tree .mod .cnt{margin-left:auto;color:#e2c08d;font-size:11px}
+  .py{color:#4b8bbe;font-weight:700;font-size:11px;width:14px}.md{color:#519aba;font-size:11px;width:14px}
+  .work{display:grid;grid-template-rows:35px 22px 1fr 280px;min-width:0;min-height:0;position:relative}
+  .tabs{display:flex;background:var(--side);border-bottom:1px solid var(--line)}
+  .tab{padding:0 14px;display:flex;align-items:center;gap:8px;border-right:1px solid var(--line);color:#9d9d9d;cursor:pointer;border-top:1px solid transparent}
+  .tab.on{background:var(--bg);color:#fff;border-top-color:var(--blue)}
+  .tab .x{color:#858585;visibility:hidden}.tab.on .x{visibility:visible}
+  .crumbs{padding:0 18px;color:#a9a9a9;display:flex;align-items:center;gap:6px;font-size:12.5px}
+  .code{overflow:auto;font:14px/21px "SF Mono",ui-monospace,Menlo,monospace;padding-top:4px}
+  .ln{display:grid;grid-template-columns:60px 1fr;transition:background 2.5s}
+  .ln .n{color:#6e7681;text-align:right;padding-right:22px;user-select:none}
+  .ln.cur{background:#2a2d2e}.ln.cur .n{color:#cccccc}
+  .ln.new{background:rgba(87,171,90,.28);transition:none}.ln.new .n{color:#89d185}
+  .ln pre{margin:0;font:inherit;white-space:pre}
+  .k{color:#c586c0}.d{color:#569cd6}.f{color:#dcdcaa}.s{color:#ce9178}.c{color:#6a9955}.n2{color:#b5cea8}.v{color:#9cdcfe}.b{color:#4ec9b0}.h{color:#569cd6;font-weight:700}
+  .squig{text-decoration:underline wavy #f48771;text-underline-offset:3px}
+  .term{border-top:1px solid var(--line);background:var(--panel);display:grid;grid-template-rows:34px 1fr;min-height:0}
+  .ttabs{display:flex;gap:22px;padding:0 18px;align-items:center;font-size:11px;letter-spacing:.04em;color:#9d9d9d}
+  .ttabs .on{color:#e7e7e7;border-bottom:1px solid #e7e7e7;padding:9px 0 8px}
+  .tout{overflow:auto;padding:4px 18px 10px;font:13px/19px "SF Mono",ui-monospace,Menlo,monospace;color:#cccccc;white-space:pre-wrap;cursor:text}
+  .tout .row{display:flex;white-space:pre}
+  .tout input{flex:1;background:none;border:0;outline:0;color:#cccccc;font:inherit;padding:0;margin-left:.6em;caret-color:#cccccc}
+  .prompt{color:#89d185}.fail{color:#f48771}.ok{color:#89d185}.dim{color:#858585}.add{color:#89d185}.del{color:#f48771}.hunk{color:#4fc1ff}
+  .status{background:var(--blue);color:#fff;display:flex;gap:18px;align-items:center;padding:0 12px;font-size:12px}
+  .status .r{margin-left:auto;display:flex;gap:18px}
+  .toast{position:absolute;right:18px;bottom:296px;background:#252526;border:1px solid #3c3c3c;box-shadow:0 8px 24px rgba(0,0,0,.45);border-radius:6px;padding:10px 14px;color:#ccc;font-size:12.5px;display:flex;gap:10px;align-items:center;opacity:0;transform:translateY(8px);transition:.25s;pointer-events:none}
+  .toast.on{opacity:1;transform:none}
+  .toast i{color:#3794ff;font-style:normal}
+  .banner{position:absolute;left:50%;top:6px;transform:translateX(-50%);background:#5a4a14;color:#ffe9a8;border-radius:6px;padding:6px 12px;font-size:12px;z-index:3;display:none}
+</style></head>
+<body>
+<div class="win">
+  <div class="title">
+    <div class="lights"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i></div>
+    <div class="search">sample-project</div>
+    <div class="banner" id="banner">Static copy. For live files and a working terminal run: python3 demo/serve.py</div>
+  </div>
+  <div class="main">
+    <div class="act">
+      <svg class="on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/></svg>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="8" r="2.5"/><path d="M6 8.5v7M18 10.5c0 4-6 3-11.5 6"/></svg>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M7 4v16l13-8z"/></svg>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+    </div>
+    <div class="explorer">
+      <h4>EXPLORER</h4>
+      <div class="tree" id="tree"></div>
+    </div>
+    <div class="work">
+      <div class="tabs" id="tabs"></div>
+      <div class="crumbs" id="crumbs"></div>
+      <div class="code" id="code"></div>
+      <div class="term">
+        <div class="ttabs"><span>PROBLEMS <span class="fail" id="pcount"></span></span><span>OUTPUT</span><span>DEBUG CONSOLE</span><span class="on">TERMINAL</span></div>
+        <div class="tout" id="tout"></div>
+      </div>
+      <div class="toast" id="toast"><i>ⓘ</i><span id="toastText"></span></div>
+    </div>
+  </div>
+  <div class="status"><span>⎇ main</span><span id="sprob">⊗ 0 ⚠ 0</span><div class="r"><span id="pos">Ln 15, Col 5</span><span>Spaces: 4</span><span>UTF-8</span><span id="lang">Python 3.12</span></div></div>
+</div>
+<script>
+// Live: served by demo/serve.py, the files are the real sample-project and the terminal really runs.
+// Opened as a plain file it falls back to the built-in copy below.
+const ORDER = ['README.md', 'tipsplit.py', 'test_tipsplit.py'];
+const STATIC = {"tipsplit.py": "\"\"\"Split a restaurant bill (with tip) between friends.\n\n    python3 tipsplit.py 87.40 18 3\n\"\"\"\nimport sys\n\n\ndef split_bill(total, tip_percent, people):\n    \"\"\"Return how much each person pays, in dollars, rounded to cents.\n\n    The shares must add up to exactly what's paid (bill + tip).\n    \"\"\"\n    with_tip = total * (1 + tip_percent / 100)\n    share = round(with_tip / people, 2)\n    return [share] * people\n\n\ndef main():\n    total, tip, people = float(sys.argv[1]), float(sys.argv[2]), int(sys.argv[3])\n    shares = split_bill(total, tip, people)\n    for i, s in enumerate(shares, 1):\n        print(f\"Person {i}: ${s:.2f}\")\n    print(f\"Total paid: ${sum(shares):.2f}\")\n\n\nif __name__ == \"__main__\":\n    main()\n", "test_tipsplit.py": "import unittest\nfrom tipsplit import split_bill\n\n\nclass SplitBillTest(unittest.TestCase):\n    def test_even_split(self):\n        self.assertEqual(split_bill(100, 20, 4), [30.0, 30.0, 30.0, 30.0])\n\n    def test_shares_add_up_to_the_total(self):\n        # $10 + 0% tip between 3 people: someone has to pay the extra cent.\n        shares = split_bill(10, 0, 3)\n        self.assertAlmostEqual(sum(shares), 10.00, places=2)\n\n    def test_uneven_with_tip(self):\n        shares = split_bill(87.40, 18, 3)\n        self.assertAlmostEqual(sum(shares), round(87.40 * 1.18, 2), places=2)\n        self.assertLessEqual(round(max(shares) - min(shares), 2), 0.01)\n\n\nif __name__ == \"__main__\":\n    unittest.main()\n", "README.md": "# tipsplit\n\nSplits a restaurant bill plus tip between friends.\n\n```\npython3 tipsplit.py 87.40 18 3\npython3 -m unittest\n```\n\nKnown issue: with uneven amounts the shares don't add up to the total (we lose or gain a cent).\n"};
+const STATIC_OUT = ".FF\n======================================================================\nFAIL: test_shares_add_up_to_the_total (test_tipsplit.SplitBillTest)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"~/poinky/demo/sample-project/test_tipsplit.py\", line 12, in test_shares_add_up_to_the_total\n    self.assertAlmostEqual(sum(shares), 10.00, places=2)\nAssertionError: 9.99 != 10.0 within 2 places (0.009999999999999787 difference)\n\n======================================================================\nFAIL: test_uneven_with_tip (test_tipsplit.SplitBillTest)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"~/poinky/demo/sample-project/test_tipsplit.py\", line 16, in test_uneven_with_tip\n    self.assertAlmostEqual(sum(shares), round(87.40 * 1.18, 2), places=2)\nAssertionError: 103.14000000000001 != 103.13 within 2 places (0.010000000000019327 difference)\n\n----------------------------------------------------------------------\nRan 3 tests in 0.000s\n\nFAILED (failures=2)\n";
+let files = {}, dir = '~/poinky/demo/sample-project', live = false;
+let active = 'tipsplit.py', curLine = 14, failures = 0, fresh = {}, changed = new Set();
+const $ = id => document.getElementById(id);
+const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+// ---------- syntax colors ----------
+const KW = new Set('False None True and as assert async await break class continue def del elif else except finally for from global if import in is lambda nonlocal not or pass raise return try while with yield'.split(' '));
+const TYPES = new Set('int float str list dict set tuple bool object Exception'.split(' '));
+const FUNCS = new Set('print round sum len range enumerate max min abs sorted zip map open isinstance super divmod'.split(' '));
+function python(text) {
+  const out = []; let inStr = null;
+  for (const raw of text.split('\n')) {
+    let i = 0, h = '', prev = '';
+    while (i < raw.length) {
+      if (inStr) {
+        const j = raw.indexOf(inStr, i);
+        if (j < 0) { h += `<span class="s">${esc(raw.slice(i))}</span>`; i = raw.length; }
+        else { h += `<span class="s">${esc(raw.slice(i, j + 3))}</span>`; i = j + 3; inStr = null; }
+        continue;
+      }
+      const rest = raw.slice(i); let m;
+      if (rest.startsWith('"""') || rest.startsWith("'''")) { inStr = rest.slice(0, 3); h += `<span class="s">${inStr}</span>`; i += 3; continue; }
+      if (rest[0] === '#') { h += `<span class="c">${esc(rest)}</span>`; break; }
+      if ((m = rest.match(/^([fFrRbB]?)("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')/))) {
+        h += (m[1] ? `<span class="d">${m[1]}</span>` : '') + `<span class="s">${esc(m[2])}</span>`; i += m[0].length; prev = ''; continue;
+      }
+      if ((m = rest.match(/^\d+(\.\d+)?/))) { h += `<span class="n2">${m[0]}</span>`; i += m[0].length; continue; }
+      if ((m = rest.match(/^[A-Za-z_]\w*/))) {
+        const w = m[0], next = rest.slice(w.length).trimStart()[0];
+        let cls = 'v';
+        if (['def', 'class', 'True', 'False', 'None', 'self'].includes(w)) cls = 'd';
+        else if (KW.has(w)) cls = 'k';
+        else if (prev === 'def') cls = 'f';
+        else if (prev === 'class' || prev === 'import' || prev === 'from' || TYPES.has(w) || w === 'sys' || w === 'unittest') cls = 'b';
+        else if (next === '(' || FUNCS.has(w)) cls = 'f';
+        h += `<span class="${cls}">${w}</span>`; i += w.length; prev = w; continue;
+      }
+      h += esc(rest[0]); i++;
+    }
+    out.push(h);
+  }
+  return out;
+}
+function markdown(text) {
+  let fence = false;
+  return text.split('\n').map(l => {
+    if (l.startsWith('```')) { fence = !fence; return `<span class="dim">${esc(l)}</span>`; }
+    if (fence) return `<span class="s">${esc(l)}</span>`;
+    if (/^#+ /.test(l)) return `<span class="h">${esc(l)}</span>`;
+    return esc(l).replace(/`([^`]+)`/g, '<span class="s">`$1`</span>');
+  });
+}
+
+// Which lines are new compared with the last version (longest common subsequence of lines).
+function newLines(a, b) {
+  const A = a.split('\n'), B = b.split('\n'), n = A.length, m = B.length;
+  const L = Array.from({ length: n + 1 }, () => new Int16Array(m + 1));
+  for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--)
+    L[i][j] = A[i] === B[j] ? L[i + 1][j + 1] + 1 : Math.max(L[i + 1][j], L[i][j + 1]);
+  const added = new Set(); let i = 0, j = 0;
+  while (j < m) {
+    if (i < n && A[i] === B[j]) { i++; j++; }
+    else if (i < n && L[i + 1][j] >= L[i][j + 1]) i++;
+    else { if (B[j].trim()) added.add(j); j++; }
+  }
+  return added;
+}
+
+// ---------- drawing ----------
+function icon(name) { return name.endsWith('.py') ? '<span class="py">py</span>' : '<span class="md">ⓘ</span>'; }
+let fadeTimer = 0;
+function render() {
+  const names = ORDER.filter(n => files[n] != null);
+  $('tree').innerHTML = '<div class="dir">⌄ SAMPLE-PROJECT</div>' + names.map(n => {
+    const err = n === 'test_tipsplit.py' && failures > 0, mod = changed.has(n);
+    return `<div class="file${n === active ? ' on' : ''}${err ? ' err' : mod ? ' mod' : ''}" data-f="${n}">${icon(n)}${n}${err ? `<span class="cnt">${failures}</span>` : mod ? '<span class="cnt">M</span>' : ''}</div>`;
+  }).join('');
+  $('tabs').innerHTML = ['tipsplit.py', 'test_tipsplit.py', 'README.md'].filter(n => files[n] != null).map(n =>
+    `<div class="tab${n === active ? ' on' : ''}" data-f="${n}">${icon(n)}${n}<span class="x">×</span></div>`).join('');
+  const text = files[active] || '';
+  const raw = text.split('\n');
+  const lines = active.endsWith('.py') ? python(text) : markdown(text);
+  const add = fresh[active] || new Set();
+  const buggy = active === 'tipsplit.py' && failures > 0;
+  $('code').innerHTML = lines.map((l, i) => {
+    let html = l || ' ';
+    if (buggy && /return \[share\] \* people/.test(raw[i] || '')) html = html.replace(/(<span class="k">return<\/span> )(.*)$/, '$1<span class="squig">$2</span>');
+    return `<div class="ln${i === curLine ? ' cur' : ''}${add.has(i) ? ' new' : ''}" data-i="${i}"><span class="n">${i + 1}</span><pre>${html}</pre></div>`;
+  }).join('');
+  $('crumbs').innerHTML = `sample-project › ${icon(active)} ${active}`;
+  $('pcount').textContent = failures ? failures : '';
+  $('sprob').textContent = `⊗ ${failures} ⚠ 0`;
+  $('lang').textContent = active.endsWith('.py') ? 'Python 3.12' : 'Markdown';
+  $('pos').textContent = `Ln ${curLine + 1}, Col 5`;
+  document.title = `${active} — sample-project`;
+  // The green "just changed" lines fade after a while.
+  if (add.size) {
+    clearTimeout(fadeTimer);
+    fadeTimer = setTimeout(() => { fresh = {}; document.querySelectorAll('.ln.new').forEach(e => e.classList.remove('new')); }, 9000);
+  }
+}
+document.addEventListener('click', e => {
+  const f = e.target.closest('[data-f]');
+  if (f) { active = f.dataset.f; curLine = 0; render(); return; }
+  const ln = e.target.closest('.ln');
+  if (ln) { curLine = +ln.dataset.i; render(); }
+});
+
+function toast(t) {
+  $('toastText').textContent = t; $('toast').classList.add('on');
+  clearTimeout(toast.t); toast.t = setTimeout(() => $('toast').classList.remove('on'), 5000);
+}
+
+// ---------- terminal ----------
+const history = []; let hpos = 0;
+function colorOut(text) {
+  return text.replace(/\n$/, '').split('\n').map(l => {
+    const e = esc(l);
+    if (/^(FAIL|ERROR)[:\s]|^AssertionError|^FAILED|Error:/.test(l)) return `<span class="fail">${e}</span>`;
+    if (/^OK\b/.test(l)) return `<span class="ok">${e}</span>`;
+    if (/^[.FE]+$/.test(l) && /[FE]/.test(l)) return e.replace(/([FE]+)/g, '<span class="fail">$1</span>');
+    if (/^\+(?!\+\+)/.test(l)) return `<span class="add">${e}</span>`;
+    if (/^-(?!--)/.test(l)) return `<span class="del">${e}</span>`;
+    if (/^@@/.test(l)) return `<span class="hunk">${e}</span>`;
+    return e;
+  }).join('\n');
+}
+function promptRow(cmd) {
+  return `<div class="row"><span class="prompt">${esc(dir)}</span><span class="dim">&nbsp;$</span>` +
+    (cmd == null ? '<input id="cmd" autocomplete="off" spellcheck="false">' : '&nbsp;' + esc(cmd)) + '</div>';
+}
+function newPrompt() {
+  $('tout').insertAdjacentHTML('beforeend', promptRow(null));
+  const input = $('cmd');
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { const v = input.value; input.parentElement.outerHTML = promptRow(v); exec(v); }
+    else if (e.key === 'ArrowUp' && history.length) { hpos = Math.max(0, hpos - 1); input.value = history[hpos]; e.preventDefault(); }
+    else if (e.key === 'ArrowDown' && history.length) { hpos = Math.min(history.length, hpos + 1); input.value = history[hpos] || ''; e.preventDefault(); }
+  });
+  $('tout').scrollTop = 1e9;
+}
+function print(text) { if (text) $('tout').insertAdjacentHTML('beforeend', `<div>${colorOut(text)}</div>`); $('tout').scrollTop = 1e9; }
+function readTests(out) {
+  if (!/Ran \d+ test/.test(out)) return;
+  const m = out.match(/FAILED \(([^)]*)\)/);
+  failures = m ? (m[1].match(/\d+/g) || []).reduce((a, b) => a + +b, 0) : 0;
+  render();
+}
+async function exec(cmd, focus = true) {
+  cmd = cmd.trim();
+  if (cmd) { history.push(cmd); hpos = history.length; }
+  if (cmd === 'clear') { $('tout').innerHTML = ''; newPrompt(); return $('cmd').focus(); }
+  if (cmd) {
+    if (!live) print(cmd.includes('unittest') ? STATIC_OUT : 'This copy can\'t run commands. Start the demo with: python3 demo/serve.py\n');
+    else {
+      try {
+        const r = await (await fetch('/api/run', { method: 'POST', body: JSON.stringify({ cmd }) })).json();
+        print(r.out); readTests(r.out);
+      } catch { print('The demo server stopped. Run: python3 demo/serve.py\n'); }
+    }
+  }
+  newPrompt();
+  if (focus) $('cmd').focus();
+}
+$('tout').addEventListener('click', () => { const i = $('cmd'); if (i && !getSelection().toString()) i.focus(); });
+
+// ---------- files (live from the demo server, or the built-in copy) ----------
+let mtimes = {};
+async function poll() {
+  try {
+    const r = await (await fetch('/api/files', { cache: 'no-store' })).json();
+    dir = r.dir || dir;
+    let changedNow = null;
+    for (const [n, f] of Object.entries(r.files)) {
+      if (mtimes[n] != null && f.mtime !== mtimes[n] && f.text !== files[n]) {
+        fresh[n] = newLines(files[n] || '', f.text); changed.add(n); changedNow = changedNow || n;
+      }
+      mtimes[n] = f.mtime; files[n] = f.text;
+    }
+    if (!live) { live = true; render(); return true; }
+    if (changedNow) {
+      if (changedNow !== active) active = changedNow;
+      const first = Math.min(...(fresh[active] || []));
+      if (isFinite(first)) curLine = first;
+      render();
+      const el = document.querySelector('.ln.new'); if (el) el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      toast(`${changedNow} was changed on disk.`);
+    }
+    return true;
+  } catch { return false; }
+}
+(async () => {
+  const ok = location.protocol.startsWith('http') && await poll();
+  if (ok) {
+    setInterval(poll, 1000);
+    // The real current state: run the tests once, as if typed.
+    $('tout').innerHTML = promptRow('python3 -m unittest');
+    history.push('python3 -m unittest'); hpos = 1;
+    const r = await (await fetch('/api/run', { method: 'POST', body: JSON.stringify({ cmd: 'python3 -m unittest' }) })).json();
+    print(r.out); readTests(r.out); newPrompt();
+  } else {
+    files = { ...STATIC }; failures = 2; render();
+    $('banner').style.display = 'block';
+    $('tout').innerHTML = promptRow('python3 -m unittest');
+    print(STATIC_OUT); newPrompt();
+  }
+})();
+</script>
+</body></html>

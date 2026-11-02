@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Quadcopter flight control · Openpedia</title>
+<style>
+  :root{--ink:#202122;--muted:#54595d;--line:#a2a9b1;--soft:#eaecf0;--link:#3366cc}
+  *{box-sizing:border-box}
+  body{margin:0;background:#fff;color:var(--ink);font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif}
+  header{display:flex;align-items:center;gap:22px;padding:10px 28px;border-bottom:1px solid var(--soft)}
+  .logo{display:flex;align-items:center;gap:10px;font-family:Georgia,"Times New Roman",serif;font-size:20px}
+  .logo i{width:34px;height:34px;border-radius:50%;border:2px solid #72777d;display:grid;place-items:center;font-style:normal;font-size:16px;color:#72777d}
+  .search{flex:1;max-width:520px;border:1px solid var(--line);border-radius:2px;padding:7px 10px;color:#72777d}
+  header .r{margin-left:auto;color:var(--link);font-size:14px;display:flex;gap:16px}
+  .wrap{display:grid;grid-template-columns:200px minmax(0,1fr);max-width:1240px;margin:0 auto;padding:0 28px}
+  .toc{padding-top:68px;font-size:14px;position:sticky;top:0;align-self:start}
+  .toc b{display:block;margin-bottom:8px}.toc a{display:block;color:var(--link);text-decoration:none;padding:3px 0}.toc .s{padding-left:14px}
+  article{padding:16px 0 80px 32px;min-width:0}
+  .tabs{display:flex;justify-content:space-between;border-bottom:1px solid var(--line);font-size:14px;color:var(--link)}
+  .tabs span{padding:8px 0;margin-right:18px}.tabs .on{color:var(--ink);border-bottom:2px solid var(--ink)}
+  h1{font-family:Georgia,"Times New Roman",serif;font-weight:400;font-size:30px;margin:14px 0 2px;border-bottom:1px solid var(--line);padding-bottom:4px}
+  .from{color:var(--muted);font-size:13px;margin-bottom:14px}
+  h2{font-family:Georgia,"Times New Roman",serif;font-weight:400;font-size:23px;border-bottom:1px solid var(--line);margin:26px 0 8px;padding-bottom:3px}
+  a{color:var(--link);text-decoration:none}
+  .infobox{float:right;width:300px;margin:0 0 16px 22px;border:1px solid var(--line);background:#f8f9fa;font-size:13.5px}
+  .infobox .t{text-align:center;font-weight:700;padding:8px;font-size:15px}
+  .infobox figure{margin:0;padding:6px 12px 10px;background:#fff;border-top:1px solid var(--soft);border-bottom:1px solid var(--soft)}
+  .infobox svg{display:block;width:100%;height:auto}
+  .infobox figcaption{font-size:12.5px;color:var(--muted);text-align:center;margin-top:4px}
+  .infobox table{width:100%;border-collapse:collapse}.infobox th,.infobox td{text-align:left;padding:5px 10px;vertical-align:top}.infobox th{width:42%}
+  table.w{border-collapse:collapse;margin:12px 0;font-size:14px}
+  table.w th,table.w td{border:1px solid var(--line);padding:6px 12px}
+  table.w th{background:#eaecf0}
+  .up{color:#14866d;font-weight:600}.dn{color:#d33;font-weight:600}
+  sup{color:var(--link);font-size:11px}
+  .refs{font-size:13px;color:var(--muted)}
+  html{scroll-behavior:smooth}
+  .tabs span{cursor:pointer}.tabs span:hover{text-decoration:underline}.tabs span.on:hover{text-decoration:none}
+  .editbar{display:none;position:sticky;top:0;z-index:4;background:#eaf3ff;border:1px solid #a3c4f3;border-radius:2px;padding:8px 12px;margin:10px 0;font-size:14px;align-items:center;gap:12px}
+  body.editing .editbar{display:flex}
+  body.editing article [contenteditable]{outline:1px dashed #a3c4f3;outline-offset:3px}
+  .editbar button{font:inherit;border-radius:2px;padding:5px 12px;cursor:pointer;border:1px solid var(--line);background:#fff}
+  .editbar .pub{background:#36c;border-color:#36c;color:#fff;font-weight:600;margin-left:auto}
+  sup{cursor:pointer}
+  .refs li.hl{background:#fef6e7;transition:background .3s}
+  .infobox figure{cursor:zoom-in}
+  .lightbox{position:fixed;inset:0;background:rgba(0,0,0,.82);display:none;place-items:center;z-index:10;cursor:zoom-out}
+  .lightbox.on{display:grid}.lightbox svg{width:min(70vw,620px);height:auto;background:#fff;border-radius:4px;padding:20px}
+  .lightbox p{color:#eee;text-align:center;font-size:14px}
+  .toc a.cur{color:var(--ink);font-weight:600}
+  .talk{display:none}
+  body.talking .talk{display:block}body.talking .content{display:none}
+  .toast{position:fixed;left:50%;bottom:28px;transform:translate(-50%,10px);background:#202122;color:#fff;padding:10px 16px;border-radius:2px;font-size:14px;opacity:0;transition:.2s;pointer-events:none;z-index:9}
+  .toast.on{opacity:1;transform:translate(-50%,0)}
+</style></head>
+<body>
+<header>
+  <div class="logo"><i>Ω</i>Openpedia</div>
+  <div class="search">Search Openpedia</div>
+  <div class="r"><span>Donate</span><span>Create account</span><span>Log in</span></div>
+</header>
+<div class="wrap">
+  <nav class="toc"><b>Contents</b><a href="#">(Top)</a><a href="#basics">Basic principle</a><a class="s" href="#torque">Torque balance</a><a href="#yaw">Yaw (turning)</a><a href="#pitch">Pitch and roll</a><a href="#hover">Hovering</a><a href="#refs">References</a></nav>
+  <article>
+    <div class="tabs"><div><span class="on" id="tArticle">Article</span><span id="tTalk">Talk</span></div><div><span class="on" id="tRead">Read</span><span id="tEdit">Edit</span><span id="tHist">View history</span></div></div>
+    <div class="editbar"><b>Editing</b> Quadcopter flight control <span style="color:var(--muted)">Click any text to change it.</span><button id="cancel">Cancel</button><button class="pub" id="publish">Publish changes</button></div>
+    <div class="talk"><h2 style="margin-top:14px">Talk: Quadcopter flight control</h2>
+      <p><b>Yaw table is confusing?</b> The table says "faster/slower" but doesn't mention that total thrust stays equal. Maybe add a line? <span style="color:var(--muted)">— Rotorhead (talk) 14:02, 3 October 2026</span></p>
+      <p style="margin-left:24px">Added a sentence to the Yaw section. <span style="color:var(--muted)">— Kitefield (talk) 09:11, 4 October 2026</span></p>
+      <p><b>Picture</b> Could we get a side view showing the tilt for forward flight? <span style="color:var(--muted)">— Hovercraft42 (talk) 18:40, 19 October 2026</span></p></div>
+    <div class="content">
+    <h1>Quadcopter flight control</h1>
+    <div class="from">From Openpedia, the free encyclopedia</div>
+
+    <div class="infobox">
+      <div class="t">Quadcopter</div>
+      <figure>
+        <svg viewBox="0 0 260 220" role="img" aria-label="Top view of a quadcopter: four rotors, front pair at the top">
+          <g stroke="#5b5f66" stroke-width="9" stroke-linecap="round"><line x1="62" y1="52" x2="198" y2="168"/><line x1="198" y1="52" x2="62" y2="168"/></g>
+          <rect x="104" y="84" width="52" height="52" rx="12" fill="#3a3f47"/>
+          <circle cx="130" cy="96" r="4" fill="#5ad19a"/>
+          <g fill="#eef3ff" stroke="#3366cc" stroke-width="2.5" fill-opacity=".9"><circle cx="62" cy="52" r="36"/><circle cx="198" cy="52" r="36"/><circle cx="62" cy="168" r="36"/><circle cx="198" cy="168" r="36"/></g>
+          <g fill="none" stroke="#3366cc" stroke-width="2.5" stroke-linecap="round">
+            <path d="M44 52 a18 18 0 1 1 18 18"/><path d="M216 52 a18 18 0 1 0 -18 18"/><path d="M80 168 a18 18 0 1 0 -18 18"/><path d="M180 168 a18 18 0 1 1 18 18"/>
+          </g>
+          <g fill="#3366cc"><path d="M62 70 l7 -5 l0 10z"/><path d="M198 70 l-7 -5 l0 10z"/><path d="M62 186 l-7 -5 l0 10z"/><path d="M198 186 l7 -5 l0 10z"/></g>
+          <g font-family="-apple-system,system-ui" font-size="12" font-weight="600" fill="#202122" text-anchor="middle"><text x="62" y="56">1</text><text x="198" y="56">2</text><text x="62" y="172">3</text><text x="198" y="172">4</text></g>
+          <text x="130" y="14" font-family="-apple-system,system-ui" font-size="11" fill="#54595d" text-anchor="middle">▲ front</text>
+        </svg>
+        <figcaption>Top view. Rotors 1 and 4 spin clockwise, 2 and 3 counter-clockwise.</figcaption>
+      </figure>
+      <table><tr><th>Rotors</th><td>4</td></tr><tr><th>Control</th><td>Motor speed only (no rudder, no flaps)</td></tr><tr><th>Typical use</th><td>Photography, mapping, inspection, racing</td></tr><tr><th>Flight controller</th><td>Updates motor speeds 400–8,000 times per second</td></tr></table>
+    </div>
+
+    <p>A <b>quadcopter</b> steers without any moving control surfaces. Everything it does (climbing, turning, tilting and moving) comes from changing the speed of its four motors.<sup>[1]</sup></p>
+
+    <h2 id="basics">Basic principle</h2>
+    <p>Each propeller pushes air down, producing <a href="#">thrust</a> roughly proportional to the square of its speed. When the four thrusts add up to the drone's weight, it hovers.</p>
+    <p id="torque"><b>Torque balance.</b> A spinning propeller also twists the body the opposite way (reaction <a href="#">torque</a>). Two rotors spin clockwise and two counter-clockwise, placed diagonally, so the twists cancel and the drone keeps its heading.<sup>[2]</sup></p>
+
+    <h2 id="yaw">Yaw (turning)</h2>
+    <p>To turn, the flight controller speeds up one diagonal pair and slows the other by the same amount. Total thrust stays the same, so the drone doesn't climb or sink, but the twisting forces no longer cancel and the whole body rotates.<sup>[3]</sup></p>
+    <table class="w">
+      <tr><th>Maneuver</th><th>Rotors 1 + 4 (clockwise)</th><th>Rotors 2 + 3 (counter-clockwise)</th></tr>
+      <tr><td>Hover</td><td>same</td><td>same</td></tr>
+      <tr><td>Turn left (yaw)</td><td class="up">faster</td><td class="dn">slower</td></tr>
+      <tr><td>Turn right (yaw)</td><td class="dn">slower</td><td class="up">faster</td></tr>
+    </table>
+
+    <h2 id="pitch">Pitch and roll</h2>
+    <p>To move forward, the rear rotors (3 and 4) spin faster than the front ones (1 and 2). The drone tilts nose-down, and part of its thrust now points backward, pushing it forward. Rolling left or right works the same way with the side pairs.</p>
+
+    <h2 id="hover">Hovering</h2>
+    <p>Even when "still", the flight controller corrects hundreds of times per second using a gyroscope and accelerometer, because wind and small differences between motors constantly push it off balance.</p>
+
+    <h2 id="refs">References</h2>
+    <ol class="refs" id="refList"><li>Openpedia contributors, <i>Multirotor basics</i>.</li><li>Pretend Journal of Flying Things, vol. 3.</li><li>Demo reference made up for Poinky.</li></ol>
+    </div>
+  </article>
+</div>
+<div class="lightbox" id="lightbox"></div>
+<div class="toast" id="toast"></div>
+<script>
+  // Tabs, edit mode, references and the picture work like a real wiki page.
+  const $ = id => document.getElementById(id);
+  function toast(t) { const n = $('toast'); n.textContent = t; n.classList.add('on'); clearTimeout(n._t); n._t = setTimeout(() => n.classList.remove('on'), 2200); }
+  const editable = () => document.querySelectorAll('.content > p, .content h1, .content h2, .content td');
+  let saved = null;
+  function setTab(left, right) {
+    $('tArticle').classList.toggle('on', left === 'article'); $('tTalk').classList.toggle('on', left === 'talk');
+    ['tRead', 'tEdit', 'tHist'].forEach(id => $(id).classList.toggle('on', id === right));
+    document.body.classList.toggle('talking', left === 'talk');
+  }
+  function stopEditing() { document.body.classList.remove('editing'); editable().forEach(e => e.removeAttribute('contenteditable')); setTab('article', 'tRead'); }
+  $('tArticle').onclick = () => { stopEditing(); setTab('article', 'tRead'); };
+  $('tTalk').onclick = () => { stopEditing(); setTab('talk', 'tRead'); };
+  $('tRead').onclick = () => { stopEditing(); };
+  $('tEdit').onclick = () => {
+    setTab('article', 'tEdit'); saved = document.querySelector('.content').innerHTML;
+    document.body.classList.add('editing'); editable().forEach(e => e.contentEditable = 'true');
+    scrollTo({ top: 0 });
+  };
+  $('cancel').onclick = () => { if (saved) document.querySelector('.content').innerHTML = saved; stopEditing(); bind(); };
+  $('publish').onclick = () => { stopEditing(); toast('Your edit was published.'); };
+  $('tHist').onclick = () => toast('Last edited 4 October 2026 by Kitefield');
+  function bind() {
+    document.querySelectorAll('sup').forEach(s => s.onclick = () => {
+      const n = +s.textContent.replace(/\D/g, ''); const li = $('refList').children[n - 1]; if (!li) return;
+      li.scrollIntoView({ block: 'center' }); li.classList.add('hl'); setTimeout(() => li.classList.remove('hl'), 1800);
+    });
+    const fig = document.querySelector('.infobox figure');
+    if (fig) fig.onclick = () => {
+      if (document.body.classList.contains('editing')) return;
+      $('lightbox').innerHTML = '<div>' + fig.querySelector('svg').outerHTML + '<p>' + fig.querySelector('figcaption').textContent + '</p></div>';
+      $('lightbox').classList.add('on');
+    };
+  }
+  $('lightbox').onclick = () => $('lightbox').classList.remove('on');
+  // The contents list follows where you are.
+  const heads = [...document.querySelectorAll('h2[id], p[id]')];
+  addEventListener('scroll', () => {
+    let cur = null; for (const h of heads) if (h.getBoundingClientRect().top < 140) cur = h.id;
+    document.querySelectorAll('.toc a').forEach(a => a.classList.toggle('cur', a.getAttribute('href') === '#' + cur));
+  });
+  bind();
+</script>
+</body></html>

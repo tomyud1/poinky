@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Poinky demo</title>
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;background:#0f1115;color:#e8e8ea;font:15px/1.5 -apple-system,BlinkMacSystemFont,system-ui,sans-serif}
+  .wrap{max-width:1080px;margin:0 auto;padding:56px 28px}
+  h1{font-size:40px;margin:0 0 6px;letter-spacing:-.02em}
+  .lead{color:#9a9aa3;margin:0 0 34px;font-size:17px}
+  kbd{font:600 13px -apple-system,system-ui;background:#23252b;border:1px solid #33363d;border-bottom-width:2px;border-radius:6px;padding:1px 7px;color:#fff}
+  .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
+  a.card{display:block;text-decoration:none;color:inherit;background:#171a20;border:1px solid #262a32;border-radius:16px;overflow:hidden;transition:transform .15s,border-color .15s}
+  a.card:hover{transform:translateY(-2px);border-color:#3b82f6}
+  .thumb{height:120px;display:grid;place-items:center;font-size:46px}
+  .info{padding:14px 18px 18px}
+  .info b{display:block;font-size:17px;margin-bottom:4px}
+  .info span{color:#9a9aa3;font-size:13.5px;display:block}
+  .info q{display:block;margin-top:10px;color:#cfe0ff;font-size:13.5px;quotes:"“" "”"}
+  .foot{margin-top:30px;color:#6d6f78;font-size:13px}
+  .foot button{font:inherit;color:#cfe0ff;background:#23252b;border:1px solid #33363d;border-radius:8px;padding:5px 12px;cursor:pointer;margin-left:8px}
+  .warn{display:none;background:#3a2f12;color:#ffe2a0;border-radius:10px;padding:10px 14px;margin:-14px 0 24px;font-size:14px}
+</style></head>
+<body><div class="wrap">
+  <h1>Poinky demo</h1>
+  <p class="lead">Open a scene, hold <kbd>⌃</kbd> <kbd>⌥</kbd> and ask about it. Let go to send. Every scene works like the real thing: click, type, check things off. Everything here is made up.</p>
+  <div class="warn" id="warn">Opened as a file: the code editor won't be live. Start the demo with <b>python3 demo/serve.py</b> instead.</div>
+  <div class="grid">
+    <a class="card" href="feed.html"><div class="thumb" style="background:linear-gradient(135deg,#1d9bf0,#2bb673)">🌬️</div><div class="info"><b>1 · Social feed</b><span>Explain a post, then see it in 3D.</span><q>Why did more blades make less power?</q></div></a>
+    <a class="card" href="editor.html"><div class="thumb" style="background:linear-gradient(135deg,#1f1f1f,#0078d4)">🐞</div><div class="info"><b>2 · Code editor</b><span>Live files and a real terminal. An agent fixes the bug while you watch.</span><q>Why are these tests failing? Put an agent on it.</q></div></a>
+    <a class="card" href="notes.html"><div class="thumb" style="background:linear-gradient(135deg,#f7f7f5,#e3d5b8)">⛺</div><div class="info"><b>3 · Notes doc</b><span>Precise marking, reading, and help checking things off.</span><q>Mark number 4. What's left before we go?</q></div></a>
+    <a class="card" href="dashboard.html"><div class="thumb" style="background:linear-gradient(135deg,#0c1a33,#2e6bf0)">📈</div><div class="info"><b>4 · Dashboard</b><span>Read a chart, then use the filters.</span><q>What happened in July? How do I see just Harbor Bridge?</q></div></a>
+    <a class="card" href="article.html"><div class="thumb" style="background:linear-gradient(135deg,#f8f9fa,#c8d3e6)">🚁</div><div class="info"><b>5 · Article</b><span>A hand-drawn lesson, then a 3D model.</span><q>Explain how it turns. Now show me in 3D.</q></div></a>
+    <a class="card" href="app.html"><div class="thumb" style="background:linear-gradient(135deg,#ecebe7,#d89b00)">🗒️</div><div class="info"><b>6 · An app</b><span>Get walked through it, one click at a time.</span><q>How do I switch this app to dark mode?</q></div></a>
+  </div>
+  <p class="foot">Script: DEMO-SCRIPT.md · Sample project for the agent: sample-project/ <button id="reset" hidden>Put the bug back for another take</button></p>
+  <script>
+    if (!location.protocol.startsWith('http')) document.getElementById('warn').style.display = 'block';
+    else {
+      const b = document.getElementById('reset'); b.hidden = false;
+      b.onclick = async () => {
+        if (!confirm('Undo all changes in sample-project (puts the original bug back)?')) return;
+        const r = await (await fetch('/api/reset', { method: 'POST', body: '{}' })).json();
+        b.textContent = r.code === 0 ? 'Done: the bug is back' : 'Could not reset: ' + r.out;
+      };
+    }
+  </script>
+</div></body></html>

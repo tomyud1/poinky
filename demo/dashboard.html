@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Ridership · Metro Insights</title>
+<style>
+  :root{--ink:#101828;--muted:#667085;--line:#eaecf0;--bg:#f9fafb;--blue:#2e6bf0;--orange:#f0772e;--green:#12b76a;--red:#f04438}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 -apple-system,BlinkMacSystemFont,"Inter","Segoe UI",system-ui,sans-serif}
+  .app{display:grid;grid-template-columns:232px 1fr;min-height:100vh}
+  .side{background:#0c1a33;color:#c7d0e0;padding:18px 12px}
+  .brand{display:flex;align-items:center;gap:10px;color:#fff;font-weight:700;font-size:16px;padding:0 8px 18px}
+  .brand i{width:28px;height:28px;border-radius:8px;background:linear-gradient(135deg,#3b82f6,#22c3a6);display:block}
+  .side a{display:flex;gap:10px;align-items:center;color:inherit;text-decoration:none;padding:9px 10px;border-radius:8px;font-size:14px}
+  .side a.on{background:rgba(255,255,255,.1);color:#fff}
+  .side h6{margin:18px 10px 6px;color:#7d8aa5;font-size:11px;letter-spacing:.06em;font-weight:600}
+  .content{padding:24px 32px 48px;min-width:0}
+  .top{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
+  h1{font-size:24px;margin:0;font-weight:650;letter-spacing:-.01em}
+  .sub{color:var(--muted);margin:0 0 20px}
+  .filters{display:flex;gap:8px}
+  .filters span{background:#fff;border:1px solid var(--line);border-radius:8px;padding:7px 12px;font-weight:500;box-shadow:0 1px 2px rgba(16,24,40,.05)}
+  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:18px}
+  .card{background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:0 1px 2px rgba(16,24,40,.05)}
+  .kpi{padding:18px 20px}.kpi .l{color:var(--muted);font-weight:500}.kpi .v{font-size:30px;font-weight:650;margin:6px 0 2px;letter-spacing:-.02em}
+  .up{color:#067647;font-weight:600}.down{color:#b42318;font-weight:600}
+  .grid{display:grid;grid-template-columns:1fr 340px;gap:18px}
+  .chart{padding:18px 20px}
+  .chart h3,.list h3{margin:0;font-size:16px;font-weight:600}
+  .chart .meta{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+  .legend{display:flex;gap:16px;color:var(--muted);font-size:13px}.legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+  .chart svg{width:100%;height:auto;display:block}
+  .list{padding:18px 20px}
+  .row{display:grid;grid-template-columns:22px 1fr 70px;gap:8px;align-items:center;padding:10px 0;border-bottom:1px solid var(--line)}
+  .row:last-child{border-bottom:0}.row .rk{color:var(--muted)}.row .num{text-align:right;font-weight:600;font-variant-numeric:tabular-nums}
+  .bar{height:6px;border-radius:3px;background:#e8eefe;margin-top:5px}.bar i{display:block;height:6px;border-radius:3px;background:var(--blue)}
+  .note{margin-top:18px;padding:14px 18px;display:flex;gap:12px;align-items:flex-start;color:#344054}
+  .note b{color:var(--ink)}
+  .filters span{cursor:pointer;position:relative;user-select:none}.filters span:hover{background:#f9fafb}
+  .menu{position:absolute;top:calc(100% + 6px);right:0;background:#fff;border:1px solid var(--line);border-radius:10px;box-shadow:0 12px 32px rgba(16,24,40,.14);padding:6px;z-index:5;min-width:170px;font-weight:500}
+  .menu div{padding:7px 10px;border-radius:6px;cursor:pointer;white-space:nowrap}.menu div:hover{background:#f2f4f7}
+  .menu div.on{color:var(--blue)}.menu div.on:after{content:" ✓"}
+  .tip{position:absolute;pointer-events:none;background:#101828;color:#fff;border-radius:6px;padding:6px 10px;font-size:12px;white-space:nowrap;transform:translate(-50%,-120%);opacity:0;transition:opacity .1s;z-index:4}
+  .chart{position:relative}
+  .side a{cursor:pointer}.side a:hover{background:rgba(255,255,255,.06)}
+  .toast{position:fixed;left:50%;bottom:28px;transform:translate(-50%,10px);background:#101828;color:#fff;padding:10px 16px;border-radius:8px;font-size:14px;opacity:0;transition:.2s;pointer-events:none;z-index:9}
+  .toast.on{opacity:1;transform:translate(-50%,0)}
+</style></head>
+<body>
+<div class="app">
+  <div class="side">
+    <div class="brand"><i></i>Metro Insights</div>
+    <a href="#">◫ Overview</a><a class="on" href="#">↗ Ridership</a><a href="#">⏱ Punctuality</a><a href="#">⚙ Fleet</a><a href="#">€ Revenue</a>
+    <h6>LINES</h6><a href="#">● River Line</a><a href="#">● Harbor Line</a><a href="#">● Airport Express</a>
+  </div>
+  <div class="content">
+    <div class="top"><h1 id="title">River Line ridership</h1><div class="filters"><span id="fYear">2026 ▾</span><span id="fStop">All stops ▾</span><span id="fExport">Export</span></div></div>
+    <p class="sub">Average daily boardings, weekdays and weekends combined.</p>
+    <div class="kpis">
+      <div class="card kpi"><div class="l">Avg daily riders</div><div class="v" id="kAvg"></div><span id="kAvgD"></span></div>
+      <div class="card kpi"><div class="l">Peak day</div><div class="v" id="kPeak"></div><span style="color:var(--muted)" id="kPeakD"></span></div>
+      <div class="card kpi"><div class="l">On-time trips</div><div class="v" id="kOn"></div><span id="kOnD"></span></div>
+      <div class="card kpi"><div class="l">Weekend share</div><div class="v" id="kWk"></div><span id="kWkD"></span></div>
+    </div>
+    <div class="grid">
+      <div class="card chart">
+        <div class="meta"><h3>Daily riders by month (thousands)</h3><div class="legend"><span><i style="background:var(--blue)"></i><b style="font-weight:400" id="lgA">2026</b></span><span><i style="background:#c7d4f5"></i><b style="font-weight:400" id="lgB">2025</b></span></div></div>
+        <svg viewBox="0 0 760 330" id="chart" role="img" aria-label="Line chart of daily riders by month"></svg><div class="tip" id="tip"></div>
+      </div>
+      <div class="card list">
+        <h3>Busiest stops</h3>
+        <div class="row"><span class="rk">1</span><div>Central Station<div class="bar"><i style="width:100%"></i></div></div><span class="num">6,240</span></div>
+        <div class="row"><span class="rk">2</span><div>Old Market<div class="bar"><i style="width:71%"></i></div></div><span class="num">4,410</span></div>
+        <div class="row"><span class="rk">3</span><div>University<div class="bar"><i style="width:63%"></i></div></div><span class="num">3,920</span></div>
+        <div class="row"><span class="rk">4</span><div>Riverside Park<div class="bar"><i style="width:44%"></i></div></div><span class="num">2,760</span></div>
+        <div class="row"><span class="rk">5</span><div>Harbor Bridge<div class="bar"><i style="width:31%"></i></div></div><span class="num">1,930</span></div>
+      </div>
+    </div>
+    <div class="card note">ℹ️ <div><b>July:</b> Harbor Bridge was closed for repairs from Jul 3 to Jul 28. Replacement buses ran between Riverside Park and Old Market. <b>December:</b> the holiday market and the new University stop both opened on Dec 1.</div></div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+<script>
+  // The chart is drawn from this data, so the filters really change it.
+  const M = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const DATA = {
+    2026: [9.0, 9.7, 11.2, 12.7, 14.7, 16.3, 6.0, 7.8, 17.5, 19.0, 20.0, 26.0],
+    2025: [8.0, 8.5, 9.7, 11.0, 12.5, 13.7, 14.0, 14.5, 16.0, 17.0, 17.7, 18.3],
+    2024: [7.3, 7.7, 8.8, 10.0, 11.4, 12.5, 12.7, 13.2, 14.6, 15.5, 16.1, 16.7],
+  };
+  const KPI = {
+    2026: { peak: '31.8k', peakD: 'Thu, Dec 11', on: '91.4%', onD: ['down', '▼ 1.1 pts'], wk: '22%', wkD: ['up', '▲ 3 pts'] },
+    2025: { peak: '24.6k', peakD: 'Fri, Dec 19', on: '92.5%', onD: ['up', '▲ 0.6 pts'], wk: '19%', wkD: ['up', '▲ 1 pt'] },
+  };
+  // Each stop's share of the line's riders (Harbor Bridge was closed in July 2026).
+  const STOPS = { 'All stops': 1, 'Central Station': .26, 'Old Market': .18, 'University': .16, 'Riverside Park': .11, 'Harbor Bridge': .08 };
+  let year = 2026, stop = 'All stops';
+  const $ = id => document.getElementById(id);
+  function series(y) {
+    return DATA[y].map((v, i) => stop === 'Harbor Bridge' && y === 2026 && i === 6 ? 0.1 : v * STOPS[stop]);
+  }
+  const avg = a => a.reduce((x, y) => x + y, 0) / a.length;
+  const fmt = v => v >= 10 ? v.toFixed(1) + 'k' : (v * 1000 >= 1000 ? (v).toFixed(1) + 'k' : Math.round(v * 1000).toLocaleString());
+  function draw() {
+    const a = series(year), b = series(year - 1);
+    const top = Math.max(...a, ...b) * 1.15;
+    const step = [0.5, 1, 2, 5, 10][[0.5, 1, 2, 5, 10].findIndex(s => s * 4 >= top)] || 10;
+    const max = step * 4;
+    const X = i => 74 + i * 58, Y = v => 280 - (v / max) * 240;
+    let g = '<g font-family="-apple-system,system-ui" font-size="12" fill="#667085">';
+    for (let k = 0; k <= 4; k++) {
+      const y = 280 - k * 60;
+      g += `<line x1="44" y1="${y}" x2="750" y2="${y}" stroke="${k ? '#eaecf0' : '#d0d5dd'}"/><text x="${k ? 8 : 20}" y="${y + 4}">${+(step * k).toFixed(1)}</text>`;
+    }
+    g += M.map((m, i) => `<text x="${X(i)}" y="302" text-anchor="middle">${m}</text>`).join('') + '</g>';
+    const pts = arr => arr.map((v, i) => `${X(i)},${Y(v).toFixed(1)}`).join(' ');
+    const dip = year === 2026;
+    if (dip) g += `<rect x="398" y="40" width="48" height="240" fill="#fff4ed"/>`;
+    g += `<polyline fill="none" stroke="#c7d4f5" stroke-width="2.5" points="${pts(b)}"/>`;
+    g += `<path d="M${pts(a).replace(/ /g, ' L')} L${X(11)},280 L${X(0)},280Z" fill="#2e6bf0" opacity=".08"/>`;
+    g += `<polyline fill="none" stroke="#2e6bf0" stroke-width="3" stroke-linejoin="round" points="${pts(a)}"/>`;
+    g += a.map((v, i) => dip && i === 6 ? `<circle cx="${X(i)}" cy="${Y(v)}" r="5.5" fill="#f0772e" stroke="#fff" stroke-width="2"/>`
+      : `<circle cx="${X(i)}" cy="${Y(v)}" r="4" fill="#fff" stroke="#2e6bf0" stroke-width="2.5"/>`).join('');
+    if (dip) {
+      const jy = Y(a[6]);
+      g += `<g font-family="-apple-system,system-ui" font-size="12"><rect x="430" y="58" width="${stop === 'All stops' ? 150 : 170}" height="44" rx="6" fill="#101828"/><text x="440" y="76" fill="#fff" font-weight="600">Jul · ${fmt(a[6])} riders</text><text x="440" y="93" fill="#c7cdd8">Bridge works, Jul 3–28</text></g>`;
+      g += `<line x1="422" y1="102" x2="422" y2="${jy - 8}" stroke="#101828" stroke-dasharray="3 3"/>`;
+      g += `<g font-family="-apple-system,system-ui" font-size="12"><rect x="636" y="${Math.max(44, Y(a[11]) - 42)}" width="110" height="26" rx="6" fill="#ecfdf3"/><text x="646" y="${Math.max(44, Y(a[11]) - 42) + 17}" fill="#067647" font-weight="600">Dec · ${fmt(a[11])} ▲</text></g>`;
+    }
+    // Invisible hover targets, one per month.
+    g += M.map((m, i) => `<rect class="hit" data-i="${i}" x="${X(i) - 29}" y="30" width="58" height="260" fill="transparent"/>`).join('');
+    $('chart').innerHTML = g;
+    // Numbers.
+    const k = KPI[year], A = avg(a), B = avg(b), d = (A / B - 1) * 100;
+    $('kAvg').textContent = fmt(A);
+    $('kAvgD').innerHTML = `<span class="${d >= 0 ? 'up' : 'down'}">${d >= 0 ? '▲' : '▼'} ${Math.abs(d).toFixed(1)}%</span> <span style="color:var(--muted)">vs ${year - 1}</span>`;
+    $('kPeak').textContent = stop === 'All stops' ? k.peak : fmt(parseFloat(k.peak) * STOPS[stop]);
+    $('kPeakD').textContent = k.peakD;
+    $('kOn').textContent = k.on; $('kOnD').innerHTML = `<span class="${k.onD[0]}">${k.onD[1]}</span> <span style="color:var(--muted)">vs ${year - 1}</span>`;
+    $('kWk').textContent = k.wk; $('kWkD').innerHTML = `<span class="${k.wkD[0]}">${k.wkD[1]}</span>`;
+    $('lgA').textContent = year; $('lgB').textContent = year - 1;
+    $('fYear').firstChild.textContent = year + ' ▾';
+    $('fStop').firstChild.textContent = stop + ' ▾';
+    $('title').textContent = 'River Line ridership' + (stop === 'All stops' ? '' : ' · ' + stop);
+    document.querySelector('.note').style.display = year === 2026 ? '' : 'none';
+  }
+  // Hover tooltips.
+  $('chart').addEventListener('mousemove', e => {
+    const h = e.target.closest('.hit'); const tip = $('tip');
+    if (!h) { tip.style.opacity = 0; return; }
+    const i = +h.dataset.i, a = series(year), b = series(year - 1);
+    const box = $('chart').getBoundingClientRect(), wrap = $('chart').parentElement.getBoundingClientRect();
+    const sx = box.width / 760, x = (74 + i * 58) * sx + box.left - wrap.left;
+    const max = +$('chart').querySelectorAll('text')[4].textContent;
+    const y = (280 - a[i] / (max) * 240) * sx + box.top - wrap.top;
+    tip.innerHTML = `<b>${M[i]} ${year}</b> · ${fmt(a[i])} riders/day<br><span style="color:#c7cdd8">${M[i]} ${year - 1}: ${fmt(b[i])}</span>`;
+    tip.style.left = x + 'px'; tip.style.top = y + 'px'; tip.style.opacity = 1;
+  });
+  $('chart').addEventListener('mouseleave', () => $('tip').style.opacity = 0);
+  // Menus.
+  let open = null;
+  function menu(btn, items, current, pick) {
+    if (open) { const was = open.parentElement; open.remove(); open = null; if (was === btn) return; }
+    open = document.createElement('div'); open.className = 'menu';
+    open.innerHTML = items.map(t => `<div class="${t === current ? 'on' : ''}">${t}</div>`).join('');
+    open.onclick = e => { e.stopPropagation(); const d = e.target.closest('.menu div'); if (!d) return; open.remove(); open = null; pick(d.textContent); };
+    btn.append(open);
+  }
+  document.addEventListener('click', e => { if (open && !open.parentElement.contains(e.target)) { open.remove(); open = null; } });
+  function toast(t) { const n = $('toast'); n.textContent = t; n.classList.add('on'); clearTimeout(n._t); n._t = setTimeout(() => n.classList.remove('on'), 2200); }
+  $('fYear').onclick = e => { if (e.target.closest('.menu')) return; menu($('fYear'), ['2026', '2025'], String(year), v => { year = +v; draw(); }); };
+  $('fStop').onclick = e => { if (e.target.closest('.menu')) return; menu($('fStop'), Object.keys(STOPS), stop, v => { stop = v; draw(); }); };
+  $('fExport').onclick = e => { if (e.target.closest('.menu')) return; menu($('fExport'), ['Download CSV', 'Download PNG', 'Download PDF', 'Copy link'], null, v => toast(v === 'Copy link' ? 'Link copied' : `Saved river-line-${year}.${v.split(' ')[1].toLowerCase()}`)); };
+  document.querySelectorAll('.side a').forEach(a => a.onclick = e => {
+    e.preventDefault();
+    if (!a.classList.contains('on')) toast(`${a.textContent.replace(/^\W+/, '')} isn't set up in this demo`);
+  });
+  draw();
+</script>
+</body></html>

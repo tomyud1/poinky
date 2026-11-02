@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Home · Loop</title>
+<style>
+  :root{--ink:#0f1419;--muted:#536471;--line:#eff3f4;--hover:#f7f9f9;--accent:#1d9bf0;--like:#f91880}
+  *{box-sizing:border-box}
+  body{margin:0;background:#fff;color:var(--ink);font:15px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif}
+  .wrap{display:grid;grid-template-columns:260px 600px 350px;justify-content:center;min-height:100vh}
+  nav{position:sticky;top:0;height:100vh;padding:6px 12px;display:flex;flex-direction:column;gap:2px}
+  .logo{display:flex;align-items:center;gap:10px;padding:12px;font-weight:800;font-size:22px;letter-spacing:-.02em}
+  .logo i{width:30px;height:30px;border-radius:50%;border:6px solid var(--ink);display:block}
+  nav a{display:flex;align-items:center;gap:18px;padding:12px;border-radius:999px;color:var(--ink);text-decoration:none;font-size:19px}
+  nav a:hover{background:var(--hover)} nav a.on{font-weight:700}
+  nav svg{width:24px;height:24px;flex:none}
+  .postbtn{margin-top:14px;background:var(--ink);color:#fff;border:0;border-radius:999px;padding:15px;font-weight:700;font-size:16px;width:220px}
+  .me{margin-top:auto;display:flex;align-items:center;gap:10px;padding:12px;border-radius:999px}
+  .me b{display:block;font-size:15px}.me span{color:var(--muted);font-size:14px}
+  main{border-left:1px solid var(--line);border-right:1px solid var(--line);min-height:100vh}
+  .head{position:sticky;top:0;background:rgba(255,255,255,.85);backdrop-filter:blur(12px);border-bottom:1px solid var(--line);z-index:2}
+  .tabs{display:grid;grid-template-columns:1fr 1fr}
+  .tabs div{text-align:center;padding:16px 0;color:var(--muted);font-weight:500;position:relative}
+  .tabs .on{color:var(--ink);font-weight:700}
+  .tabs .on:after{content:"";position:absolute;left:50%;bottom:0;transform:translateX(-50%);width:56px;height:4px;border-radius:2px;background:var(--accent)}
+  .compose{display:flex;gap:12px;padding:16px;border-bottom:1px solid var(--line)}
+  .compose .box{flex:1}.compose .ph{font-size:20px;color:var(--muted);padding:8px 0 18px}
+  .compose .row{display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--line);padding-top:10px}
+  .icons{display:flex;gap:14px;color:var(--accent)} .icons svg{width:20px;height:20px}
+  .btn{background:var(--accent);color:#fff;border:0;border-radius:999px;padding:8px 18px;font-weight:700;opacity:.5}
+  .av{width:40px;height:40px;border-radius:50%;flex:none;display:grid;place-items:center;color:#fff;font-weight:700;font-size:15px}
+  article{display:flex;gap:12px;padding:12px 16px;border-bottom:1px solid var(--line)}
+  article:hover{background:#fafafa}
+  .body{flex:1;min-width:0}
+  .who{display:flex;gap:4px;align-items:center;white-space:nowrap}
+  .who b{font-weight:700}.who span{color:var(--muted)}
+  .badge{width:17px;height:17px;border-radius:50%;background:var(--accent);display:inline-grid;place-items:center;color:#fff;font-size:11px}
+  .text{margin:2px 0 10px;white-space:pre-line}
+  .media{border:1px solid #cfd9de;border-radius:16px;overflow:hidden;display:block;width:100%}
+  .media svg{display:block;width:100%;height:auto}
+  .actions{display:flex;justify-content:space-between;max-width:440px;margin-top:10px;color:var(--muted);font-size:13px}
+  .actions span{display:flex;align-items:center;gap:6px}.actions svg{width:18px;height:18px}
+  .liked{color:var(--like)}
+  .quote{border:1px solid #cfd9de;border-radius:16px;padding:12px;margin-top:4px}
+  aside{padding:8px 0 0 28px}
+  .search{background:#eff3f4;border-radius:999px;padding:12px 18px;color:var(--muted);display:flex;gap:10px;align-items:center}
+  .search svg{width:18px;height:18px}
+  .panel{border:1px solid var(--line);border-radius:16px;margin-top:16px;overflow:hidden}
+  .panel h3{font-size:20px;margin:0;padding:12px 16px;font-weight:800}
+  .trend{padding:10px 16px}.trend small{color:var(--muted);font-size:13px;display:block}.trend b{display:block}
+  .follow{display:flex;align-items:center;gap:10px;padding:10px 16px}
+  .follow div{flex:1;line-height:1.25}.follow small{color:var(--muted)}
+  .follow button{background:var(--ink);color:#fff;border:0;border-radius:999px;padding:7px 16px;font-weight:700}
+  .foot{color:var(--muted);font-size:13px;padding:14px 16px;line-height:1.7}
+  .actions span{cursor:pointer;border-radius:999px;padding:4px 6px;margin:-4px -6px;transition:color .15s,background .15s}
+  .actions span:hover{background:rgba(29,155,240,.1);color:var(--accent)}
+  .actions span.liked:hover,.actions span.liked{color:var(--like)}.actions span.reposted{color:#00ba7c}.actions span.saved{color:var(--accent)}
+  .actions span.pop svg{animation:pop .35s}
+  @keyframes pop{40%{transform:scale(1.35)}}
+  .compose textarea{width:100%;border:0;outline:0;resize:none;font-family:inherit;font-size:20px;line-height:1.35;color:var(--ink);padding:8px 0 18px;min-height:60px;background:none}
+  .compose textarea::placeholder{color:var(--muted)}
+  .btn{cursor:pointer;transition:opacity .15s}.btn.ready{opacity:1}
+  .tabs div{cursor:pointer}.tabs div:hover{background:var(--hover)}
+  .follow button{cursor:pointer}.follow button.on{background:#fff;color:var(--ink);border:1px solid #cfd9de}
+  .thread{color:var(--accent);cursor:pointer;margin-top:8px;display:inline-block}.thread:hover{text-decoration:underline}
+  .reply{display:flex;gap:10px;align-items:flex-start;margin-top:10px;padding-top:10px;border-top:1px solid var(--line)}
+  .reply textarea{flex:1;border:0;outline:0;resize:none;font-family:inherit;font-size:15px;line-height:1.4;min-height:40px}
+  .reply .av{width:32px;height:32px;font-size:12px}
+  article.new{animation:slide .35s ease-out}
+  @keyframes slide{from{opacity:0;transform:translateY(-8px)}}
+  .toast{position:fixed;left:50%;bottom:28px;transform:translate(-50%,10px);background:var(--accent);color:#fff;padding:10px 18px;border-radius:8px;font-weight:600;opacity:0;transition:.2s;pointer-events:none;z-index:9}
+  .toast.on{opacity:1;transform:translate(-50%,0)}
+</style></head>
+<body>
+<div class="wrap">
+  <nav>
+    <div class="logo"><i></i>Loop</div>
+    <a class="on" href="#"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3 2 11h3v9h6v-6h2v6h6v-9h3z"/></svg>Home</a>
+    <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>Explore</a>
+    <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10 21h4"/></svg>Notifications</a>
+    <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg>Messages</a>
+    <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 3h12v18l-6-4-6 4z"/></svg>Bookmarks</a>
+    <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c1-4 4-6 8-6s7 2 8 6"/></svg>Profile</a>
+    <button class="postbtn">Post</button>
+    <div class="me"><div class="av" style="background:#7856ff">TY</div><div><b>You</b><span>@you</span></div></div>
+  </nav>
+
+  <main>
+    <div class="head"><div class="tabs"><div class="on" data-tab="for">For you</div><div data-tab="following">Following</div></div></div>
+    <div class="compose"><div class="av" style="background:#7856ff">TY</div><div class="box"><textarea id="compose" rows="1" placeholder="What's happening?"></textarea>
+      <div class="row"><div class="icons">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="9" cy="9" r="2"/><path d="m21 15-5-5L5 21"/></svg>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20V10M10 20V4M16 20v-8M22 20H2"/></svg>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M8 14s1.5 2 4 2 4-2 4-2M9 9h.01M15 9h.01"/></svg>
+      </div><button class="btn" id="postBtn">Post</button></div></div></div>
+    <div id="feed">
+
+    <article data-who="juniper">
+      <div class="av" style="background:linear-gradient(135deg,#2bb673,#1d9bf0)">JH</div>
+      <div class="body">
+        <div class="who"><b>Juniper Hale</b><span class="badge">✓</span><span>@juniper.makes · 2h</span></div>
+        <div class="text">Weird result from our 3D-printed backyard wind turbine 🌬️
+
+At 8 m/s wind the 3-blade rotor made 42 W. We printed a 5-blade rotor expecting MORE power… and got 35 W.
+
+More blades, less power?! 🧵 what we learned below</div>
+        <div class="threadwrap" hidden>
+          <div class="text" style="margin-top:10px">2/ Each extra blade adds drag. At 8 m/s our 3-blade rotor spun at the right speed for its size. The 5-blade one spun slower and the extra blades kept getting in each other's wake.</div>
+          <div class="text">3/ Rule of thumb we found: more blades = more torque at low speed (great for water pumps), fewer blades = more power at higher wind. Next we're trying a 2-blade rotor. 🛠️</div>
+        </div>
+        <span class="thread" id="threadLink">Show this thread</span>
+        <div class="media">
+          <svg viewBox="0 0 1200 675" role="img" aria-label="Photo of a small white wind turbine on a pole in a backyard at sunset">
+            <defs>
+              <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#7fb4e8"/><stop offset=".65" stop-color="#f6c99a"/><stop offset="1" stop-color="#f3a97a"/></linearGradient>
+              <linearGradient id="hill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#5e8a4f"/><stop offset="1" stop-color="#3a5d33"/></linearGradient>
+              <linearGradient id="pole" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#c9ccd1"/><stop offset=".5" stop-color="#f4f5f7"/><stop offset="1" stop-color="#9ea3aa"/></linearGradient>
+              <radialGradient id="sun" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="#fff6d8"/><stop offset="1" stop-color="#fff6d8" stop-opacity="0"/></radialGradient>
+            </defs>
+            <rect width="1200" height="675" fill="url(#sky)"/>
+            <circle cx="930" cy="430" r="160" fill="url(#sun)"/>
+            <path d="M0 470 C200 420 380 450 560 430 C760 410 980 440 1200 420 V675 H0Z" fill="#7da36c" opacity=".7"/>
+            <path d="M0 520 C260 480 520 520 760 500 C960 485 1080 505 1200 495 V675 H0Z" fill="url(#hill)"/>
+            <rect x="0" y="560" width="1200" height="115" fill="#4f7a3f"/>
+            <g stroke="#6b4a2f" stroke-width="10"><line x1="60" y1="560" x2="60" y2="640"/><line x1="200" y1="560" x2="200" y2="640"/><line x1="340" y1="560" x2="340" y2="640"/></g>
+            <rect x="40" y="585" width="320" height="8" fill="#7a5638"/><rect x="40" y="615" width="320" height="8" fill="#7a5638"/>
+            <rect x="584" y="230" width="22" height="400" fill="url(#pole)"/>
+            <path d="M560 210 h96 a18 18 0 0 1 18 18 v12 a18 18 0 0 1 -18 18 h-96 a14 14 0 0 1 -14 -14 v-20 a14 14 0 0 1 14 -14z" fill="#eef0f3" stroke="#a6abb3" stroke-width="3"/>
+            <path d="M674 226 l44 -30 v88 l-44 -30z" fill="#e4e7eb" stroke="#a6abb3" stroke-width="3"/>
+            <g transform="translate(546,234)">
+              <g fill="#fbfbfc" stroke="#9aa0a8" stroke-width="3">
+                <path d="M-4,-8 C14,-70 10,-150 -6,-180 C-22,-140 -20,-70 -4,-8Z"/>
+                <path d="M-4,-8 C14,-70 10,-150 -6,-180 C-22,-140 -20,-70 -4,-8Z" transform="rotate(120)"/>
+                <path d="M-4,-8 C14,-70 10,-150 -6,-180 C-22,-140 -20,-70 -4,-8Z" transform="rotate(240)"/>
+              </g>
+              <circle r="20" fill="#d6dae0" stroke="#8d939b" stroke-width="3"/>
+            </g>
+            <g transform="translate(820,120)">
+              <rect width="300" height="128" rx="14" fill="rgba(15,20,25,.72)"/>
+              <text x="20" y="38" fill="#fff" font-size="26" font-family="-apple-system,system-ui" font-weight="700">Wind 8.0 m/s</text>
+              <text x="20" y="74" fill="#9fe2bf" font-size="24" font-family="ui-monospace,Menlo,monospace">3 blades  42 W</text>
+              <text x="20" y="106" fill="#ffb3b3" font-size="24" font-family="ui-monospace,Menlo,monospace">5 blades  35 W</text>
+            </g>
+          </svg>
+        </div>
+        <div class="actions">
+          <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a8 8 0 0 1-12 7l-5 1 1-4a8 8 0 1 1 16-4z"/></svg>128</span>
+          <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m17 2 4 4-4 4M3 11V9a3 3 0 0 1 3-3h15M7 22l-4-4 4-4M21 13v2a3 3 0 0 1-3 3H3"/></svg>342</span>
+          <span class="liked"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 21s-8-5-8-11a4.5 4.5 0 0 1 8-3 4.5 4.5 0 0 1 8 3c0 6-8 11-8 11z"/></svg>2.1K</span>
+          <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20V10M10 20V4M16 20v-8"/></svg>48K</span>
+          <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 3h12v18l-6-4-6 4z"/></svg></span>
+        </div>
+      </div>
+    </article>
+
+    <article data-who="rosa">
+      <div class="av" style="background:#f4a261">RB</div>
+      <div class="body">
+        <div class="who"><b>Rosa Bennett</b><span>@rosabakes · 4h</span></div>
+        <div class="text">Day 3 of the sourdough experiment: 78% hydration was way too wet for this flour. Dropping to 72% tomorrow and doing an extra set of folds. 🍞</div>
+        <div class="actions" data-counts="14,6,231,5.2K"></div>
+      </div>
+    </article>
+
+    <article>
+      <div class="av" style="background:#264653">DK</div>
+      <div class="body">
+        <div class="who"><b>Dev Kapoor</b><span>@devk · 5h</span></div>
+        <div class="text">Reminder that "it works on my machine" is a description of the problem, not a solution.</div>
+        <div class="quote"><div class="who"><b>Build Weekly</b><span>@buildweekly</span></div><div>Survey: 61% of teams say flaky tests are their #1 source of CI delays.</div></div>
+        <div class="actions" data-counts="89,1.2K,8.4K,210K"></div>
+      </div>
+    </article>
+    </div>
+  </main>
+
+  <aside>
+    <div class="search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>Search</div>
+    <div class="panel"><h3>What's happening</h3>
+      <div class="trend"><small>Technology · Trending</small><b>Home wind power</b><small>3,214 posts</small></div>
+      <div class="trend"><small>Science · Trending</small><b>Betz limit</b><small>1,087 posts</small></div>
+      <div class="trend"><small>Trending in Food</small><b>#SourdoughSaturday</b><small>12.4K posts</small></div>
+      <div class="trend"><small>Sports · Trending</small><b>River Cup final</b><small>45.9K posts</small></div>
+    </div>
+    <div class="panel"><h3>Who to follow</h3>
+      <div class="follow"><div class="av" style="background:#2a9d8f">MO</div><div><b>Maker Outpost</b><br><small>@makeroutpost</small></div><button>Follow</button></div>
+      <div class="follow"><div class="av" style="background:#e76f51">AL</div><div><b>Ada Lin</b><br><small>@adalin_energy</small></div><button>Follow</button></div>
+    </div>
+    <div class="foot">Terms · Privacy · Accessibility · More<br>Loop is a pretend app made for this demo.</div>
+  </aside>
+</div>
+<script>
+  // The other posts get the same action row as the first one, with their own counts.
+  const tpl = document.querySelector('.actions');
+  document.querySelectorAll('.actions[data-counts]').forEach(a => {
+    const counts = a.dataset.counts.split(',');
+    a.innerHTML = tpl.innerHTML;
+    a.querySelectorAll('span').forEach((s, i) => {
+      s.classList.remove('liked');
+      if (i === 2) s.querySelector('svg').setAttribute('fill', 'none'), s.querySelector('svg').setAttribute('stroke', 'currentColor'), s.querySelector('svg').setAttribute('stroke-width', '2');
+      const t = [...s.childNodes].find(n => n.nodeType === 3); if (t) t.textContent = counts[i] || '';
+    });
+  });
+
+  // ---------- everything works like a real feed (it's a demo: nothing is sent anywhere) ----------
+  const $ = s => document.querySelector(s);
+  function toast(t) { const n = $('.toast'); n.textContent = t; n.classList.add('on'); clearTimeout(n._t); n._t = setTimeout(() => n.classList.remove('on'), 2200); }
+  document.body.insertAdjacentHTML('beforeend', '<div class="toast"></div>');
+  function bump(span, d) {
+    const t = [...span.childNodes].find(n => n.nodeType === 3);
+    if (t && /^\d+$/.test(t.textContent.trim())) t.textContent = String(+t.textContent + d);
+  }
+  const OUTLINE = 'fill="none" stroke="currentColor" stroke-width="2"';
+  document.addEventListener('click', e => {
+    const s = e.target.closest('.actions span');
+    if (!s) return;
+    const i = [...s.parentElement.children].indexOf(s);
+    s.classList.remove('pop'); void s.offsetWidth; s.classList.add('pop');
+    if (i === 0) return openReply(s.closest('article'));
+    if (i === 1) { const on = s.classList.toggle('reposted'); bump(s, on ? 1 : -1); toast(on ? 'Reposted' : 'Repost removed'); }
+    if (i === 2) {
+      const on = s.classList.toggle('liked'); bump(s, on ? 1 : -1);
+      const svg = s.querySelector('svg');
+      if (on) { svg.setAttribute('fill', 'currentColor'); svg.removeAttribute('stroke'); }
+      else { svg.setAttribute('fill', 'none'); svg.setAttribute('stroke', 'currentColor'); svg.setAttribute('stroke-width', '2'); }
+    }
+    if (i === 4) {
+      const on = s.classList.toggle('saved');
+      s.querySelector('svg').setAttribute('fill', on ? 'currentColor' : 'none');
+      toast(on ? 'Added to your Bookmarks' : 'Removed from your Bookmarks');
+    }
+  });
+  function openReply(article) {
+    const body = article.querySelector('.body');
+    let box = body.querySelector('.reply');
+    if (!box) {
+      body.insertAdjacentHTML('beforeend', '<div class="reply"><div class="av" style="background:#7856ff">TY</div><textarea placeholder="Post your reply"></textarea><button class="btn">Reply</button></div>');
+      box = body.querySelector('.reply');
+      const ta = box.querySelector('textarea'), b = box.querySelector('button');
+      ta.oninput = () => b.classList.toggle('ready', !!ta.value.trim());
+      b.onclick = () => {
+        if (!ta.value.trim()) return;
+        const r = document.createElement('div');
+        r.className = 'reply'; r.innerHTML = '<div class="av" style="background:#7856ff">TY</div><div><b>You</b> <span style="color:var(--muted)">@you · now</span><div></div></div>';
+        r.querySelector('div > div').textContent = ta.value.trim();
+        box.replaceWith(r); bump(article.querySelector('.actions span'), 1); toast('Your reply was sent');
+      };
+    }
+    box.querySelector('textarea').focus();
+  }
+  // Writing a post.
+  const compose = $('#compose'), postBtn = $('#postBtn');
+  compose.oninput = () => { postBtn.classList.toggle('ready', !!compose.value.trim()); compose.style.height = 'auto'; compose.style.height = compose.scrollHeight + 'px'; };
+  postBtn.onclick = () => {
+    const text = compose.value.trim(); if (!text) return;
+    const a = document.createElement('article'); a.className = 'new';
+    a.innerHTML = '<div class="av" style="background:#7856ff">TY</div><div class="body"><div class="who"><b>You</b><span>@you · now</span></div><div class="text"></div><div class="actions"></div></div>';
+    a.querySelector('.text').textContent = text;
+    a.querySelector('.actions').innerHTML = tpl.innerHTML;
+    a.querySelectorAll('.actions span').forEach((s, i) => {
+      s.classList.remove('liked');
+      if (i === 2) { const g = s.querySelector('svg'); g.setAttribute('fill', 'none'); g.setAttribute('stroke', 'currentColor'); g.setAttribute('stroke-width', '2'); }
+      const t = [...s.childNodes].find(n => n.nodeType === 3); if (t) t.textContent = i === 3 ? '1' : i < 3 ? '0' : '';
+    });
+    $('#feed').prepend(a);
+    compose.value = ''; compose.oninput(); toast('Your post was sent');
+  };
+  // The thread.
+  $('#threadLink').onclick = () => {
+    const w = $('.threadwrap'); w.hidden = !w.hidden;
+    $('#threadLink').textContent = w.hidden ? 'Show this thread' : 'Hide thread';
+  };
+  // Follow buttons.
+  document.querySelectorAll('.follow button').forEach(b => b.onclick = () => {
+    const on = b.classList.toggle('on'); b.textContent = on ? 'Following' : 'Follow';
+  });
+  // Tabs: "Following" shows only the people you follow (Juniper and Rosa).
+  document.querySelectorAll('.tabs div').forEach(t => t.onclick = () => {
+    document.querySelectorAll('.tabs div').forEach(x => x.classList.toggle('on', x === t));
+    const following = t.dataset.tab === 'following';
+    document.querySelectorAll('#feed article').forEach(a => a.hidden = following && !a.dataset.who && !a.classList.contains('new'));
+  });
+</script>
+</body></html>
