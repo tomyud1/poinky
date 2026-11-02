@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check the scripts
+        run: |
+          for f in install.sh build.sh kokoro/install.sh; do bash -n "$f"; done
+          python3 -m py_compile kokoro/kokoro_server.py
+          node --check web/lesson.js
+          node --check web/buddy.js
+          node --check web/kit.js
+
+      - name: Build the app
+        run: ./build.sh
+
+      - name: Check the app bundle
+        run: |
+          APP=build/Poinky.app
+          codesign --verify --verbose "$APP"
+          for f in Contents/MacOS/Poinky Contents/Info.plist Contents/Resources/web/libs.js \
+                   Contents/Resources/talker-prompt.md Contents/Resources/kokoro_server.py \
+                   Contents/Resources/kokoro/install.sh; do
+            test -s "$APP/$f" || { echo "missing from the app: $f"; exit 1; }
+          done
+
+      - name: Check the installer's help and its guards
+        run: |
+          bash install.sh --help
+          ! bash install.sh --nonsense

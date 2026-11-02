@@ -2,12 +2,12 @@
 import PackageDescription
 
 let package = Package(
-    name: "ScreenBuddy",
+    name: "Poinky",
     platforms: [.macOS("26.0")],
     targets: [
         .executableTarget(
-            name: "ScreenBuddy",
-            path: "Sources/ScreenBuddy"
+            name: "Poinky",
+            path: "Sources/Poinky"
         )
     ]
 )

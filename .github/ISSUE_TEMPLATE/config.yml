@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Install or permission trouble
+    url: https://github.com/tomyud1/poinky#troubleshooting
+    about: Most install problems (Claude login, Screen Recording, voice) are covered here.
+  - name: Security problem
+    url: https://github.com/tomyud1/poinky/security/advisories/new
+    about: Please report these privately, not as a public issue.

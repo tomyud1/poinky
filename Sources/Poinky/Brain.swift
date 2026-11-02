@@ -63,7 +63,7 @@ enum BrainFactory {
                 ? (ProcessInfo.processInfo.environment["ANTHROPIC_API_KEY"] ?? "")
                 : config.apiKey
             guard !key.isEmpty else {
-                throw BrainError("The API brain needs an API key. Add it as \"apiKey\" in the settings file (menu → Open Settings File).")
+                throw BrainError("Add your Anthropic API key in ✨ menu → Settings → Claude, or switch back to Claude Code.")
             }
             return APIBrain(model: role == .artist ? config.apiArtistModel : role == .doer ? config.apiDoerModel : config.apiModel,
                             apiKey: key, systemPrompt: prompt,

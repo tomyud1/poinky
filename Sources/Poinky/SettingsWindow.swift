@@ -223,8 +223,8 @@ private struct VoiceTab: View {
                         Text("1.25 is only a little faster; try 1.4–1.5 for a clearly quicker voice.")
                             .font(.caption).foregroundStyle(.secondary)
                     } else {
-                        Text("Not installed. Run kokoro/install.sh from the project folder (one-time, ~350 MB).")
-                            .font(.callout).foregroundStyle(.secondary)
+                        Text("Not installed (one-time, about 350 MB). Re-run the Poinky installer to add it:\ncurl -fsSL https://raw.githubusercontent.com/tomyud1/poinky/main/install.sh | bash")
+                            .font(.callout).foregroundStyle(.secondary).textSelection(.enabled)
                     }
                 }
             }

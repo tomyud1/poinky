@@ -8,6 +8,7 @@ The full tour. For a quick start, see the [README](../README.md).
 - **Screenshots and your transcribed question go to Claude** (through Claude Code or the Anthropic API), only when you ask something (and at each step while it's guiding you or acting for you). Nothing is captured in between.
 - **Password managers are never captured** (Passwords, Keychain, 1Password, Bitwarden, LastPass by default; add more in Settings → Privacy).
 - Memory, settings and agent logs are plain files in `~/Library/Application Support/Poinky/`.
+- When a lesson shows a photo of something, Poinky searches Wikipedia for it (only the search words are sent, not your screen).
 - No analytics, no accounts, no server of ours.
 
 ## Safety when it acts for you
@@ -77,7 +78,7 @@ Tip: in busy feeds (X, Instagram), circle the post first with ⌥-drag so the gu
 - The first session may download Apple's speech model (one time).
 - **Voice:** Poinky speaks with **Kokoro**, a free neural voice that runs on your Mac (English). Pick a voice in Settings → Voice (each has a ▶ preview). For other languages it uses Apple's voice from System Settings → Accessibility → **Read & Speak** → System voice.
 
-The app is signed "ad hoc", so macOS may ask for permissions again after a rebuild. With an Apple Development certificate (free with Xcode and an Apple ID), `build.sh` uses it automatically and the permissions stick.
+Poinky is signed with a local certificate ("Poinky Local Signing", created by `build.sh` the first time) or your Apple Development certificate, so macOS keeps the permissions across updates and rebuilds.
 
 ## How it works
 
@@ -97,7 +98,7 @@ The app is signed "ad hoc", so macOS may ask for permissions again after a rebui
 
 - **Listening:** Apple's newer on-device speech engine. The mic uses the same voice processing as FaceTime (echo cancellation, noise suppression, auto gain), so you don't need to raise your voice, and Claude's own voice is removed from the mic so you can interrupt it.
 - **Speaking:** Kokoro, a free neural voice, runs locally in a small helper that stays loaded (`kokoro/kokoro_server.py`), ~0.5 s per sentence. The first sentence starts playing while the rest is still being written, and each next sentence is made while the current one plays. If Kokoro fails, Apple's voice takes over.
-- **Installing Kokoro:** `kokoro/install.sh` (needs [uv](https://docs.astral.sh/uv/)) sets up a private Python environment and downloads the model (~350 MB) into the settings folder.
+- **Installing Kokoro:** The main installer runs `kokoro/install.sh`, which sets up a private Python environment (installing [uv](https://docs.astral.sh/uv/) into the settings folder if you don't have it) and downloads the model (~330 MB, checksum-verified) into the settings folder. It starts the helper once to check it works. Run it again any time; it only adds what's missing.
 - **Two Claude sessions** stay open for the whole call, so each question skips the startup cost.
 - **Cards** run inside sandboxed frames with no network access. If a 3D model's code crashes, the error goes back to the artist, which fixes it once automatically.
 

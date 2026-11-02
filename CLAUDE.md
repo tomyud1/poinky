@@ -5,11 +5,12 @@ A macOS menu bar app: hold ⌃⌥ and talk to Claude about what's on your screen
 ## Build & run
 - `./build.sh` builds `build/Poinky.app` (Swift Package, macOS 26+, no Xcode project). Then `open build/Poinky.app`.
 - Restart after a rebuild: `pkill -f "Poinky.app/Contents/MacOS/Poinky"; open build/Poinky.app`. **Ask the user before restarting** if they might be mid-call.
-- Signing: `build.sh` signs with the local "ScreenBuddy Local Signing" certificate (login keychain) so macOS keeps Microphone / Screen Recording permissions across rebuilds. Ad-hoc signing would reset them every build.
-- Local voice: `kokoro/install.sh` (needs `uv`) installs Kokoro into `~/Library/Application Support/Poinky/kokoro`.
+- Signing: `build.sh` signs with your Apple Development cert if present, else the local "Poinky Local Signing" certificate (login keychain; created by `build.sh` on first run via `/usr/bin/openssl` + `security import`; the old "ScreenBuddy Local Signing" is still honored) so macOS keeps Microphone / Screen Recording / Accessibility permissions across rebuilds. Ad-hoc signing would reset them every build. `POINKY_KEYCHAIN=/path` signs/creates in another keychain (for testing).
+- Installer: `install.sh` (curl | bash; also `--no-voice`, `--uninstall [--purge]`) checks macOS/CLT/SDK ≥ 26, offers Claude Code, clones to `~/Library/Application Support/Poinky/source`, runs `build.sh` (log in `install.log`), runs `kokoro/install.sh`, copies the app to /Applications.
+- Local voice: `kokoro/install.sh` installs Kokoro into `~/Library/Application Support/Poinky/kokoro` (installs `uv` into `Poinky/bin` if missing; pinned `kokoro-onnx==0.6.1`, model files verified by SHA-256, ends by starting the helper to check it works).
 - Settings: `~/Library/Application Support/Poinky/config.json` (also editable from the Settings window).
 
-## Architecture (Sources/ScreenBuddy)
+## Architecture (Sources/Poinky)
 - `CallController` runs a session in one of two modes: hold-to-talk (`PushToTalk` polls the modifier keys; the mic opens only while held; release → `SpeechListener.finishUtterance()`) or a hands-free call (mic always on, silence ends a question). The loop: listen → screenshot → **talker** (fast model, short spoken answer + quick screen marks) and **teacher** (stronger model, narrated `<lesson>` sketches or `<scene3d>` models) → speak + draw. Handles interrupts, follow-ups, placement, window anchoring.
 - `Brain` protocol: `ClaudeCodeBrain` (persistent `claude -p` stream-json session, uses the subscription) and `APIBrain` (Messages API). Parsers: `TalkParser` (`<say>/<visual>/<draw>`), `ArtistStream` (`<lesson>/<say>/<step>/<step3d>/<scene3d>`).
 - Audio: `AudioIO` (one AVAudioEngine; voice processing for echo cancellation), `SpeechListener` (SpeechAnalyzer; ends on real silence via `VoiceActivity`), `Speaker` (sentence queue, tagged lines so drawing steps start with their sentence), `KokoroVoice` (Python helper over stdin/stdout).

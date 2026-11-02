@@ -83,7 +83,7 @@ final class ClaudeCodeBrain: Brain {
     private func launchIfNeeded() throws {
         if let p = process, p.isRunning { return }
         guard let path = Self.findClaude(explicit: explicitPath) else {
-            throw BrainError("Couldn't find the `claude` command. Set \"claudePath\" in the settings file.")
+            throw BrainError("Claude Code isn't installed. Install it from claude.com/claude-code and sign in (run `claude` once in Terminal), or switch to an API key: ✨ menu → Settings → Claude.")
         }
 
         let p = Process()

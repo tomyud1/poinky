@@ -752,7 +752,7 @@ final class CallController: NSObject, NSMenuDelegate {
         }
         for req in ev.agents {
             if agents.start(req, config: config) == nil {
-                overlay.setClaudeCaption("⚠️ Couldn't start the agent (is Claude Code installed?)")
+                overlay.setClaudeCaption("⚠️ Couldn't start the agent: background agents need Claude Code installed")
             }
         }
         if ev.end { endAfterSpeaking = true }
