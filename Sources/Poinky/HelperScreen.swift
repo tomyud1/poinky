@@ -14,6 +14,8 @@ final class HelperScreen {
     private var shownAsk: [Int: String] = [:]
     /// A click on a helper card's Allow / Don't allow (or You choose / Skip) button: id, yes.
     var onCardAnswer: ((Int, Bool) -> Void)?
+    /// Open on its card: its window.
+    var onOpen: ((Int) -> Void)?
 
     init(overlay: Overlay, agents: AgentManager) {
         self.overlay = overlay
@@ -39,7 +41,7 @@ final class HelperScreen {
         case .step(let s), .note(let s): overlay.helperStep(id: a.id, text: s)
         case .checklist(let items): overlay.helperChecklist(id: a.id, items: items)
         case .blocked(let what): overlay.helperStep(id: a.id, text: "Not allowed to " + Self.lowerFirst(what))
-        case .started, .turnEnded, .asking, .askCancelled: break   // asks: see asksChanged
+        case .started, .turnEnded, .asking, .askCancelled, .limit: break   // asks: see asksChanged
         }
     }
 
@@ -62,7 +64,7 @@ final class HelperScreen {
         case "allow": onCardAnswer?(id, true)
         case "deny": onCardAnswer?(id, false)
         case "stop": agents?.stop(id: id)
-        case "log": NSWorkspace.shared.open(a.log)
+        case "log", "open": onOpen?(id)
         case "folder": NSWorkspace.shared.open(a.dir)
         default: break
         }
@@ -143,7 +145,7 @@ final class HelperScreen {
     }
 
     private static func key(_ ask: HelperAsk) -> String { ask.requestID + "#" + (ask.currentQuestion?.text ?? "") }
-    private static func kind(_ ask: HelperAsk) -> String { ask.kind == .question ? "question" : "permission" }
+    private static func kind(_ ask: HelperAsk) -> String { ask.kind == .question ? "question" : ask.isPlan ? "plan" : "permission" }
 
     // MARK: - Talking to a helper
 
@@ -151,6 +153,8 @@ final class HelperScreen {
         case say(String)                       // speak this (a status, or "Okay, I stopped Mint.")
         case passed(String)                    // the follow-up went to this helper
         case askTalker(context: String)        // it already finished: the main agent takes it, with this context
+        case resume(PastHelper, String)        // it already finished: continue it with this
+        case undo(PastHelper)                  // put back what it changed in its last run
     }
 
     /// Names you can talk to: helpers working or waiting, and ones that finished in the last 15 minutes.
@@ -177,11 +181,28 @@ final class HelperScreen {
         case .status:
             overlay.helperHeard(id: id, kind: "status")
             return .say(HelperTalk.status(a))
+        case .pause:
+            if a.status == .running, agents.pause(id: id) {
+                overlay.helperStep(id: id, text: "Paused")
+                return .say("Okay, \(a.name) is waiting. What should it do?")
+            }
+            return .say(a.paused ? "\(a.name) is already waiting for you." : working ? "\(a.name) hasn't started yet." : "\(a.name) already finished.")
+        case .undo:
+            return .undo(agents.past(a))
+        case .resume:
+            if agents.resume(id: id) { overlay.helperHeard(id: id, kind: "message"); return .passed(a.name) }
+            return .say(working ? "\(a.name) is still working." : "\(a.name) already finished.")
         case .message(let m):
+            if working, a.status == .running, HelperTalk.isRedirect(m), agents.redirect(id: id, text: m) {
+                overlay.helperHeard(id: id, kind: "message")
+                return .passed(a.name)
+            }
             if working, agents.send(id: id, text: m) {
                 overlay.helperHeard(id: id, kind: "message")
                 return .passed(a.name)
             }
+            // Finished: it picks up where it left off, with what you said.
+            if !working { return .resume(agents.past(a), m) }
             let how = a.status == .done ? "finished" : a.status == .failed ? "couldn't finish" : "was stopped before finishing"
             return .askTalker(context: "(The user is pointing at the helper \(a.name), which \(how) its task \"\(a.title)\" in \(a.dir.path). Its summary: \(a.summary.isEmpty ? "(none)" : a.summary). If they want more work on it, start a new agent and include that context.)")
         }

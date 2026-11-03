@@ -4,6 +4,9 @@ import AppKit
 @MainActor
 enum HelperTest {
     private static var manager: AgentManager?
+    private static var manager2: AgentManager?
+    private static var away: AwayNotifier?
+    private static var restarted = false
     private static var lines: [String] = []
 
     static func run(out: String, dir: String, tasks: [String]) {
@@ -19,6 +22,7 @@ enum HelperTest {
             try? lines.joined(separator: "\n").write(toFile: out, atomically: true, encoding: .utf8)
         }
         func counts() -> String { "running \(m.running.count), waiting \(m.queued.count)" }
+        m.onHands = { id in log("mouse and keyboard: \(id.map { "#\($0)" } ?? "free")") }
         m.onEvent = { a, e in log("#\(a.id) \(a.name) event \(e)") }
         m.onChange = { log("change: " + counts()) }
         func finishIfDone() {
@@ -30,6 +34,46 @@ enum HelperTest {
                     log("status lines:\n" + m.statusLines().joined(separator: "\n"))
                     m.stop(id: a.id)
                 }
+            }
+            // POINKY_TEST_UNDO=1: then undo #1's run (first which files, then for real).
+            if m.running.isEmpty && m.queued.isEmpty, let uid = Int(env["POINKY_TEST_UNDO"] ?? ""), !restarted, let a = m.agents.first(where: { $0.id == uid }) {
+                restarted = true
+                let cp = HelperEntry.runStarts(a.entries)
+                log("undo #\(uid): checkpoints \(cp.map { $0 == nil ? "none" : "kept" })")
+                m.undo(m.past(a), dryRun: true) { o in
+                    log("undo #\(uid) preview: \(o)")
+                    m.undo(m.past(a), dryRun: false) { o2 in
+                        let marker = (try? String(contentsOfFile: a.dir.appendingPathComponent(".fake-undo").path, encoding: .utf8)) ?? "none"
+                        log("undo #\(uid): \(o2); rewound to the first checkpoint: \(marker == (cp.first ?? nil))")
+                        let e = HelperEntry.read(a.chat).last
+                        log("its window: \(e?.k ?? "") \(e?.text ?? "")")
+                        try? FileManager.default.removeItem(at: a.dir.appendingPathComponent(".fake-undo"))
+                        log("ALL DONE")
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { NSApp.terminate(nil) }
+                    }
+                }
+                return
+            }
+            // POINKY_TEST_RESTART=1: then, as if Poinky had restarted, a new manager continues the first one from its saved window.
+            if m.running.isEmpty && m.queued.isEmpty, env["POINKY_TEST_RESTART"] == "1", !restarted {
+                restarted = true
+                let fresh = AgentManager()
+                manager2 = fresh
+                let list = PastHelper.list(in: AgentManager.logDir)
+                log("after a restart: \(list.count) earlier helpers: " + list.map { "\($0.name) \"\($0.title)\" \($0.status) key \($0.key)" }.joined(separator: "; "))
+                guard let p = list.last else { log("ALL DONE"); NSApp.terminate(nil); return }
+                let firstSession = m.agents.first { $0.log.place == p.log.place }?.session ?? "?"
+                fresh.onEvent = { a, e in if case .started(let s, _, _) = e { log("#\(a.id) \(a.name) continued: same session \(s == firstSession)") } }
+                fresh.onFinished = { a in
+                    log("#\(a.id) \(a.name) FINISHED \(a.status.rawValue) (continued): \(a.summary.prefix(160))")
+                    let entries = HelperEntry.read(a.chat)
+                    log("its window now: \(entries.filter { $0.k == "task" }.count) task, \(entries.filter { $0.k == "end" }.count) ends, you: \(entries.filter { $0.k == "you" }.map(\.text))")
+                    log("ALL DONE")
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { NSApp.terminate(nil) }
+                }
+                let a = fresh.resume(p, text: "Now also update the README.", config: config)
+                log("continue \(p.name): \(a.map { "#\($0.id) \($0.name)" } ?? "FAILED")")
+                return
             }
             if m.running.isEmpty && m.queued.isEmpty {
                 log("ALL DONE")
@@ -48,7 +92,19 @@ enum HelperTest {
             if kv.count == 2, let id = Int(kv[0].trimmingCharacters(in: .whitespaces)) { planned[id] = kv[1] }
         }
         let tellFirst = env["POINKY_TEST_TELL"] == "1"
+        // POINKY_TEST_NTFY=<server>: you're away, and questions go to that (fake) ntfy server; its buttons answer.
+        if let server = env["POINKY_TEST_NTFY"] {
+            let n = AwayNotifier()
+            away = n
+            var c = config
+            c.awayNotify = true; c.ntfyServer = server; c.ntfyTopic = "poinky-test"
+            n.settings(c)
+            n.forceAway = true
+            n.onAnswer = { id, rid, reply in log("from the phone: #\(id) \(reply) → \(m.answer(id: id, requestID: rid, reply))") }
+        }
         m.onAsksChanged = { a in
+            away?.stillOpen(Set(m.agents.flatMap { $0.asks.map(\.requestID) }))
+            if let first = a.asks.first { away?.asking(a, first) }
             guard let ask = a.asks.first else { log("#\(a.id) \(a.name) has no open requests"); return }
             log("#\(a.id) \(a.name) ASKS: \(ask.bubble) [\(ask.detail.replacingOccurrences(of: "\n", with: " / "))] spoken: \"\(a.name) \(ask.spoken)\" risky=\(ask.risky)")
             let id = a.id, rid = ask.requestID
@@ -70,13 +126,30 @@ enum HelperTest {
         }
         log("helper command: \(AgentManager.executable(config: config) ?? "none"), max \(config.maxHelpers)")
         for (n, task) in tasks.enumerated() {
-            let a = m.start(AgentRequest(title: "Test \(n + 1)", dir: dir, task: task), config: config)
+            // POINKY_TEST_PLAN=1: each makes a plan first and waits for the go-ahead.
+            let a = m.start(AgentRequest(title: "Test \(n + 1)", dir: dir, task: task, planFirst: env["POINKY_TEST_PLAN"] == "1"), config: config)
             log("start \(n + 1): " + (a.map { "#\($0.id) \($0.name) \($0.status.rawValue)" } ?? "FAILED TO START") + " | " + counts())
         }
         if let f = env["POINKY_TEST_FOLLOWUP"], let bar = f.firstIndex(of: "|"), let secs = Double(f[..<bar]) {
             let text = String(f[f.index(after: bar)...])
             DispatchQueue.main.asyncAfter(deadline: .now() + secs) {
                 log("follow-up to #1: sent=\(m.send(id: 1, text: text)) \"\(text)\"")
+            }
+        }
+        // POINKY_TEST_PAUSE="3|6|Use yarn instead": "wait" to #1 at 3 s (it should stay, paused), then a new direction at 6 s.
+        let pauseParts = (env["POINKY_TEST_PAUSE"] ?? "").components(separatedBy: "|")
+        if pauseParts.count == 3, let p1 = Double(pauseParts[0]), let p2 = Double(pauseParts[1]) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + p1) {
+                log("pause #1: \(m.pause(id: 1))")
+                DispatchQueue.main.asyncAfter(deadline: .now() + (p2 - p1) / 2) {
+                    if let a = m.agents.first(where: { $0.id == 1 }) {
+                        log("#1 after pausing: status \(a.status.rawValue), paused \(a.paused), talk: \(HelperTalk.status(a))")
+                        log("status line: " + (m.statusLines().first ?? ""))
+                    }
+                }
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + p2) {
+                log("new direction to #1: \(m.send(id: 1, text: pauseParts[2])), paused now \(m.agents.first { $0.id == 1 }?.paused ?? true)")
             }
         }
         if let s = env["POINKY_TEST_STOP"], let secs = Double(s) {   // stops the second helper
@@ -90,6 +163,7 @@ enum HelperTest {
 extension HelperTest {
     private static var overlay: Overlay?
     private static var screen: HelperScreen?
+    private static var windows: HelperWindows?
 
     /// Helpers through the real overlay: a pretend session starts them, then ends (the overlay must
     /// stay up for them), they finish, and the overlay goes away when the last one is gone.
@@ -189,6 +263,54 @@ extension HelperTest {
                     }
                 }
             }
+        }
+        // POINKY_TEST_WINDOW=1: open the Helpers window on #1, watch it fill in, type to it, and continue it once it's done.
+        if env["POINKY_TEST_WINDOW"] == "1" {
+            let hw = HelperWindows()
+            windows = hw
+            hw.agents = m
+            m.onChange = { hw.updateAll() }
+            hw.onTypedAnswer = { id, reply, text in log("typed \"\(text)\" → answer \(reply): \(hs.answer(id, reply))") }
+            hw.onResume = { past, text in
+                let a = m.resume(past, text: text, config: config)
+                log("continue \(past.name) (session \(past.session.isEmpty ? "none" : "kept")): \(a.map { "#\($0.id) \($0.name)" } ?? "FAILED")")
+                return a
+            }
+            let state = "JSON.stringify({entries: document.querySelectorAll('#list .e').length, steps: [...document.querySelectorAll('.steps .lbl')].map(e => e.textContent), pill: document.getElementById('pill').textContent, now: document.getElementById('now').hidden ? '' : document.getElementById('nowTxt').textContent, box: document.getElementById('box').placeholder, list: [...document.querySelectorAll('.it')].map(e => e.textContent)})"
+            func look(_ at: Double, _ what: String, _ js: String) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + at) { hw.evaluateForTest(js) { r in log("window \(what): \(r.map { "\($0)" } ?? "nil")") } }
+            }
+            var ended = 0
+            m.onEntry = { a, e in
+                hw.entry(a, e)
+                guard e.k == "end" else { return }
+                ended += 1
+                if ended == 1 {
+                    // Finished: how it looks, then type to it to continue it.
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                        hw.evaluateForTest(state + " + ' ' + (document.querySelector('.end .head span') || {}).textContent") { r in log("window at the end: \(r.map { "\($0)" } ?? "nil")") }
+                        hw.snapshotForTest(to: URL(fileURLWithPath: outDir + "/window-done.png"))
+                    }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+                        hw.evaluateForTest("(() => { const b = document.getElementById('box'); b.value = 'Now also update the README.'; b.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', bubbles: true})); return b.placeholder; })()") { r in log("typed to the finished helper (box said \"\(r ?? "")\")") }
+                    }
+                } else {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                        hw.evaluateForTest(state) { r in log("window after continuing: \(r.map { "\($0)" } ?? "nil")") }
+                        hw.snapshotForTest(to: URL(fileURLWithPath: outDir + "/window-continued.png"))
+                    }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { hw.close() }
+                }
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { hw.show(1); log("opened #1's window") }
+            look(6, "while working", state)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 6.5) {
+                hw.evaluateForTest("(() => { const b = document.getElementById('box'); b.value = 'Also make the README example use $100.'; b.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', bubbles: true})); return b.value; })()") { r in
+                    log("typed into #1's window (box now \"\(r ?? "")\"); follow-ups: \(m.agents.first { $0.id == 1 }?.followUps ?? [])")
+                }
+                hw.snapshotForTest(to: URL(fileURLWithPath: outDir + "/window-working.png"))
+            }
+            look(8, "after typing", "JSON.stringify([...document.querySelectorAll('.you div')].map(e => e.textContent))")
         }
         hs.settings(config)
         m.onStarted = { a in log("#\(a.id) \(a.name) started"); hs.started(a) }
@@ -393,6 +515,11 @@ extension HelperTest {
             ("Stop using the old file and read config.py instead", .message("Stop using the old file and read config.py instead")),
             ("Also add a test for 4 people.", .message("Also add a test for 4 people.")),
             ("update the README too", .message("update the README too")),
+            ("Wait.", .pause), ("hold on a second", .pause), ("one sec", .pause), ("hang on", .pause),
+            ("Go on.", .resume), ("okay continue", .resume), ("keep going", .resume),
+            ("Undo that.", .undo), ("undo your changes", .undo), ("put it back", .undo), ("revert it", .undo),
+            ("undo the change to the README but keep the rest", .message("undo the change to the README but keep the rest")),
+            ("wait for the build before testing", .message("wait for the build before testing")),
         ]
         for (said, want) in intents { let got = HelperTalk.intent(said); check(got == want, "\"\(said)\" → \(got)") }
         let names = ["Mint", "Coral"]
@@ -401,8 +528,18 @@ extension HelperTest {
             ("Stop Coral", "Coral", .stop), ("Tell Mint to also add a test", "Mint", .message("Also add a test")),
             ("ask coral to use the json flag", "Coral", .message("Use the json flag")), ("Mint, also update the README", "Mint", .message("Also update the README")),
             ("Mint, how's it going?", "Mint", .status),
+            ("Mint, wait.", "Mint", .pause), ("Wait Mint", "Mint", .pause), ("Coral, go on", "Coral", .resume),
+            ("Undo what Mint did", "Mint", .undo), ("undo Coral's changes", "Coral", .undo), ("Mint, undo that", "Mint", .undo), ("revert mint", "Mint", .undo),
             ("Is mint tea good for you?", nil, nil), ("What color is coral?", nil, nil), ("How's Violet doing?", nil, nil),
         ]
+        for (said, want) in [("Wait, use yarn instead", true), ("Actually, skip the docs", true), ("no wait, keep the old name", true),
+                             ("Also add a test", false), ("wait for the build first", true), ("Stop.", false)] {
+            check(HelperTalk.isRedirect(said) == want, "\"\(said)\" \(want ? "changes" : "doesn't change") its direction")
+        }
+        for (said, want) in [("use Opus for this one", "claude-opus-5-5"), ("Sonnet 5.5", "claude-sonnet-5-5"), ("haiku", "claude-haiku-5-5"),
+                             ("fable", "claude-fable-5-1"), ("claude-opus-5-5", "claude-opus-5-5"), ("gpt", nil)] as [(String, String?)] {
+            check(AgentRequest.modelName(said) == want, "model \"\(said)\" → \(AgentRequest.modelName(said) ?? "none")")
+        }
         for (said, name, intent) in byName {
             let got = HelperTalk.byName(said, names: names)
             check(got?.name == name && got?.intent == intent, "\"\(said)\" → \(got.map { "\($0.name) \($0.intent)" } ?? "not about a helper")")
@@ -428,6 +565,13 @@ extension HelperTest {
         check(ev.tells.first?.name == "Mint" && ev.tells.first?.text == "Also add a test for 4 people." && ev.stops == ["Coral"],
               "talker tags: tell \(ev.tells.map { "\($0.name): \($0.text)" }), stop \(ev.stops)")
         check(ev.sentences == ["I'll tell Mint."] || ev.sentences.isEmpty, "the tags aren't spoken (\(ev.sentences))")
+        var p2 = TalkParser()
+        _ = p2.feed(#"<say>On it.</say><agent title="Fix login" dir="/tmp/x" model="opus" plan="true">Fix the login test.</agent><agent resume="3f2a9c1b">Also update the README.</agent><undo agent="Coral"/>"#)
+        let ev2 = p2.finish()
+        let r0 = ev2.agents.first, r1 = ev2.agents.dropFirst().first
+        check(r0?.model == "claude-opus-5-5" && r0?.planFirst == true && r0?.resumeKey == nil, "talker tags: a model and plan first for one task (\(String(describing: r0)))")
+        check(r1?.resumeKey == "3f2a9c1b" && r1?.task == "Also update the README.", "talker tags: continue an earlier helper by its key")
+        check(ev2.undos == ["Coral"], "talker tags: undo (\(ev2.undos))")
         askChecks(check)
         lines.append(fails == 0 ? "ALL OK" : "\(fails) FAILED")
         try? lines.joined(separator: "\n").write(toFile: out, atomically: true, encoding: .utf8)

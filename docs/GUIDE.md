@@ -10,6 +10,7 @@ The full tour. For a quick start, see the [README](../README.md).
 - Memory, settings and agent logs are plain files in `~/Library/Application Support/Poinky/`.
 - When a lesson shows a photo of something, Poinky searches Wikipedia for it (only the search words are sent, not your screen).
 - No analytics, no accounts, no server of ours.
+- Away mode is off unless you turn it on (Settings → Claude → When you're away). Then, while you're away, a helper's question goes to your phone through ntfy (ntfy.sh, or your own server), on a random topic only you know. Turn off "Say what it wants" to send only that a helper is waiting.
 
 ## Safety when it acts for you
 
@@ -57,7 +58,22 @@ Poinky remembers things about you between sessions (your name, what you're worki
 Ask "how do I make you talk faster?" or "what can you do?": it has a built-in manual and sees your current settings. It can change a few safe ones itself ("talk faster", "hide the buddy", "turn off the sounds", "turn the teacher off").
 
 ### Background agents: "put an agent on it"
-Because it runs on Claude Code, Poinky can start an **agent**: a separate Claude Code session that works on your project in the background (fix a bug, add a feature, write tests, research something) with your normal Claude Code setup. A small dot by the notch shows agents are working. When one finishes, Poinky tells you what it did, waiting until it's done talking (or folding it into your next question). Agents may edit files in the project and run a short list of safe commands (tests, `git status`/`diff`/`log`). For anything else (installing a package, deleting a file, pushing, running a script) the helper raises its hand: it flies to you and Poinky says what it wants ("Mint wants to run npm install left-pad. Is that okay?"). Say yes or no (hold ⌃⌥, or just answer in a hands-free call); "no, use yarn instead" tells it why. A helper can also ask you a question ("Where should I keep the settings?"): answer with one of the choices or "you choose". If you don't answer, it goes back to the edge with a "?" and keeps waiting while the others work; answer it later by name ("Mint, yes"), by pointing at it, or with the Allow / Don't allow buttons on its card. Nothing is ever approved without you, and pushing, deleting and installing always ask, even in auto mode. Settings → Claude can switch agents to Claude Code's auto mode (if your account has it), which asks less often, or to planning only. Full logs: `~/Library/Application Support/Poinky/agents/`.
+Because it runs on Claude Code, Poinky can start an **agent**: a separate Claude Code session that works on your project in the background (fix a bug, add a feature, write tests, research something) with your normal Claude Code setup. A small dot by the notch shows agents are working. When one finishes, Poinky tells you what it did, waiting until it's done talking (or folding it into your next question). Agents may edit files in the project and run a short list of safe commands (tests, `git status`/`diff`/`log`). For anything else (installing a package, deleting a file, pushing, running a script) the helper raises its hand: it flies to you and Poinky says what it wants ("Mint wants to run npm install left-pad. Is that okay?"). Say yes or no (hold ⌃⌥, or just answer in a hands-free call); "no, use yarn instead" tells it why. A helper can also ask you a question ("Where should I keep the settings?"): answer with one of the choices or "you choose". If you don't answer, it goes back to the edge with a "?" and keeps waiting while the others work; answer it later by name ("Mint, yes"), by pointing at it, or with the Allow / Don't allow buttons on its card. Nothing is ever approved without you, and pushing, deleting and installing always ask, even in auto mode. Settings → Claude can switch agents between auto mode (the default: it asks less often), editing the project and asking for the rest, or making a plan first. Full logs: `~/Library/Application Support/Poinky/agents/`.
+
+**The Helpers window** (click Open on a helper's card, ✨ menu → Helpers…, or a report in the notch) shows each helper's work as it happens: its notes, its steps grouped and collapsed ("Read 3 files, ran 2 commands", click to see each command), its to-do list, what it asked and what you answered, and its summary with how long it worked and what it used. Earlier helpers are listed too, also from before Poinky restarted. Type in the box to send it a message (paste errors and code; Shift-Return for a new line). Type to a finished one, or say "Mint, also update the README", and it picks up where it left off, in its own Claude Code session.
+
+**More you can do with helpers:**
+- **Type instead of talk:** ⌃⌥T opens a box by the mouse ("Ask Poinky…"). Over a helper, it types to that helper.
+- **Pause and steer:** "Mint, wait" stops what it's doing without ending it; then tell it what to do instead, or "go on". "Mint, actually use yarn" does both at once. The window has Pause / Go on.
+- **Plan first:** "make a plan first" (or Settings): the helper comes back with its plan, Poinky says what it's about, and the window shows all of it. "Go ahead" starts it; tell it what to change and it revises the plan; "not now" keeps it a plan.
+- **A model for one task:** "use Opus for this one".
+- **Undo:** "undo what Mint did" (or Undo these changes in its window) puts back the files it changed in its last run, using Claude Code's checkpoints. If one of them changed after it finished (maybe by you), Poinky doesn't touch anything and the window asks you first.
+- **Several at once:** big tasks can be split between helpers. Helpers working in the same git repo at the same time each get their own copy (a git worktree), and their changes come back into your folder when they finish; if they overlap with other changes, they're kept on a branch (`poinky/…`) and the report says so.
+- **Your commands and skills:** "run a code review on this", "do a security review": the main agent starts a helper with your command (`/review` …).
+- **Git:** "commit this", "open a PR and watch the checks". Pushing and opening a PR always ask you first.
+- **The mouse:** a helper that uses your mouse and keyboard (or Chrome) asks the first time; only one uses them at a time, the others wait their turn.
+- **Usage:** "how much have the helpers used today?" Each helper's window shows what each run used.
+- **Away mode:** with it on, a question from a helper while you're away (screen locked, or no keyboard or mouse for a few minutes) reaches your phone in the ntfy app, with buttons to answer.
 
 ### Demo
 `python3 demo/serve.py` opens six realistic, made-up scenes for showing Poinky off: a social feed, a code editor, a notes doc with a checklist, a transit dashboard, an encyclopedia article and a notes app. They all work like the real thing (click, type, check things off), so Poinky can walk you through actions. The code editor shows the real files in `demo/sample-project` live and its terminal really runs the tests, so you can watch a background agent fix the bug. `demo/DEMO-SCRIPT.md` is a recording script.
@@ -157,7 +173,12 @@ The 3D kit (`web/kit.js`) gives the artist simple building blocks on top of thre
 | `NotchHome.swift` | The notch: status wings with a glow, and the hover panel with controls (SwiftUI) |
 | `Earcons.swift` | The interface sounds, synthesized in code |
 | `Memory.swift` | What Poinky remembers about you (`memory.md`) |
-| `AgentManager.swift` | Background Claude Code agents and their logs |
+| `AgentManager.swift` | Background Claude Code agents and their logs: start, follow-ups, pause, answers, resume, undo, the mouse |
+| `HelperWindow.swift` + `web/helper-window.html` | The Helpers window: the list, each helper's work live, typing to it, continuing and undoing |
+| `HelperTranscript.swift` | What the window shows (`.chat.jsonl` entries) and earlier helpers (`PastHelper`) |
+| `HelperUndo.swift` / `HelperWorktree.swift` | Undo with Claude Code's checkpoints; worktrees for helpers sharing a repo |
+| `TypeBox.swift` | ⌃⌥T: typing to Poinky or a helper |
+| `AwayNotifier.swift` | Away mode: helpers' questions to your phone (ntfy) |
 | `prompts/poinky-manual.md` | The app's own manual, given to the talker |
 | `AudioIO.swift` | Playback, the hold-to-talk mic, and the hands-free mic with voice processing |
 | `SpeechListener.swift` | On-device speech-to-text; ends a question on a pause (calls) or when you let go |

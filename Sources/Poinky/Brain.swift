@@ -90,6 +90,7 @@ struct TalkEvents {
     var agents: [AgentRequest] = []
     var tells: [(name: String, text: String)] = []   // a follow-up for a working helper, by name
     var stops: [String] = []                          // helpers to stop, by name
+    var undos: [String] = []                          // helpers whose last changes to undo, by name or key
 }
 
 /// A background job for a Claude Code agent, asked for by the talker.
@@ -97,6 +98,29 @@ struct AgentRequest: Equatable {
     let title: String
     let dir: String?
     let task: String
+    /// A model for just this task ("use Opus for this one"): a full model name. Nil: the helpers' setting.
+    var model: String? = nil
+    /// Make a plan first and wait for the user's go-ahead before changing anything.
+    var planFirst = false
+    /// The talker's `resume="KEY"`: continue an earlier helper (see `PastHelper.key`).
+    var resumeKey: String? = nil
+    /// Continuing an earlier helper: its Claude Code session (empty if it never got one), its log, its
+    /// name, and what it did (for a fresh start when there's no session to resume).
+    var resume: String? = nil
+    var continueLog: URL? = nil
+    var name: String? = nil
+    var earlier: String? = nil
+    /// Continuing a helper that worked in its own git worktree: that folder (made again there).
+    var worktreePath: String? = nil
+
+    /// "opus", "Sonnet 5.5", "claude-haiku-5-5" → a full model name Claude Code knows. Nil if it isn't one.
+    static func modelName(_ s: String?) -> String? {
+        guard let t = s?.lowercased().trimmingCharacters(in: .whitespaces), !t.isEmpty else { return nil }
+        if t.hasPrefix("claude-") { return t }
+        for (word, id) in [("fable", "claude-fable-5-1"), ("opus", "claude-opus-5-5"), ("sonnet", "claude-sonnet-5-5"), ("haiku", "claude-haiku-5-5")]
+        where t.contains(word) { return id }
+        return nil
+    }
 }
 
 /// Pulls <say>, <draw> and <visual> out of the talker's reply while it streams in.
@@ -148,7 +172,7 @@ struct TalkParser {
             ev.sentences = takeSentences(final: true)
         } else if sayEmitted == 0 {
             var s = text
-            for tag in ["<draw>", "<visual>", "<guide>", "<do>", "<act", "<ask>", "<done>", "<end", "<set>", "<remember>", "<forget>", "<agent", "<tell", "<stop"] {
+            for tag in ["<draw>", "<visual>", "<guide>", "<do>", "<act", "<ask>", "<done>", "<end", "<set>", "<remember>", "<forget>", "<agent", "<tell", "<stop", "<undo"] {
                 if let r = s.range(of: tag) { s = String(s[..<r.lowerBound]) }
             }
             s = s.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -179,7 +203,10 @@ struct TalkParser {
         ev.agents = Self.blocks(text, "agent").compactMap { b in
             guard !b.body.isEmpty else { return nil }
             let dir = Self.attr("dir", in: b.attrs).flatMap { $0.isEmpty ? nil : $0 }
-            return AgentRequest(title: Self.attr("title", in: b.attrs) ?? "Agent", dir: dir, task: b.body)
+            return AgentRequest(title: Self.attr("title", in: b.attrs) ?? "Agent", dir: dir, task: b.body,
+                                model: AgentRequest.modelName(Self.attr("model", in: b.attrs)),
+                                planFirst: ["true", "yes", "1"].contains((Self.attr("plan", in: b.attrs) ?? "").lowercased()),
+                                resumeKey: Self.attr("resume", in: b.attrs).flatMap { $0.isEmpty ? nil : $0 })
         }
         ev.tells = Self.blocks(text, "tell").compactMap { b in
             guard let name = Self.attr("agent", in: b.attrs), !name.isEmpty, !b.body.isEmpty else { return nil }
@@ -188,6 +215,10 @@ struct TalkParser {
         if let re = try? NSRegularExpression(pattern: #"<stop\s+agent\s*=\s*"([^"]+)"\s*/?>"#) {
             let ns = text as NSString
             ev.stops = re.matches(in: text, range: NSRange(location: 0, length: ns.length)).map { ns.substring(with: $0.range(at: 1)) }
+        }
+        if let re = try? NSRegularExpression(pattern: #"<undo\s+agent\s*=\s*"([^"]+)"\s*/?>"#) {
+            let ns = text as NSString
+            ev.undos = re.matches(in: text, range: NSRange(location: 0, length: ns.length)).map { ns.substring(with: $0.range(at: 1)) }
         }
         return ev
     }

@@ -39,6 +39,7 @@ struct AppConfig: Codable {
     var soundVolume = 0.7              // their loudness, 0–1 (Poinky's voice has its own)
     var menuBarIcon = false            // also show ✨ in the menu bar (always shown on screens without a notch)
     var buddyHotkey = "ctrl+option+b"  // hides / shows the buddy
+    var typeHotkey = "ctrl+option+t"   // opens a box to type to Poinky (or to the helper under the mouse)
     var buddyAutoHide = 0.0            // hide the buddy after this many idle seconds (0 = never); it's back when you ask something
     var memoryEnabled = true           // remember things about you between sessions (stored only on this Mac)
     var computerControl = true         // Poinky may click and type for you when you ask it to do something
@@ -46,6 +47,11 @@ struct AppConfig: Codable {
     var agentPermission = "auto"        // background agents: "auto" (Claude Code's auto mode; falls back to acceptEdits if it can't start), "acceptEdits" (edit the project + run tests, ask for the rest), "plan"
     var agentModel = ""                // background agents' model ("" = your Claude Code default)
     var maxHelpers = 3                 // helpers (background agents) working at once, 1–6; more wait in line
+    var awayNotify = false             // away from the Mac: a helper's question goes to your phone (ntfy)
+    var ntfyServer = "https://ntfy.sh" // the ntfy server (ntfy.sh, or your own)
+    var ntfyTopic = ""                 // a random, private topic (made when away mode is turned on)
+    var awayMinutes = 3.0              // no keyboard or mouse for this long counts as away (or the screen locked)
+    var awayDetails = true             // the notification says what it wants (the command); off: only that one is waiting
     /// Apps left out of every screenshot (password managers by default).
     var excludedApps = ["com.apple.Passwords", "com.apple.keychainaccess", "com.1password.1password", "com.agilebits.onepassword7",
                         "com.bitwarden.desktop", "com.lastpass.LastPass"]
@@ -86,6 +92,7 @@ struct AppConfig: Codable {
         soundVolume = try c.decodeIfPresent(Double.self, forKey: .soundVolume) ?? d.soundVolume
         menuBarIcon = try c.decodeIfPresent(Bool.self, forKey: .menuBarIcon) ?? d.menuBarIcon
         buddyHotkey = try c.decodeIfPresent(String.self, forKey: .buddyHotkey) ?? d.buddyHotkey
+        typeHotkey = try c.decodeIfPresent(String.self, forKey: .typeHotkey) ?? d.typeHotkey
         buddyAutoHide = try c.decodeIfPresent(Double.self, forKey: .buddyAutoHide) ?? d.buddyAutoHide
         memoryEnabled = try c.decodeIfPresent(Bool.self, forKey: .memoryEnabled) ?? d.memoryEnabled
         computerControl = try c.decodeIfPresent(Bool.self, forKey: .computerControl) ?? d.computerControl
@@ -93,6 +100,11 @@ struct AppConfig: Codable {
         agentPermission = try c.decodeIfPresent(String.self, forKey: .agentPermission) ?? d.agentPermission
         agentModel = try c.decodeIfPresent(String.self, forKey: .agentModel) ?? d.agentModel
         maxHelpers = try c.decodeIfPresent(Int.self, forKey: .maxHelpers) ?? d.maxHelpers
+        awayNotify = try c.decodeIfPresent(Bool.self, forKey: .awayNotify) ?? d.awayNotify
+        ntfyServer = try c.decodeIfPresent(String.self, forKey: .ntfyServer) ?? d.ntfyServer
+        ntfyTopic = try c.decodeIfPresent(String.self, forKey: .ntfyTopic) ?? d.ntfyTopic
+        awayMinutes = try c.decodeIfPresent(Double.self, forKey: .awayMinutes) ?? d.awayMinutes
+        awayDetails = try c.decodeIfPresent(Bool.self, forKey: .awayDetails) ?? d.awayDetails
         excludedApps = try c.decodeIfPresent([String].self, forKey: .excludedApps) ?? d.excludedApps
     }
 

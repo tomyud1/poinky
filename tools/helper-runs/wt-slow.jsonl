@@ -1,0 +1,6 @@
+{"type": "system", "subtype": "init", "cwd": "/x", "session_id": "00000000-0000-0000-0000-0000000000ow", "model": "claude-sonnet-5-5", "permissionMode": "auto", "_t": 0.3}
+{"type": "assistant", "message": {"role": "assistant", "content": [{"type": "tool_use", "id": "twa.txt", "name": "Write", "input": {"file_path": "/x/a.txt", "content": "from mint\n"}}]}, "parent_tool_use_id": null, "session_id": "00000000-0000-0000-0000-0000000000ow", "_t": 0.9}
+{"type": "_write", "path": "a.txt", "text": "from mint\n", "_t": 1.0}
+{"type": "assistant", "message": {"role": "assistant", "content": [{"type": "tool_use", "id": "twnotes.txt", "name": "Write", "input": {"file_path": "/x/notes.txt", "content": "mint was here\n"}}]}, "parent_tool_use_id": null, "session_id": "00000000-0000-0000-0000-0000000000ow", "_t": 2.4}
+{"type": "_write", "path": "notes.txt", "text": "mint was here\n", "_t": 2.5}
+{"type": "result", "subtype": "success", "is_error": false, "result": "Wrote a.txt, notes.txt.", "session_id": "00000000-0000-0000-0000-0000000000ow", "duration_ms": 0, "_t": 7.0}

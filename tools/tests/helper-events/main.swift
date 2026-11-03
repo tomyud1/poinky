@@ -9,6 +9,19 @@ func events(_ name: String, chunk: Int) -> [HelperEvent] {
     while i < data.count { let j = min(data.count, i + chunk); out += s.feed(data[i..<j]); i = j }
     return out
 }
+/// The window's entries for a recorded run.
+func entries(_ name: String, chunk: Int) -> [HelperEntry] {
+    let data = try! Data(contentsOf: URL(fileURLWithPath: CommandLine.arguments[1] + "/\(name).jsonl"))
+    var s = HelperStream(); var out: [HelperEntry] = []
+    var i = 0
+    while i < data.count { let j = min(data.count, i + chunk); _ = s.feed(data[i..<j]); out += s.takeEntries(); i = j }
+    return out
+}
+// `parser <dir> --entries <run>`: print a run's window entries (one JSON per line).
+if let k = CommandLine.arguments.firstIndex(of: "--entries"), k + 1 < CommandLine.arguments.count {
+    for e in entries(CommandLine.arguments[k + 1], chunk: 100_000) { print(e.json) }
+    exit(0)
+}
 func steps(_ e: [HelperEvent]) -> [String] { e.compactMap { if case .step(let s) = $0 { return s }; return nil } }
 
 for name in ["fix-bug", "todo-blocked", "two-turns", "crash", "error"] {
@@ -40,6 +53,29 @@ let crash = events("crash", chunk: 9)
 check(!crash.contains { if case .turnEnded = $0 { return true }; return false }, "crash: no result")
 let err = events("error", chunk: 9)
 if case .turnEnded(let ok, _, _, _) = err.last { check(!ok, "error: ends not ok") } else { check(false, "error: ends with turnEnded") }
+
+// The helper's window
+let fe = entries("fix-bug", chunk: 7)
+check(fe == entries("fix-bug", chunk: 100_000), "window: same entries whatever the chunk size")
+let fnotes = fe.filter { $0.k == "note" }
+check(!fnotes.isEmpty && fnotes.contains { $0.text.count > 60 }, "window: notes are kept in full (\(fnotes.map(\.text.count)))")
+let fsteps = fe.filter { $0.k == "step" }
+check(fsteps.contains { $0.kind == "read" && $0.detail?.hasSuffix("tipsplit.py") == true }, "window: a read step keeps its file")
+check(fsteps.contains { $0.kind == "test" && !($0.detail ?? "").isEmpty }, "window: a test step keeps its command")
+check(fsteps.contains { $0.kind == "edit" }, "window: edits are edits")
+let te = entries("todo-blocked", chunk: 64)
+check(te.filter { $0.k == "todo" }.count >= 3 && te.first { $0.k == "todo" }?.items?.isEmpty == false, "window: to-do lists with their items")
+check(te.filter { $0.k == "blocked" }.count == 5, "window: refusals")
+func feedLines(_ lines: [String]) -> [HelperEntry] {
+    var s = HelperStream(); _ = s.feed(Data((lines.joined(separator: "\n") + "\n").utf8)); return s.takeEntries()
+}
+let ae = feedLines([#"{"type":"control_request","request_id":"r1","request":{"subtype":"can_use_tool","tool_name":"Bash","input":{"command":"npm install left-pad"},"tool_use_id":"t1"}}"#,
+                    #"{"type":"control_cancel_request","request_id":"r1"}"#])
+check(ae.first.map { $0.k == "ask" && $0.kind == "permission" && ($0.detail ?? "").contains("npm install") && $0.id == "r1" } == true, "window: a permission request with its command")
+check(ae.last.map { $0.k == "answer" && $0.id == "r1" } == true, "window: a withdrawn request")
+let qe = feedLines([#"{"type":"control_request","request_id":"r2","request":{"subtype":"can_use_tool","tool_name":"AskUserQuestion","input":{"questions":[{"question":"Which database?","header":"DB","multiSelect":false,"options":[{"label":"SQLite","description":""},{"label":"Postgres","description":""}]}]},"tool_use_id":"t2"}}"#])
+check(qe.first.map { $0.k == "ask" && $0.kind == "question" } == true, "window: a question")
+check(!entries("two-turns", chunk: 5).contains { $0.k == "note" && $0.text.isEmpty }, "window: no empty notes")
 
 // Words
 check(HelperStream.gerund("Run existing tests") == "Running existing tests", "gerund run")

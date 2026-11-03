@@ -6,6 +6,9 @@ enum HelperTalk {
     enum Intent: Equatable {
         case stop
         case status
+        case pause             // "wait", "hold on": interrupt what it's doing, keep it
+        case resume            // "go on", "continue" (after a pause)
+        case undo              // "undo that": put back the files it changed in its last run
         case message(String)   // a follow-up for its work
     }
 
@@ -14,6 +17,9 @@ enum HelperTalk {
         let t = plain(text)
         if t.isEmpty { return .status }
         if isStop(t) { return .stop }
+        if isPause(t) { return .pause }
+        if isResume(t) { return .resume }
+        if isUndo(t) { return .undo }
         if isStatus(t) { return .status }
         return .message(text.trimmingCharacters(in: .whitespacesAndNewlines))
     }
@@ -30,6 +36,13 @@ enum HelperTalk {
                 .replacingOccurrences(of: "  ", with: " ").trimmingCharacters(in: .whitespaces)
             // "stop mint", "cancel mint please"
             if words.count <= 5, isStop(rest) { return (name, .stop) }
+            // "wait mint", "mint hold on", "mint go on"
+            if words.count <= 5, isPause(rest) { return (name, .pause) }
+            if words.count <= 5, isResume(rest) { return (name, .resume) }
+            // "undo mint", "undo what mint did", "undo mint s changes", "revert mint"
+            if t.range(of: "^(please )?(undo|revert|roll back|put back)( what| everything)? \(n)( s)?( did| did there| changed| made| changes| work| last change(s)?)?( please)?$", options: .regularExpression) != nil {
+                return (name, .undo)
+            }
             // "how's mint doing", "what's mint up to", "is mint done", "status of mint"
             let statusPatterns = ["^(how s|hows|how is|how are) \(n)( doing| going| getting on| coming along)?$",
                                   "^what (s |is )?\(n) (doing|up to|working on)$", "^(is|has) \(n) (done|finished)( yet)?$",
@@ -47,6 +60,9 @@ enum HelperTalk {
                 let msg = String(original[r.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
                 let p = plain(msg)
                 if isStop(p) { return (name, .stop) }
+                if isPause(p) { return (name, .pause) }
+                if isResume(p) { return (name, .resume) }
+                if isUndo(p) { return (name, .undo) }
                 if isStatus(p) { return (name, .status) }
                 if p.split(separator: " ").count >= 2 { return (name, .message(sentence(msg))) }
             }
@@ -73,6 +89,8 @@ enum HelperTalk {
         switch a.status {
         case .queued:
             return "\(a.name) is waiting for a free spot. It starts when another helper finishes."
+        case .running where a.paused:
+            return "\(a.name) is paused. Tell it what to do next, or say go on."
         case .running:
             if let ask = a.asks.first {
                 return ask.kind == .question
@@ -109,6 +127,28 @@ enum HelperTalk {
     }
 
     // MARK: - Words
+
+    static func isUndo(_ t: String) -> Bool {
+        t.range(of: "^(please )?(undo|revert|roll back|put back)( it| that| this| your changes| what you did| everything| all of it| the changes| your last change(s)?)?( please)?$|^(put|roll) (it|that|everything) back( please)?$",
+                options: .regularExpression) != nil
+    }
+
+    static func isPause(_ t: String) -> Bool {
+        t.range(of: "^(please )?(wait|hold on|hang on|pause|hold it|one sec(ond)?|just a (sec|second|moment|minute)|(wait|hold on) a (sec|second|moment|minute)|stop for a (sec|second|moment|minute))( please| a second| a sec| a moment| there)?$",
+                options: .regularExpression) != nil
+    }
+
+    static func isResume(_ t: String) -> Bool {
+        t.range(of: "^(okay |ok |alright )?(please )?(go on|continue|carry on|keep going|resume|go ahead and continue|you can (go on|continue)|unpause)( please| now| then)?$",
+                options: .regularExpression) != nil
+    }
+
+    /// "wait, use yarn instead", "actually skip the docs": a change of direction, not just more to do.
+    static func isRedirect(_ text: String) -> Bool {
+        let t = plain(text)
+        guard t.split(separator: " ").count >= 3 else { return false }
+        return t.range(of: "^(no |nope )?(wait|hold on|hang on|actually|instead|scratch that|change of plan(s)?|stop|don t do that|forget that)\\b", options: .regularExpression) != nil
+    }
 
     private static func isStop(_ t: String) -> Bool {
         t.range(of: "^(please )?(stop|cancel|abort|halt|quit|kill it|never ?mind|forget it|that s enough|enough)( it| that| this| now| please| working| everything| the task| for now)*$",

@@ -11,6 +11,8 @@ final class SettingsModel: ObservableObject {
     }
     /// Called after saving, so the app can pick up changes (e.g. a new shortcut).
     var onSaved: ((AppConfig) -> Void)?
+    /// What happened when you sent a test notification to your phone.
+    @Published var awayTestResult: String?
     /// Plays a sample with the local voice (provided by the app, which owns the voice helper).
     var previewKokoro: ((String, Double) -> Void)?
 
@@ -196,6 +198,7 @@ private struct GeneralTab: View {
             Section {
                 Toggle("Buddy at your cursor (captions appear next to it)", isOn: $model.config.buddy)
                 LabeledContent("Hide / show the buddy") { HotkeyRecorder(spec: $model.config.buddyHotkey) }
+                LabeledContent("Type instead of talking") { HotkeyRecorder(spec: $model.config.typeHotkey) }
                 Picker("Hide the buddy", selection: $model.config.buddyAutoHide) {
                     Text("Never (always at your cursor)").tag(0.0); Text("Right after it answers").tag(3.0)
                     Text("After 10 seconds idle").tag(10.0); Text("After 30 seconds idle").tag(30.0)
@@ -395,7 +398,7 @@ private struct ClaudeTab: View {
                 Picker("Agents may", selection: $model.config.agentPermission) {
                     Text("Auto mode (recommended)").tag("auto")
                     Text("Edit the project, ask for the rest").tag("acceptEdits")
-                    Text("Only plan, change nothing").tag("plan")
+                    Text("Make a plan first, ask me before starting").tag("plan")
                 }
                 Picker("Working at once", selection: $model.config.maxHelpers) {
                     ForEach(1...6, id: \.self) { n in Text(n == 3 ? "3 (recommended)" : "\(n)").tag(n) }
@@ -405,6 +408,33 @@ private struct ClaudeTab: View {
                 Button("Open Agent Logs") {
                     try? FileManager.default.createDirectory(at: AgentManager.logDir, withIntermediateDirectories: true)
                     NSWorkspace.shared.open(AgentManager.logDir)
+                }
+            }
+            Section("When you're away") {
+                Toggle("Send helpers' questions to my phone", isOn: Binding(get: { model.config.awayNotify }, set: { on in
+                    model.config.awayNotify = on
+                    if on, model.config.ntfyTopic.isEmpty { model.config.ntfyTopic = "poinky-" + AwayNotifier.randomCode(20) }
+                }))
+                if model.config.awayNotify {
+                    Text("Install the free ntfy app on your phone and subscribe to this topic. Keep it private: it's what lets the notifications reach you.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    LabeledContent("Topic") {
+                        Text(model.config.ntfyTopic).textSelection(.enabled).font(.system(.body, design: .monospaced))
+                    }
+                    TextField("Server", text: $model.config.ntfyServer)
+                    Picker("Counts as away after", selection: $model.config.awayMinutes) {
+                        Text("1 minute idle").tag(1.0); Text("3 minutes idle").tag(3.0); Text("10 minutes idle").tag(10.0)
+                    }
+                    Toggle("Say what it wants (the command) in the notification", isOn: $model.config.awayDetails)
+                    HStack {
+                        Button("Send a Test Notification") {
+                            let c = model.config
+                            AwayNotifier().test(c) { err in DispatchQueue.main.async { model.awayTestResult = err ?? "Sent. Check your phone." } }
+                        }
+                        if let r = model.awayTestResult { Text(r).font(.caption).foregroundStyle(.secondary) }
+                    }
+                    Text("Notifications go through \(URL(string: model.config.ntfyServer)?.host ?? "the server"). Your answer comes back the same way, and only counts for the one request it was sent for. Away means the screen is locked, or no keyboard or mouse for that long.")
+                        .font(.caption).foregroundStyle(.secondary)
                 }
             }
         }

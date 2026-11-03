@@ -39,6 +39,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             HelperTest.talkSelfTest(out: args[i + 1])
             return
         }
+        // `Poinky --type-box-test <outdir>`: opens the box to type in, types into it, and checks Return and
+        // Shift-Return (outdir/log.txt, and pictures of it).
+        if let i = args.firstIndex(of: "--type-box-test"), i + 1 < args.count {
+            TypeBox.selfTest(outDir: args[i + 1])
+            return
+        }
         if let i = args.firstIndex(of: "--settings-shot"), i + 1 < args.count {
             SettingsWindowController.shared.snapshotClaudeTab(to: args[i + 1])
             return

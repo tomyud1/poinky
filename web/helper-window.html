@@ -1,0 +1,470 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Helpers</title>
+<!-- The Helpers window: a list of helpers on the left (working ones, then earlier ones), and the selected one's
+     work on the right: its task, what it wrote, its steps (grouped and collapsed), its to-do list, what it asked
+     and what you answered, and how it ended, live. A box at the bottom sends it a message, or continues a
+     finished one. The app calls HW.list / HW.init / HW.add / HW.status and listens on webkit.messageHandlers.hw. -->
+<style>
+:root{
+  --bg:#ffffff; --fg:#1d1d1f; --dim:#6e6e73; --faint:#a1a1a6; --line:rgba(0,0,0,.08); --card:#f5f5f7; --bubble:#ececf0;
+  --code:#f2f2f5; --accent:#34c98e; --ok:#28a745; --bad:#d9534f; --shadow:0 1px 2px rgba(0,0,0,.06),0 4px 16px rgba(0,0,0,.06);
+  --side:#f6f6f8; --hover:rgba(0,0,0,.04); --sel:rgba(0,0,0,.075);
+}
+@media (prefers-color-scheme: dark){
+  :root{ --bg:#1e1e20; --fg:#f2f2f4; --dim:#a0a0a8; --faint:#6c6c74; --line:rgba(255,255,255,.08); --card:#2a2a2e; --bubble:#34343a;
+    --code:#28282c; --ok:#3ecf6e; --bad:#ff6b6b; --shadow:0 1px 2px rgba(0,0,0,.3),0 4px 16px rgba(0,0,0,.25);
+    --side:#19191b; --hover:rgba(255,255,255,.05); --sel:rgba(255,255,255,.09); }
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font:400 13.5px/1.5 -apple-system,system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+body{display:flex;overflow:hidden}
+.pane{flex:1;min-width:0;display:flex;flex-direction:column}
+
+/* The list of helpers */
+aside{flex:none;width:236px;display:flex;flex-direction:column;border-right:1px solid var(--line);background:var(--side);-webkit-user-select:none}
+aside .top{height:52px;flex:none;-webkit-app-region:drag}
+aside h3{margin:0 16px 6px;font-size:11px;font-weight:650;letter-spacing:.05em;text-transform:uppercase;color:var(--faint)}
+aside .items{flex:1;overflow-y:auto;padding:0 8px 12px}
+aside .grp{margin:12px 8px 4px;font-size:11px;font-weight:650;color:var(--faint)}
+.it{display:flex;gap:9px;align-items:flex-start;padding:7px 8px;border-radius:8px;cursor:default}
+.it:hover{background:var(--hover)}
+.it.on{background:var(--sel)}
+.it .d{width:9px;height:9px;border-radius:50%;margin-top:5px;flex:none}
+.it.live .d{box-shadow:0 0 0 3px color-mix(in srgb,currentColor 0%,transparent);animation:breathe 2s ease-in-out infinite}
+@keyframes breathe{50%{opacity:.55}}
+.it .t{min-width:0;flex:1}
+.it .n{display:flex;gap:6px;align-items:baseline;font-weight:600;font-size:13px}
+.it .n small{margin-left:auto;font-weight:500;font-size:11px;color:var(--faint);white-space:nowrap}
+.it .n small.wait{color:var(--fg)}
+.it .s{font-size:12px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.empty{flex:1;display:grid;place-items:center;color:var(--faint);font-size:13px;text-align:center;padding:40px}
+@media (max-width: 600px){ aside{display:none} header{padding-left:84px} }
+body.noside aside{display:none}
+body.noside header{padding-left:84px}
+button{font:inherit;color:inherit;cursor:default}
+
+/* Header, under the window's traffic lights */
+header{flex:none;display:flex;align-items:center;gap:10px;height:52px;padding:0 14px 0 18px;border-bottom:1px solid var(--line);-webkit-user-select:none;-webkit-app-region:drag}
+.dot{width:12px;height:12px;border-radius:50%;background:var(--accent);flex:none;box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 22%,transparent)}
+.who{min-width:0;display:flex;flex-direction:column;line-height:1.2}
+.who b{font-weight:650;font-size:13.5px}
+.who span{color:var(--dim);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pill{margin-left:auto;flex:none;font-size:11.5px;font-weight:550;padding:3px 9px;border-radius:99px;background:var(--card);color:var(--dim);font-variant-numeric:tabular-nums;white-space:nowrap}
+.pill.wait{background:color-mix(in srgb,var(--accent) 18%,transparent);color:var(--fg)}
+.pill.done{color:var(--ok)} .pill.failed{color:var(--bad)}
+.hbtn{flex:none;border:0;background:var(--card);border-radius:7px;padding:4px 10px;font-size:12px;font-weight:550;-webkit-app-region:no-drag}
+.hbtn:hover{background:var(--bubble)}
+.hbtn.stop{color:var(--bad)}
+.hbtn[hidden]{display:none}
+
+/* The transcript */
+main{flex:1;min-height:0;overflow-y:auto;padding:18px 0 8px;scroll-behavior:auto}
+.col{max-width:720px;margin:0 auto;padding:0 22px}
+.e{margin:0 0 14px;animation:in .28s cubic-bezier(.2,.8,.2,1)}
+@keyframes in{from{opacity:0;transform:translateY(4px)}}
+@media (prefers-reduced-motion: reduce){ .e{animation:none} .now .txt{animation:none!important} }
+.task{background:var(--card);border-radius:12px;padding:10px 14px 12px}
+.task .lbl{font-size:11px;font-weight:650;letter-spacing:.04em;text-transform:uppercase;color:var(--faint);margin-bottom:3px}
+.task .body.clamp{max-height:7.5em;overflow:hidden;-webkit-mask-image:linear-gradient(#000 60%,transparent)}
+.task .folder{margin-top:6px;font-size:12px;color:var(--dim)}
+.more{border:0;background:none;padding:0;color:var(--dim);font-size:12px;margin-top:2px}
+.more:hover{color:var(--fg)}
+.note p{margin:0 0 8px} .note p:last-child{margin-bottom:0}
+.note ul,.note ol{margin:0 0 8px;padding-left:20px}
+.note code{font:12px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;background:var(--code);padding:1px 4px;border-radius:4px}
+.note pre{background:var(--code);border-radius:8px;padding:9px 11px;overflow-x:auto;margin:0 0 8px}
+.note pre code{background:none;padding:0}
+.note h4{font-size:13.5px;margin:10px 0 4px}
+.steps{color:var(--dim)}
+.steps .row{display:inline-flex;align-items:center;gap:6px;border:0;background:none;padding:2px 0;color:var(--dim)}
+.steps .row:hover{color:var(--fg)}
+.steps .chev{display:inline-block;transition:transform .2s;font-size:10px}
+.steps.open .chev{transform:rotate(90deg)}
+.steps ul{display:none;list-style:none;margin:4px 0 0 4px;padding:0 0 0 12px;border-left:1.5px solid var(--line)}
+.steps.open ul{display:block}
+.steps li{padding:3px 0;font-size:12.5px}
+.steps li .d{display:block;font:11.5px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--faint);white-space:pre-wrap;word-break:break-all;max-height:6em;overflow:hidden}
+.steps li.blocked{color:var(--bad)}
+.you{display:flex;justify-content:flex-end}
+.you div{background:var(--bubble);border-radius:14px 14px 4px 14px;padding:7px 12px;max-width:82%;white-space:pre-wrap;word-wrap:break-word}
+.ask{border-radius:12px;padding:11px 14px;background:var(--card);box-shadow:inset 3px 0 0 var(--accent)}
+.ask .q{font-weight:600}
+.ask pre{margin:6px 0 0;font:12px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre-wrap;word-break:break-word;color:var(--dim)}
+.ask .btns{display:flex;gap:8px;margin-top:10px}
+.ask .btns button{border:0;border-radius:8px;padding:5px 14px;font-weight:600;font-size:12.5px;background:var(--bubble)}
+.ask .btns button.yes{background:var(--accent);color:#fff}
+.ask .btns button:hover{filter:brightness(1.06)}
+.ask .said{margin-top:8px;font-size:12.5px;color:var(--dim)}
+.ask.closed{box-shadow:inset 3px 0 0 var(--line)}
+.ask .planbody{margin-top:8px;padding-top:8px;border-top:1px solid var(--line)}
+.ask .planbody h4:first-child{margin-top:0}
+.ask .tip{align-self:center;margin-left:4px;font-size:12px;color:var(--faint)}
+.info{text-align:center;color:var(--faint);font-size:12px}
+.end{border-top:1px solid var(--line);padding-top:12px}
+.end .head{display:flex;align-items:center;gap:7px;font-weight:650;margin-bottom:4px}
+.end .head i{font-style:normal;display:inline-grid;place-items:center;width:18px;height:18px;border-radius:50%;color:#fff;font-size:11px;background:var(--ok)}
+.end.failed .head i{background:var(--bad)} .end.stopped .head i{background:var(--faint)}
+.end .meta{margin-top:6px;color:var(--faint);font-size:12px;font-variant-numeric:tabular-nums;display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}
+.end .undo{border:0;background:none;padding:0;color:var(--dim);font-size:12px;text-decoration:underline;text-underline-offset:2px;text-decoration-color:var(--line)}
+.end .undo:hover{color:var(--fg)}
+.end .undone{color:var(--faint)}
+.end .confirm{margin-top:10px;padding:10px 12px;border-radius:10px;background:var(--card);font-size:12.5px}
+.end .confirm .warn{color:var(--bad);margin-top:4px}
+.end .confirm .btns{display:flex;gap:8px;margin-top:8px}
+.end .confirm button{border:0;border-radius:8px;padding:4px 12px;font-weight:600;font-size:12.5px;background:var(--bubble)}
+.end .confirm button.go{background:var(--bad);color:#fff}
+
+/* What it's doing right now, and its to-do list */
+.now{flex:none;max-width:720px;width:100%;margin:0 auto;padding:6px 22px 0;color:var(--dim);font-size:12.5px;display:flex;align-items:center;gap:8px;min-height:24px}
+.now[hidden]{display:none}
+.now .spin{width:11px;height:11px;border-radius:50%;border:1.6px solid var(--line);border-top-color:var(--accent);animation:spin .9s linear infinite;flex:none}
+@keyframes spin{to{transform:rotate(360deg)}}
+.now .txt{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;background:linear-gradient(90deg,var(--dim) 0,var(--dim) 40%,var(--fg) 50%,var(--dim) 60%,var(--dim) 100%);background-size:300% 100%;-webkit-background-clip:text;color:transparent;animation:shim 2.4s linear infinite}
+@keyframes shim{from{background-position:100% 0}to{background-position:0 0}}
+.todo{flex:none;max-width:720px;width:100%;margin:6px auto 0;padding:0 22px}
+.todo[hidden]{display:none}
+.todo .box{background:var(--card);border-radius:10px;padding:7px 12px}
+.todo .row{display:flex;align-items:center;gap:6px;border:0;background:none;padding:0;width:100%;text-align:left;font-size:12.5px;font-weight:600;color:var(--dim)}
+.todo ul{list-style:none;margin:6px 0 2px;padding:0;display:none;max-height:28vh;overflow-y:auto}
+.todo.open ul{display:block}
+.todo li{display:flex;gap:8px;align-items:baseline;font-size:12.5px;padding:1.5px 0}
+.todo li .m{flex:none;width:13px;height:13px;border-radius:50%;border:1.5px solid var(--faint);position:relative;top:2px}
+.todo li.done{color:var(--faint);text-decoration:line-through}
+.todo li.done .m{background:var(--accent);border-color:var(--accent)}
+.todo li.active .m{border-color:var(--accent);box-shadow:inset 0 0 0 2.5px var(--bg),inset 0 0 0 6px var(--accent)}
+
+/* The box to type in */
+footer{flex:none;padding:8px 22px 14px}
+.composer{max-width:720px;margin:0 auto;display:flex;align-items:flex-end;gap:8px;background:var(--card);border-radius:14px;padding:8px 8px 8px 14px;box-shadow:var(--shadow);border:1px solid var(--line)}
+.composer:focus-within{border-color:color-mix(in srgb,var(--accent) 55%,transparent)}
+textarea{flex:1;border:0;outline:0;background:none;color:var(--fg);font:inherit;resize:none;max-height:180px;min-height:21px;padding:2px 0;line-height:1.5}
+textarea::placeholder{color:var(--faint)}
+.send{flex:none;width:28px;height:28px;border-radius:50%;border:0;background:var(--accent);color:#fff;display:grid;place-items:center;font-size:15px;font-weight:700;opacity:.35;transition:opacity .15s}
+.send.on{opacity:1}
+.hint{max-width:720px;margin:6px auto 0;font-size:11.5px;color:var(--faint);min-height:1em;text-align:center}
+.hint.warn{color:var(--bad)}
+footer.off .composer{opacity:.55}
+</style>
+</head>
+<body>
+<aside><div class="top"></div><h3>Helpers</h3><div class="items" id="items"></div></aside>
+<div class="pane" id="pane">
+<header>
+  <div class="dot" id="dot"></div>
+  <div class="who"><b id="name">Helper</b><span id="title"></span></div>
+  <div class="pill" id="pill">Starting</div>
+  <button class="hbtn" id="pause" title="Interrupt what it's doing; it waits for what to do next">Pause</button>
+  <button class="hbtn stop" id="stop" title="Stop this helper">Stop</button>
+  <button class="hbtn" id="folder" title="Open its folder in Finder">Folder</button>
+</header>
+<main id="main"><div class="col" id="list"></div></main>
+<div class="todo" id="todo" hidden><div class="box"><button class="row" id="todoRow"><span class="chev">▸</span><span id="todoLbl"></span></button><ul id="todoList"></ul></div></div>
+<div class="now" id="now" hidden><div class="spin"></div><div class="txt" id="nowTxt"></div></div>
+<footer id="footer">
+  <div class="composer"><textarea id="box" rows="1" placeholder="Tell it something…"></textarea><button class="send" id="send" title="Send (Return)">↑</button></div>
+  <div class="hint" id="hint"></div>
+</footer>
+</div>
+<script>
+(function () {
+  'use strict';
+  const $ = id => document.getElementById(id);
+  const post = msg => { try { window.webkit.messageHandlers.hw.postMessage(msg); } catch (e) { (window.HW_OUT = window.HW_OUT || []).push(msg); } };
+  const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+  // A little Markdown: paragraphs, lists, code, bold, headings.
+  function md(text) {
+    const out = [], lines = String(text).replace(/\r/g, '').split('\n');
+    let para = [], list = null, code = null;
+    const inline = s => esc(s).replace(/`([^`]+)`/g, '<code>$1</code>').replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>').replace(/(^|\W)\*([^*\s][^*]*)\*(?=\W|$)/g, '$1<i>$2</i>');
+    const flush = () => {
+      if (para.length) { out.push('<p>' + para.map(inline).join('<br>') + '</p>'); para = []; }
+      if (list) { out.push(`<${list.tag}>` + list.items.map(i => '<li>' + inline(i) + '</li>').join('') + `</${list.tag}>`); list = null; }
+    };
+    for (const l of lines) {
+      if (code) { if (/^\s*```/.test(l)) { out.push('<pre><code>' + esc(code.join('\n')) + '</code></pre>'); code = null; } else code.push(l); continue; }
+      if (/^\s*```/.test(l)) { flush(); code = []; continue; }
+      let m;
+      if ((m = l.match(/^\s*[-*•]\s+(.*)/))) { if (para.length || (list && list.tag !== 'ul')) flush(); list = list || { tag: 'ul', items: [] }; list.items.push(m[1]); continue; }
+      if ((m = l.match(/^\s*\d+[.)]\s+(.*)/))) { if (para.length || (list && list.tag !== 'ol')) flush(); list = list || { tag: 'ol', items: [] }; list.items.push(m[1]); continue; }
+      if ((m = l.match(/^\s*#{1,6}\s+(.*)/))) { flush(); out.push('<h4>' + inline(m[1]) + '</h4>'); continue; }
+      if (!l.trim()) { flush(); continue; }
+      if (list) flush();
+      para.push(l);
+    }
+    if (code) out.push('<pre><code>' + esc(code.join('\n')) + '</code></pre>');
+    flush();
+    return out.join('');
+  }
+
+  // "Read 2 files, ran 3 commands"
+  function stepsLabel(steps) {
+    const n = {}, files = { read: new Set(), edit: new Set() };
+    for (const s of steps) {
+      const k = s.k === 'blocked' ? 'blocked' : (s.kind || 'other');
+      n[k] = (n[k] || 0) + 1;
+      if (files[k]) files[k].add(s.detail || s.text);
+    }
+    const pl = (c, one, many) => c === 1 ? one : many.replace('#', c);
+    const parts = [];
+    if (n.read) parts.push(pl(files.read.size, 'read a file', 'read # files'));
+    if (n.search) parts.push(pl(n.search, 'searched the code', 'searched the code # times'));
+    if (n.edit) parts.push(pl(files.edit.size, 'edited a file', 'edited # files'));
+    if (n.run) parts.push(pl(n.run, 'ran a command', 'ran # commands'));
+    if (n.test) parts.push(pl(n.test, 'ran the tests', 'ran the tests # times'));
+    if (n.web) parts.push(pl(n.web, 'looked something up', 'looked up # things'));
+    if (n.agent) parts.push(pl(n.agent, 'used a sub-agent', 'used # sub-agents'));
+    if (n.skill) parts.push(pl(n.skill, 'used a skill', 'used # skills'));
+    if (n.other) parts.push(pl(n.other, 'used a tool', 'used # tools'));
+    if (n.blocked) parts.push(pl(n.blocked, 'wasn’t allowed one thing', 'wasn’t allowed # things'));
+    const s = parts.join(', ');
+    return s.charAt(0).toUpperCase() + s.slice(1);
+  }
+
+  const fmtTime = s => { s = Math.max(0, Math.round(s)); const m = Math.floor(s / 60); return m >= 60 ? `${Math.floor(m / 60)} h ${m % 60} min` : m ? `${m}:${String(s % 60).padStart(2, '0')}` : `${s} s`; };
+  const fmtDur = s => { s = Math.round(s); return s < 60 ? `${s} s` : s < 3600 ? `${Math.round(s / 60)} min` : `${Math.floor(s / 3600)} h ${Math.round((s % 3600) / 60)} min`; };
+
+  const st = { runs: 0, curCp: null, resumable: false, name: 'Helper', status: 'running', startedAt: Date.now(), asks: new Map(), group: null, open: new Set(), todoOpen: true, ended: false, waiting: false, now: '' };
+  const list = $('list'), main = $('main'), box = $('box');
+
+  function atBottom() { return main.scrollHeight - main.scrollTop - main.clientHeight < 60; }
+  function stick(was) { if (was) main.scrollTop = main.scrollHeight; }
+
+  function el(cls, html) { const d = document.createElement('div'); d.className = 'e ' + cls; if (html != null) d.innerHTML = html; list.appendChild(d); return d; }
+
+  function addEntry(e, quiet) {
+    const was = quiet || atBottom();
+    if (e.k !== 'step' && e.k !== 'blocked' && e.k !== 'todo') st.group = null;
+    if (e.k !== 'note' && e.k !== 'end' && e.k !== 'todo') st.lastNote = null;
+    switch (e.k) {
+      case 'task': {
+        const d = el('task', `<div class="lbl">Task</div><div class="body"></div><div class="folder"></div>`);
+        d.querySelector('.body').innerHTML = md(e.text);
+        if (e.detail) d.querySelector('.folder').textContent = 'In ' + e.detail.replace(/^\/Users\/[^/]+/, '~');
+        requestAnimationFrame(() => {
+          const b = d.querySelector('.body');
+          if (b.scrollHeight > 130) {
+            b.classList.add('clamp');
+            const m = document.createElement('button'); m.className = 'more'; m.textContent = 'Show all';
+            m.onclick = () => { const c = b.classList.toggle('clamp'); m.textContent = c ? 'Show all' : 'Show less'; };
+            d.insertBefore(m, d.querySelector('.folder'));
+          }
+        });
+        break;
+      }
+      case 'note': st.lastNote = { text: e.text, d: el('note', md(e.text)) }; break;
+      case 'step': case 'blocked': {
+        if (!st.group) {
+          const d = el('steps', `<button class="row"><span class="chev">▸</span><span class="lbl"></span></button><ul></ul>`);
+          const key = list.children.length;
+          d.querySelector('.row').onclick = () => { d.classList.toggle('open'); d.classList.contains('open') ? st.open.add(key) : st.open.delete(key); };
+          st.group = { d, steps: [] };
+        }
+        st.group.steps.push(e);
+        const li = document.createElement('li');
+        if (e.k === 'blocked') { li.className = 'blocked'; li.textContent = 'Not allowed: ' + e.text; }
+        else { li.textContent = e.text; if (e.detail && e.detail !== e.text) { const d = document.createElement('span'); d.className = 'd'; d.textContent = e.detail.replace(/^\/Users\/[^/]+/, '~'); li.appendChild(d); } }
+        st.group.d.querySelector('ul').appendChild(li);
+        st.group.d.querySelector('.lbl').textContent = stepsLabel(st.group.steps);
+        break;
+      }
+      case 'todo': setTodo(e.items || []); break;
+      case 'checkpoint': if (!st.curCp) st.curCp = e.id; break;
+      case 'session': break;
+      case 'worktree': el('info', esc(`Working in its own copy of the repo, because another helper works in ${String(e.text || '').split('/').pop()} at the same time.`)); break;
+      case 'merged': el('info', esc(e.text)); break;
+      case 'undone': {
+        const card = [...list.querySelectorAll('.end')].find(c => c.dataset.cp === e.id);
+        if (card) { const u = card.querySelector('.undo'); if (u) { const s = document.createElement('span'); s.className = 'undone'; s.textContent = 'Changes undone'; u.replaceWith(s); } card.querySelector('.confirm')?.remove(); }
+        el('info', esc(e.text));
+        break;
+      }
+      case 'ask': {
+        const q = e.kind === 'question', plan = e.kind === 'plan';
+        const d = el('ask' + (plan ? ' plan' : ''), `<div class="q"></div><pre></pre><div class="btns"><button class="yes">${q ? 'You choose' : plan ? 'Go ahead' : 'Allow'}</button><button class="no">${q ? 'Skip' : plan ? 'Not now' : 'Don’t allow'}</button></div><div class="said"></div>`);
+        d.querySelector('.q').textContent = (q ? `${st.name} asks: ` : '') + e.text;
+        const pre = d.querySelector('pre');
+        if (plan && e.detail) { const n = document.createElement('div'); n.className = 'note planbody'; n.innerHTML = md(e.detail); pre.replaceWith(n); }
+        else if (e.detail && e.detail !== e.text) pre.textContent = e.detail; else pre.remove();
+        if (plan) { const h = document.createElement('div'); h.className = 'tip'; h.textContent = 'Or type what to change.'; d.querySelector('.btns').appendChild(h); }
+        d.querySelector('.yes').onclick = () => post({ type: 'answer', id: e.id, ok: true });
+        d.querySelector('.no').onclick = () => post({ type: 'answer', id: e.id, ok: false });
+        st.asks.set(e.id, d);
+        break;
+      }
+      case 'answer': {
+        const d = st.asks.get(e.id);
+        if (d) {
+          d.querySelector('.said').textContent = e.text;
+          // A question with several parts stays open for the next part.
+          if (!/^You answered:/.test(e.text) || e.kind) closeAsk(e.id);
+        } else el('info', esc(e.text));
+        break;
+      }
+      case 'you': el('you', `<div>${esc(e.text)}</div>`); break;
+      case 'info': el('info', esc(e.text)); break;
+      case 'end': {
+        const ok = e.kind === 'done', d = el('end ' + (e.kind || ''), `<div class="head"><i>${ok ? '✓' : e.kind === 'stopped' ? '■' : '!'}</i><span></span></div><div class="note"></div><div class="meta"></div>`);
+        d.querySelector('.head span').textContent = ok ? 'Done' : e.kind === 'stopped' ? 'Stopped' : 'Stopped with a problem';
+        if (e.kind !== 'stopped' || !/^You stopped/.test(e.text)) d.querySelector('.note').innerHTML = md(e.text);
+        const meta = [];
+        if (e.seconds) meta.push('Worked ' + fmtDur(e.seconds));
+        if (e.cost) meta.push('$' + e.cost.toFixed(2) + ' of usage');
+        const m = d.querySelector('.meta');
+        m.innerHTML = `<span>${esc(meta.join(' · '))}</span>`;
+        d.dataset.run = st.runs++;
+        d.dataset.cp = st.curCp || '';
+        // Undo: put back what it changed in this run (Claude Code's checkpoint from just before it).
+        if (st.curCp) {
+          const u = document.createElement('button'); u.className = 'undo'; u.textContent = 'Undo these changes…';
+          u.onclick = () => post({ type: 'undo', run: +d.dataset.run });
+          m.appendChild(u);
+        }
+        st.curCp = null;
+        for (const id of st.asks.keys()) closeAsk(id);
+        // Its last message is its summary: shown once, here.
+        if (st.lastNote && String(e.text).trim().startsWith(st.lastNote.text.trim()) && st.lastNote.d.parentNode) st.lastNote.d.remove();
+        break;
+      }
+    }
+    stick(was);
+  }
+
+  function closeAsk(id) {
+    const d = st.asks.get(id);
+    if (!d) return;
+    d.classList.add('closed');
+    const b = d.querySelector('.btns'); if (b) b.remove();
+    st.asks.delete(id);
+  }
+
+  function setTodo(items) {
+    const t = $('todo');
+    if (!items.length) { t.hidden = true; return; }
+    const done = items.filter(i => i.state === 'done').length;
+    $('todoLbl').textContent = `To-do · ${done} of ${items.length} done`;
+    $('todoList').innerHTML = items.map(i => `<li class="${i.state}"><span class="m"></span><span>${esc(i.text)}</span></li>`).join('');
+    t.hidden = false;
+    t.classList.toggle('open', st.todoOpen);
+  }
+  $('todoRow').onclick = () => { st.todoOpen = !st.todoOpen; $('todo').classList.toggle('open', st.todoOpen); };
+
+  function render() {
+    const s = st.status, pill = $('pill');
+    const live = s === 'running' || s === 'queued';
+    pill.className = 'pill' + (st.waiting && live ? ' wait' : '') + (s === 'done' ? ' done' : s === 'failed' ? ' failed' : '');
+    const t = (Date.now() - st.startedAt) / 1000;
+    pill.textContent = s === 'queued' ? 'Waiting for a free spot'
+      : s === 'running' ? (st.waiting ? 'Waiting for you' : st.paused ? 'Paused' : 'Working · ' + fmtTime(t))
+      : s === 'done' ? 'Done' : s === 'failed' ? 'Stopped with a problem' : 'Stopped';
+    $('stop').hidden = !live;
+    $('pause').hidden = s !== 'running' || st.waiting;
+    $('pause').textContent = st.paused ? 'Go on' : 'Pause';
+    $('pause').title = st.paused ? 'Let it go on with what it was doing' : 'Interrupt what it’s doing; it waits for what to do next';
+    const showNow = s === 'running' && !st.waiting && !st.paused && st.now;
+    $('now').hidden = !showNow;
+    if (showNow && $('nowTxt').textContent !== st.now) $('nowTxt').textContent = st.now;
+    const footer = $('footer');
+    footer.classList.toggle('off', !live && !st.resumable);
+    box.disabled = !live && !st.resumable;
+    box.placeholder = !live ? (st.resumable ? `Ask ${st.name} to do more…` : `${st.name} has finished`) : st.waiting ? `Answer ${st.name}, or tell it something…`
+      : st.paused ? `Tell ${st.name} what to do next…` : `Tell ${st.name} something…`;
+  }
+  setInterval(() => { if (st.status === 'running' && !st.waiting && !st.paused) render(); }, 1000);
+
+  // Typing: Return sends, Shift-Return adds a line.
+  function grow() { box.style.height = 'auto'; box.style.height = Math.min(180, box.scrollHeight) + 'px'; $('send').classList.toggle('on', !!box.value.trim()); }
+  box.addEventListener('input', grow);
+  box.addEventListener('keydown', ev => {
+    if (ev.key === 'Enter' && !ev.shiftKey && !ev.isComposing) { ev.preventDefault(); send(); }
+  });
+  $('send').onclick = send;
+  function send() {
+    const text = box.value.trim();
+    if (!text || box.disabled) return;
+    post({ type: 'send', text });
+    box.value = ''; grow();
+  }
+  $('stop').onclick = () => post({ type: 'stop' });
+  $('pause').onclick = () => post({ type: st.paused ? 'resume' : 'pause' });
+  $('folder').onclick = () => post({ type: 'folder' });
+
+  window.HW = {
+    init(d) {
+      $('pane').querySelector('.empty')?.remove();
+      for (const id of ['main', 'footer', 'now', 'todo']) $(id).style.display = '';
+      $('folder').hidden = false;
+      st.resumable = !!d.resumable;
+      st.name = d.name || 'Helper';
+      document.title = st.name + (d.title ? ' — ' + d.title : '');
+      $('name').textContent = st.name;
+      $('title').textContent = d.title || '';
+      if (d.color) document.documentElement.style.setProperty('--accent', d.color);
+      st.startedAt = Date.now() - (d.elapsed || 0) * 1000;
+      list.innerHTML = ''; st.group = null; st.asks.clear(); st.lastNote = null; st.runs = 0; st.curCp = null; setTodo([]);
+      for (const e of d.entries || []) addEntry(e, true);
+      HW.status(d);
+      main.scrollTop = main.scrollHeight;
+      if (st.status === 'running' || st.status === 'queued') box.focus();
+    },
+    add(e) { addEntry(e); },
+    status(d) {
+      if (d.status) st.status = d.status;
+      if ('waiting' in d) st.waiting = !!d.waiting;
+      if ('paused' in d) st.paused = !!d.paused;
+      if ('now' in d) st.now = d.now || '';
+      if (d.elapsed != null && (st.status === 'running' || st.status === 'queued')) st.startedAt = Date.now() - d.elapsed * 1000;
+      render();
+    },
+    /// A short note under the box ("Mint is waiting for your OK first").
+    hint(text, warn) { const h = $('hint'); h.textContent = text || ''; h.className = 'hint' + (warn ? ' warn' : ''); clearTimeout(HW._h); if (text) HW._h = setTimeout(() => { h.textContent = ''; }, 5000); },
+    focus() { box.focus(); },
+    /// Before undoing a run: which files it puts back, and which changed since (maybe by you).
+    undoAsk(run, files, changed) {
+      const card = list.querySelector(`.end[data-run="${run}"]`);
+      if (!card) return;
+      card.querySelector('.confirm')?.remove();
+      const c = document.createElement('div'); c.className = 'confirm';
+      c.innerHTML = `<div></div>${changed ? '<div class="warn"></div>' : ''}<div class="btns"><button class="go">Undo</button><button>Cancel</button></div>`;
+      c.firstChild.textContent = files ? `Put back ${files} the way ${/ and |, /.test(files) ? 'they were' : 'it was'} before ${st.name} started?` : `${st.name} didn’t change any files.`;
+      if (changed) c.querySelector('.warn').textContent = `${changed} changed after ${st.name} finished (maybe by you). Undoing loses that too.`;
+      if (!files) c.querySelector('.go').remove();
+      c.querySelector('.go')?.addEventListener('click', () => { post({ type: 'undo', run, confirmed: true }); c.querySelector('.btns').textContent = 'Undoing…'; });
+      c.querySelector('.btns button:last-child')?.addEventListener('click', () => c.remove());
+      card.appendChild(c);
+      if (atBottom() || card === list.lastElementChild) main.scrollTop = main.scrollHeight;
+    },
+    /// The list on the left: [{key, name, title, color, status, waiting, paused, ago, earlier}].
+    list(items, selected) {
+      const box = $('items');
+      const row = it => {
+        const live = it.status === 'running' || it.status === 'queued';
+        const tag = it.waiting ? 'Needs you' : it.paused ? 'Paused' : it.status === 'queued' ? 'Waiting' : live ? 'Working'
+          : (it.status === 'done' ? '' : it.status === 'failed' ? 'Problem · ' : 'Stopped · ') + (it.ago || '');
+        return `<div class="it${it.key === selected ? ' on' : ''}${live ? ' live' : ''}" data-key="${esc(it.key)}"><span class="d" style="background:${esc(it.color || '#34c98e')};color:${esc(it.color || '#34c98e')}"></span>` +
+          `<div class="t"><div class="n">${esc(it.name)}<small class="${it.waiting ? 'wait' : ''}">${esc(tag)}</small></div><div class="s">${esc(it.title || '')}</div></div></div>`;
+      };
+      const now = items.filter(i => !i.earlier), before = items.filter(i => i.earlier);
+      box.innerHTML = (now.length ? now.map(row).join('') : '') + (before.length ? '<div class="grp">Earlier</div>' + before.map(row).join('') : '')
+        || '<div class="grp">No helpers yet</div>';
+      box.querySelectorAll('.it').forEach(e => e.onclick = () => { if (e.dataset.key !== selected) post({ type: 'select', key: e.dataset.key }); });
+      document.body.classList.toggle('noside', items.length < 2);
+    },
+    /// Nothing selected.
+    empty() {
+      document.title = 'Helpers'; $('name').textContent = 'Helpers'; $('title').textContent = '';
+      for (const id of ['main', 'footer', 'now', 'todo']) $(id).style.display = 'none';
+      if (!$('pane').querySelector('.empty')) { const e = document.createElement('div'); e.className = 'empty'; e.textContent = 'Helpers you start appear here. Say “put an agent on it”.'; $('pane').appendChild(e); }
+      $('pill').textContent = ''; $('stop').hidden = true; $('pause').hidden = true; $('folder').hidden = true;
+    },
+    _label: stepsLabel, _md: md,
+  };
+  post({ type: 'ready' });
+})();
+</script>
+</body>
+</html>

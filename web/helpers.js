@@ -205,7 +205,7 @@
 
     // One question at a time: the others keep working, with a pulsing ring, until it's their turn.
     // `detail`: exactly what it wants to do (the command), shown on its card.
-    // `kind`: 'permission' (its card offers Allow / Don't allow) or 'question' (You choose / Skip).
+    // `kind`: 'permission' (its card offers Allow / Don't allow), 'question' (You choose / Skip) or 'plan' (Go ahead / Not now).
     raiseHand(id, question, detail = '', kind = 'permission') {
       const h = this.helpers.get(id); if (!h) return;
       h.ask = question; h.askDetail = detail || question; h.askKind = kind; h.askSeq = ++this.seq; h.parked = false;
@@ -626,7 +626,7 @@
         `<div class="lines"><div class="ln prev"></div><div class="ln cur"></div></div>` +
         `<div class="more"><div class="in"><div class="task"></div><div class="folder"></div><div class="askq"></div><div class="btns ask"><button class="yes" data-a="allow">Allow</button><button data-a="deny">Don’t allow</button></div>` +
         `<div class="sum"></div><ul class="list"></ul><div class="sep"></div>` +
-        `<div class="btns"><button class="stop">Stop</button><button data-a="log">Log</button><button data-a="folder">Folder</button></div></div></div>`;
+        `<div class="btns"><button class="stop">Stop</button><button data-a="open">Open</button><button data-a="folder">Folder</button></div></div></div>`;
       chip.querySelector('.task').textContent = h.detail;
       chip.querySelector('.folder').textContent = h.folder ? 'in ' + h.folder : '';
       // Stop asks once more ("Stop Mint?") before it stops anything.
@@ -732,9 +732,9 @@
           const askText = h.ask ? h.askDetail : '';
           if (C.askq !== askText) { e.askq.textContent = askText; e.abtns.classList.toggle('on', !!askText); C.askq = askText; }
           if (C.askKind !== h.askKind) {
-            const q = h.askKind === 'question';
-            e.abtns.children[0].textContent = q ? 'You choose' : 'Allow';
-            e.abtns.children[1].textContent = q ? 'Skip' : 'Don’t allow';
+            const q = h.askKind === 'question', plan = h.askKind === 'plan';
+            e.abtns.children[0].textContent = q ? 'You choose' : plan ? 'Go ahead' : 'Allow';
+            e.abtns.children[1].textContent = q ? 'Skip' : plan ? 'Not now' : 'Don’t allow';
             C.askKind = h.askKind;
           }
           if (C.fin !== !!h.finished) { C.fin = !!h.finished; e.sum.textContent = h.finished ? h.summary : ''; set(e.stop, 'display', h.finished ? 'none' : ''); }

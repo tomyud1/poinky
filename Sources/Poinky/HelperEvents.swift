@@ -4,7 +4,7 @@ import Foundation
 /// show, animate and speak. Made from Claude Code's `stream-json` output, without any model calls.
 enum HelperEvent: Equatable {
     /// The session is up.
-    case started(session: String, model: String)
+    case started(session: String, model: String, commands: [String] = [])
     /// A short progress line, like "Reading tipsplit.py" or "Running the tests".
     case step(String)
     /// The first sentence of something it wrote between steps ("Two tests fail, confirming the bug.").
@@ -17,6 +17,8 @@ enum HelperEvent: Equatable {
     case asking(HelperAsk)
     /// Claude Code withdrew a request (by its id): no answer needed anymore.
     case askCancelled(String)
+    /// Where the user's Claude plan stands ("allowed", "allowed_warning", "rejected"), and when its window resets.
+    case limit(status: String, resetsAt: Date?, window: String)
     /// It finished answering. More may follow if a follow-up arrived while it worked.
     case turnEnded(ok: Bool, summary: String, seconds: Double, costUSD: Double?)
 }
@@ -34,6 +36,13 @@ struct HelperStream {
     private var calls: [String: String] = [:]
     /// The last progress line, so the same step isn't shown twice in a row.
     private var lastStep = ""
+    /// The helper's window: everything it wrote and did, in full (`HelperEntry`). Taken with `takeEntries`.
+    private(set) var entries: [HelperEntry] = []
+
+    mutating func takeEntries() -> [HelperEntry] {
+        defer { entries.removeAll() }
+        return entries
+    }
 
     mutating func feed(_ data: Data) -> [HelperEvent] {
         buffer.append(data)
@@ -51,7 +60,12 @@ struct HelperStream {
     mutating func parse(_ obj: [String: Any]) -> [HelperEvent] {
         switch obj["type"] as? String {
         case "system" where obj["subtype"] as? String == "init":
-            return [.started(session: obj["session_id"] as? String ?? "", model: obj["model"] as? String ?? "")]
+            // Its commands and skills (deduplicated, internal ones left out).
+            let skip: Set<String> = ["clear", "compact", "context", "heapdump", "debug", "insights", "extra-usage", "usage", "team-onboarding", "init"]
+            var seen = Set<String>()
+            let cmds = (((obj["slash_commands"] as? [String]) ?? []) + ((obj["skills"] as? [String]) ?? []))
+                .filter { !skip.contains($0) && seen.insert($0).inserted }
+            return [.started(session: obj["session_id"] as? String ?? "", model: obj["model"] as? String ?? "", commands: cmds)]
 
         case "assistant":
             // Work done by its own sub-agents counts as progress, but their chatter doesn't.
@@ -61,6 +75,10 @@ struct HelperStream {
             for c in content {
                 switch c["type"] as? String {
                 case "text":
+                    if !nested, let t = c["text"] as? String {
+                        let full = t.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !full.isEmpty { entries.append(HelperEntry(k: "note", text: full)) }
+                    }
                     // Short asides ("Good.") aren't worth showing.
                     if !nested, let t = c["text"] as? String, let s = Self.firstSentence(t), s.split(separator: " ").count >= 3 {
                         out.append(.note(s))
@@ -71,6 +89,7 @@ struct HelperStream {
                     if let id = c["id"] as? String { calls[id] = Self.attempt(tool: name, input: input) }
                     if name == "TodoWrite", let todos = input["todos"] as? [[String: Any]] {
                         let list = todos.compactMap(Self.task)
+                        entries.append(HelperEntry(k: "todo", items: list.map { .init(text: $0.text, state: $0.state.rawValue) }))
                         out.append(.checklist(list))
                         if let active = todos.first(where: { $0["status"] as? String == "in_progress" }),
                            let form = (active["activeForm"] as? String) ?? (active["content"] as? String) {
@@ -78,6 +97,8 @@ struct HelperStream {
                         }
                     } else if let s = Self.describe(tool: name, input: input) {
                         out.append(.step(s))
+                        entries.append(HelperEntry(k: "step", text: s, detail: HelperEntry.stepDetail(tool: name, input: input),
+                                                   kind: HelperEntry.stepKind(tool: name, input: input)))
                     }
                 default: break   // thinking
                 }
@@ -89,6 +110,12 @@ struct HelperStream {
             }
 
         case "user":
+            // A message we sent, echoed back (--replay-user-messages) with its id: the files can be put
+            // back to how they were just before it (a checkpoint, for undo).
+            if (obj["message"] as? [String: Any])?["content"] is String, let uuid = obj["uuid"] as? String, !uuid.isEmpty {
+                entries.append(HelperEntry(k: "checkpoint", id: uuid))
+                return []
+            }
             // Tool results: we only care about refusals.
             let content = ((obj["message"] as? [String: Any])?["content"] as? [[String: Any]]) ?? []
             var out: [HelperEvent] = []
@@ -96,6 +123,7 @@ struct HelperStream {
                 let text = Self.text(of: c["content"])
                 if Self.isRefusal(text), let id = c["tool_use_id"] as? String, let tried = calls[id] {
                     out.append(.blocked(tried))
+                    entries.append(HelperEntry(k: "blocked", text: tried))
                 }
                 if let id = c["tool_use_id"] as? String { calls[id] = nil }
             }
@@ -103,11 +131,23 @@ struct HelperStream {
 
         case "control_request":
             // Permission for something it isn't allowed to do on its own, or a question for you.
-            if let ask = HelperAsk.from(obj) { return [.asking(ask)] }
+            if let ask = HelperAsk.from(obj) {
+                entries.append(HelperEntry(k: "ask", text: ask.bubble, detail: ask.detail,
+                                           kind: ask.kind == .question ? "question" : ask.isPlan ? "plan" : "permission", id: ask.requestID))
+                return [.asking(ask)]
+            }
             return []
 
+        case "rate_limit_event":
+            guard let info = obj["rate_limit_info"] as? [String: Any], let status = info["status"] as? String else { return [] }
+            let resets = (info["resetsAt"] as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue) }
+            return [.limit(status: status, resetsAt: resets, window: info["rateLimitType"] as? String ?? "")]
+
         case "control_cancel_request":
-            if let id = obj["request_id"] as? String { return [.askCancelled(id)] }
+            if let id = obj["request_id"] as? String {
+                entries.append(HelperEntry(k: "answer", text: "It withdrew the question.", id: id))
+                return [.askCancelled(id)]
+            }
             return []
 
         case "result":

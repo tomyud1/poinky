@@ -33,6 +33,12 @@ struct HelperAsk: Equatable {
     let risky: Bool
     /// AskUserQuestion: answers so far (question → answer).
     var answers: [String: String] = [:]
+    /// A plan (ExitPlanMode): the permission mode it works in once you say go ahead, and what it may
+    /// then do without asking ("Read", "Bash(npm test:*)").
+    var afterPlan: String? = nil
+    var afterPlanTools: [String] = []
+
+    var isPlan: Bool { tool == "ExitPlanMode" }
 
     /// The question being asked now (AskUserQuestion), or nil.
     var currentQuestion: Question? { questions.first { answers[$0.text] == nil } }
@@ -89,15 +95,23 @@ struct HelperAsk: Equatable {
             bubble = "Can I search the web?"
             spoken = "wants to search the web for \(HelperStream.clip(s("query"), 60))."
         case "ExitPlanMode":
-            detail = HelperStream.clip(s("plan"), 400)
-            bubble = "Can I start making changes?"
-            spoken = "has a plan and wants to start making changes."
+            detail = HelperStream.clip(s("plan"), 6000)
+            bubble = "Here’s my plan. Can I start?"
+            let title = planTitle(s("plan"))
+            spoken = "has a plan" + (title.map { ": \($0)." } ?? ".") + " The whole plan is in its window. Should it go ahead?"
+            return HelperAsk(requestID: rid, tool: tool, kind: .permission, inputJSON: inputJSON, detail: detail,
+                             bubble: bubble, spoken: spoken, questions: [], suggestionsJSON: nil, risky: false)
         case "Task", "Agent":
             detail = s("description")
             bubble = "Can I start a sub-agent?"
             spoken = "wants to hand part of the work to a sub-agent."
         default:
-            if tool.hasPrefix("mcp__") {
+            if isHands(tool) {
+                let chrome = tool.hasPrefix("mcp__claude-in-chrome__")
+                detail = chrome ? "Use Chrome (one helper at a time)" : "Use your mouse and keyboard (one helper at a time)"
+                bubble = chrome ? "Can I use Chrome?" : "Can I use your mouse?"
+                spoken = chrome ? "wants to use Chrome." : "wants to use your mouse and keyboard."
+            } else if tool.hasPrefix("mcp__") {
                 let parts = tool.components(separatedBy: "__")
                 let name = (parts.last ?? tool).replacingOccurrences(of: "_", with: " ")
                 let server = parts.count > 2 ? parts[1] : ""
@@ -115,6 +129,18 @@ struct HelperAsk: Equatable {
         return HelperAsk(requestID: rid, tool: tool, kind: .permission, inputJSON: inputJSON, detail: detail,
                          bubble: bubble, spoken: spoken + " Is that okay?", questions: [],
                          suggestionsJSON: suggestions, risky: risky)
+    }
+
+    /// A plan's title in plain words ("# Fix `add` in calc.py" → "Fix add in calc.py"), if it has a short one.
+    static func planTitle(_ plan: String) -> String? {
+        let lines = plan.components(separatedBy: "\n").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        guard var t = lines.first(where: { $0.hasPrefix("#") }) ?? lines.first else { return nil }
+        t = t.replacingOccurrences(of: "^#+\\s*", with: "", options: .regularExpression)
+        for mark in ["**", "`", "__"] { t = t.replacingOccurrences(of: mark, with: "") }
+        t = t.replacingOccurrences(of: "^(plan|my plan|the plan)\\s*[:\u{2013}\u{2014}-]\\s*", with: "", options: [.regularExpression, .caseInsensitive])
+        t = t.trimmingCharacters(in: CharacterSet(charactersIn: " .:"))
+        guard !t.isEmpty, t.split(separator: " ").count <= 14, t.lowercased() != "plan" else { return nil }
+        return t
     }
 
     /// The command in a few words you can say: flags dropped, paths shortened, parts joined with "then"
@@ -184,7 +210,13 @@ struct HelperAsk: Equatable {
         "Bash(yarn add:*)", "Bash(yarn install:*)", "Bash(bun add:*)", "Bash(bun install:*)", "Bash(pip install:*)",
         "Bash(pip3 install:*)", "Bash(brew install:*)", "Bash(gem install:*)", "Bash(cargo install:*)",
         "Bash(gh pr create:*)", "Bash(gh pr merge:*)", "Bash(gh release:*)",
+        // The real mouse and keyboard (and Chrome): always through Poinky, so only one helper uses them at a time.
+        "mcp__computer-use", "mcp__claude-in-chrome",
     ]
+
+    /// Tools that use the real mouse and keyboard (or drive Chrome): one helper at a time.
+    static func isHands(_ tool: String) -> Bool { tool.hasPrefix("mcp__computer-use__") || tool.hasPrefix("mcp__claude-in-chrome__") }
+    var isHands: Bool { Self.isHands(tool) }
 
     static func questionDetail(_ q: Question) -> String {
         q.options.isEmpty ? q.text : q.text + "\n" + q.options.joined(separator: " · ")
@@ -228,6 +260,15 @@ struct HelperAsk: Equatable {
             if addressed, !Self.starts(t, Self.hesitations) { return .answer(Self.sentence(text)) }
             return .unclear
         }
+        let r = plainReply(t, text)
+        // A plan: anything else you tell it is what to change ("Mint, use SQLite instead").
+        if isPlan, r == .unclear, addressed, t.split(separator: " ").count >= 3, !Self.starts(t, Self.hesitations) {
+            return .no(reason: Self.sentence(text))
+        }
+        return r
+    }
+
+    private func plainReply(_ t: String, _ text: String) -> Reply {
         let words = t.split(separator: " ").map(String.init)
         let yesRest = Self.leading(t, Self.yesWords), noRest = Self.leading(t, Self.noWords)
         // The longer match wins: "no problem" is a yes, "no" is a no.
@@ -350,6 +391,10 @@ struct HelperAsk: Equatable {
         switch reply {
         case .unclear:
             return nil
+        case .no(let reason) where isPlan:
+            body = ["behavior": "deny", "message": reason.isEmpty
+                ? "The user said no to this plan. Don't make any changes: give the plan as your final summary, in 2–3 plain sentences."
+                : "The user wants changes to the plan: \(reason). Revise the plan and ask again with ExitPlanMode."]
         case .no(let reason):
             let what = kind == .question ? "The user chose not to answer" : "The user said no"
             body = ["behavior": "deny", "message": reason.isEmpty ? "\(what)." : "\(what): \(reason)"]
@@ -358,6 +403,16 @@ struct HelperAsk: Equatable {
                 input["answers"] = Dictionary(uniqueKeysWithValues: questions.map { ($0.text, answers[$0.text] ?? "No preference: you choose.") })
             }
             body = ["behavior": "allow", "updatedInput": input]
+            // A plan: once you say go ahead, it works in the helpers' usual mode.
+            if isPlan, let mode = afterPlan {
+                var perms: [[String: Any]] = [["type": "setMode", "mode": mode, "destination": "session"]]
+                let rules: [[String: Any]] = afterPlanTools.map { t in
+                    guard let open = t.firstIndex(of: "("), t.hasSuffix(")") else { return ["toolName": t] }
+                    return ["toolName": String(t[..<open]), "ruleContent": String(t[t.index(after: open)..<t.index(before: t.endIndex)])]
+                }
+                if !rules.isEmpty { perms.append(["type": "addRules", "rules": rules, "behavior": "allow", "destination": "session"]) }
+                body["updatedPermissions"] = perms
+            }
             // "Always": Claude Code's own suggested rules, for this session only (never saved to the project).
             if always, !risky, let data = suggestionsJSON,
                var rules = (try? JSONSerialization.jsonObject(with: data)) as? [[String: Any]], !rules.isEmpty {

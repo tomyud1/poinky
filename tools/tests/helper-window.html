@@ -1,0 +1,96 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>running</title>
+<!-- Checks a helper's window (web/helper-window.html) with a real recorded run: steps grouped and labeled,
+     notes in full, the to-do list, a request with its buttons, typing, the summary shown once, and the
+     status line. Run by tools/tests/run-web-tests.mjs. -->
+<body style="margin:0">
+<iframe id="f" src="../../web/helper-window.html" style="width:600px;height:700px;border:0"></iframe>
+<script src="helper-window-sample.js"></script>
+<script>
+const results = [], fail = [];
+const check = (ok, what) => { results.push((ok ? 'ok   ' : 'FAIL ') + what); if (!ok) fail.push(what); };
+const done = () => { document.title = fail.length ? 'FAIL' : 'PASS'; window.testResults = { pass: !fail.length, lines: results }; };
+document.getElementById('f').onload = () => {
+  try {
+    const w = document.getElementById('f').contentWindow, d = w.document, HW = w.HW;
+    const q = s => d.querySelector(s), qa = s => [...d.querySelectorAll(s)];
+    // The labels on grouped steps.
+    check(HW._label([{ k: 'step', kind: 'read', detail: 'a' }, { k: 'step', kind: 'read', detail: 'b' }, { k: 'step', kind: 'run' }, { k: 'step', kind: 'run' }, { k: 'step', kind: 'run' }]) === 'Read 2 files, ran 3 commands', 'steps: "Read 2 files, ran 3 commands"');
+    check(HW._label([{ k: 'step', kind: 'edit', detail: 'a' }, { k: 'step', kind: 'edit', detail: 'a' }, { k: 'step', kind: 'test' }]) === 'Edited a file, ran the tests', 'steps: the same file twice is one file');
+    check(/<pre><code>let x = 1<\/code><\/pre>/.test(HW._md('Hi:\n```swift\nlet x = 1\n```')) && /<li>one<\/li>/.test(HW._md('- one\n- two')), 'notes: code and lists');
+
+    // Live: the first part of the run, with the request still open.
+    const S = window.SAMPLE, cut = S.findIndex(e => e.k === 'answer');
+    HW.init({ name: 'Mint', title: 'Fix the rounding bug', color: '#34c98e', status: 'running', elapsed: 40, entries: S.slice(0, cut), now: 'Running the tests', waiting: true });
+    check(q('#name').textContent === 'Mint' && q('#pill').textContent === 'Waiting for you', `header: name and "Waiting for you" (${q('#pill').textContent})`);
+    check(q('.task .lbl').textContent === 'Task' && /rounding bug/.test(q('.task .body').textContent) && /~\/projects\/tipsplit/.test(q('.task .folder').textContent), 'the task with its folder (home shortened)');
+    const groups = qa('.steps');
+    check(groups.length >= 2 && /^Searched the code, ran a command, read 3 files$|^Read/.test(groups[0].querySelector('.lbl').textContent), `steps grouped and collapsed: "${groups[0].querySelector('.lbl').textContent}"`);
+    check(!groups[0].classList.contains('open') && getComputedStyle(groups[0].querySelector('ul')).display === 'none', 'groups start collapsed');
+    groups[0].querySelector('.row').click();
+    check(groups[0].classList.contains('open') && /README\.md/.test(groups[0].querySelector('ul').textContent) && /python3 --version/.test(groups[0].querySelector('ul').textContent), 'clicking a group shows each step with its file or command');
+    check(!q('#todo').hidden && /To-do · \d of \d done/.test(q('#todoLbl').textContent), `the to-do list above the box (${q('#todoLbl').textContent})`);
+    const ask = q('.ask');
+    check(ask && /Can I run python3 tipsplit.py\?/.test(ask.textContent) && ask.querySelector('pre').textContent === 'python3 tipsplit.py 100 3', 'the request with its exact command');
+    check(ask.querySelector('.yes').textContent === 'Allow', 'with Allow / Don’t allow');
+    ask.querySelector('.yes').click();
+    check(JSON.stringify(w.HW_OUT.slice(-1)[0]) === '{"type":"answer","id":"r1","ok":true}', `Allow tells the app (${JSON.stringify(w.HW_OUT.slice(-1)[0])})`);
+    check(q('#now').hidden, 'no "doing now" line while it waits for you');
+    check(/Answer Mint/.test(q('#box').placeholder), `the box says it's waiting (${q('#box').placeholder})`);
+
+    // Typing: Return sends, Shift-Return doesn't.
+    const box = q('#box');
+    box.value = 'line one'; box.dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Enter', shiftKey: true, bubbles: true }));
+    check(box.value === 'line one', 'Shift-Return doesn’t send');
+    box.dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    check(JSON.stringify(w.HW_OUT.slice(-1)[0]) === '{"type":"send","text":"line one"}' && box.value === '', 'Return sends what you typed');
+
+    // The rest arrives live.
+    for (const e of S.slice(cut)) { if (e.k === 'end') break; HW.add(e); }
+    check(ask.classList.contains('closed') && !ask.querySelector('.btns') && /You said yes/.test(ask.textContent), 'answered: buttons gone, "You said yes"');
+    check(q('.you div') && /README/.test(q('.you div').textContent), 'a follow-up shows as your message');
+    check(qa('.note').some(n => /My plan/.test(n.textContent) && n.querySelector('ol li')), 'notes in full, lists rendered');
+    HW.status({ status: 'running', waiting: false, now: 'Running the tests', elapsed: 90 });
+    check(!q('#now').hidden && q('#nowTxt').textContent === 'Running the tests' && /^Working · 1:3\d$/.test(q('#pill').textContent), `"doing now" and the time (${q('#pill').textContent})`);
+    const end = S[S.length - 1];
+    HW.add(end); HW.status({ status: 'done', waiting: false });
+    check(q('.end .head span').textContent === 'Done' && /All 4 tests pass/.test(q('.end .note').textContent), 'done: its summary');
+    check(qa('.note').filter(n => !n.closest('.end') && /All 4 tests pass/.test(n.textContent)).length === 0, 'the summary is shown once');
+    check(q('.end .meta').textContent === 'Worked 2 min · $0.42 of usage', `time and usage (${q('.end .meta').textContent})`);
+    check(q('#pill').textContent === 'Done' && q('#stop').hidden && box.disabled, 'finished: Done, no Stop, the box is off');
+
+    // Undo: a run with a checkpoint offers it, asks first (naming the files), and shows it's done.
+    HW.init({ name: 'Rose', title: 'u', status: 'done', resumable: true, entries: [{ k: 'task', text: 't' }, { k: 'checkpoint', id: 'c1' }, { k: 'end', kind: 'done', text: 'Did it.' },
+      { k: 'you', text: 'more' }, { k: 'end', kind: 'done', text: 'No checkpoint here.' }] });
+    const ends = qa('.end');
+    check(ends[0].querySelector('.undo') && !ends[1].querySelector('.undo'), 'a run with a checkpoint can be undone (one without can’t)');
+    ends[0].querySelector('.undo').click();
+    check(JSON.stringify(w.HW_OUT.slice(-1)[0]) === '{"type":"undo","run":0}', 'Undo asks the app which files first');
+    HW.undoAsk(0, 'calc.py and notes.txt', 'notes.txt');
+    const cf = ends[0].querySelector('.confirm');
+    check(cf && /Put back calc.py and notes.txt the way they were before Rose started\?/.test(cf.textContent) && /notes.txt changed after Rose finished/.test(cf.textContent), `it names the files, and warns about later changes (“${cf && cf.textContent}”)`);
+    cf.querySelector('.go').click();
+    check(JSON.stringify(w.HW_OUT.slice(-1)[0]) === '{"type":"undo","run":0,"confirmed":true}', 'confirming undoes it');
+    HW.add({ k: 'undone', id: 'c1', text: 'You undid its changes: put back calc.py and notes.txt.' });
+    check(ends[0].querySelector('.undone') && !ends[0].querySelector('.confirm') && /You undid its changes/.test(d.body.textContent), 'then it says the changes were undone');
+
+    // A plan: shown in full, with Go ahead / Not now.
+    HW.init({ name: 'Sky', title: 'Plan', status: 'running', waiting: true, entries: [{ k: 'task', text: 'Fix it, plan first' },
+      { k: 'ask', kind: 'plan', id: 'p1', text: 'Here’s my plan. Can I start?', detail: '# Fix add\n\n1. Return a + b.\n2. Add a test.' }] });
+    const pa = q('.ask.plan');
+    check(pa && pa.querySelector('.planbody h4') && pa.querySelectorAll('.planbody ol li').length === 2, 'a plan is shown in full, as a document');
+    check(pa.querySelector('.yes').textContent === 'Go ahead' && pa.querySelector('.no').textContent === 'Not now' && /type what to change/.test(pa.textContent), `with Go ahead / Not now (${pa.querySelector('.yes').textContent} / ${pa.querySelector('.no').textContent})`);
+    HW.status({ status: 'running', waiting: false, paused: true });
+    check(q('#pill').textContent === 'Paused' && q('#pause').textContent === 'Go on' && /what to do next/.test(q('#box').placeholder), `paused: "Paused", Go on, and the box asks what next (${q('#pill').textContent})`);
+    q('#pause').click();
+    check(JSON.stringify(w.HW_OUT.slice(-1)[0]) === '{"type":"resume"}', 'Go on tells the app');
+
+    // A past helper shown again in full.
+    HW.init({ name: 'Coral', title: 'x', color: '#ff7a59', status: 'failed', entries: [{ k: 'task', text: 't' }, { k: 'end', kind: 'failed', text: 'It stopped while: Running the tests' }] });
+    check(q('#name').textContent === 'Coral' && qa('.e').length === 2 && q('#pill').textContent === 'Stopped with a problem', 'opening it again redraws everything');
+  } catch (e) { check(false, 'error: ' + e.message + ' ' + (e.stack || '').split('\n')[1]); }
+  done();
+};
+</script>
+</body>

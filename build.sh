@@ -39,7 +39,7 @@ cp kokoro/kokoro_server.py "$APP/Contents/Resources/"
 # Overlay page + 3D engine. libs.js packs three.js and the kit as text, so cards can
 # run them inside sandboxed frames that have no network access.
 mkdir -p "$APP/Contents/Resources/web"
-cp web/overlay.html web/lesson.js web/buddy.js web/sounds.js web/helpers.js web/helpers-app.js "$APP/Contents/Resources/web/"
+cp web/overlay.html web/lesson.js web/buddy.js web/sounds.js web/helpers.js web/helpers-app.js web/helper-window.html "$APP/Contents/Resources/web/"
 python3 - "$APP/Contents/Resources/web/libs.js" <<'PY'
 import json, sys
 libs = {"three": open("vendor/three.min.js").read(),

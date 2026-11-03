@@ -21,6 +21,12 @@ final class CallController: NSObject, NSMenuDelegate {
     private lazy var helperScreen = HelperScreen(overlay: overlay, agents: agents)   // helpers (agents) on screen
     private let home = NotchHome()            // the status + controls at the notch
     private let agents = AgentManager()       // background Claude Code agents
+    private let helperWindows = HelperWindows()   // each helper's own window (its transcript and a box to type to it)
+    private let typeBox = TypeBox()               // typing to Poinky instead of talking (⌃⌥T)
+    private let away = AwayNotifier()             // away from the Mac: helpers' questions go to your phone (opt-in)
+    private var typeHotKey: HotKey?
+    private var typedAfterStart: (text: String, helper: Int?)?   // typed while no session was running
+    private var pendingLine: String?              // a short line to say once a session is up
     private var agentReports: [(id: Int, text: String)] = []   // finished agents the user hasn't heard about yet
     private var reportingIDs: [Int] = []       // helpers next to the buddy while Poinky tells you what they did
     private var reportAfterStart = false      // a session is starting just to tell the user about an agent
@@ -154,11 +160,34 @@ final class CallController: NSObject, NSMenuDelegate {
         ptt.onUp = { [weak self] send in self?.pushUp(send: send) }
         ptt.onTap = { [weak self] in self?.pushTap() }
         agents.onFinished = { [weak self] a in self?.helperScreen.finished(a); self?.askEnded(a.id); self?.agentFinished(a) }
-        agents.onChange = { [weak self] in self?.refreshAgentsInHome() }
+        agents.onChange = { [weak self] in self?.refreshAgentsInHome(); self?.helperWindows.updateAll() }
+        agents.onEntry = { [weak self] a, e in self?.helperWindows.entry(a, e) }
+        agents.onHands = { [weak self] id in
+            guard let self, let id else { return }
+            self.overlay.helperStep(id: id, text: "Using your mouse and keyboard")
+        }
+        helperWindows.agents = agents
+        helperWindows.onAnswer = { [weak self] id, rid, yes in self?.windowAnswer(id, rid, yes) }
+        helperWindows.onTypedAnswer = { [weak self] id, reply, _ in self?.answerAsk(id, reply, said: nil) }
+        helperWindows.onPause = { [weak self] id in _ = self?.helperScreen.talk(to: id, .pause) }
+        helperWindows.onResume = { [weak self] past, text in
+            guard let self else { return nil }
+            return self.agents.resume(past, text: text, config: self.config)
+        }
+        helperScreen.onOpen = { [weak self] id in self?.helperWindows.show(id) }
+        typeBox.onSend = { [weak self] text, helper in self?.typed(text, helper: helper) }
         agents.onStarted = { [weak self] a in self?.helperScreen.started(a) }
         agents.onEvent = { [weak self] a, e in self?.helperScreen.event(a, e) }
         agents.onStopped = { [weak self] a in self?.helperScreen.stopped(id: a.id); self?.askEnded(a.id) }
-        agents.onAsksChanged = { [weak self] a in self?.helperScreen.asksChanged(a); if a.asks.isEmpty { self?.askEnded(a.id) } }
+        agents.onAsksChanged = { [weak self] a in
+            guard let self else { return }
+            self.helperScreen.asksChanged(a)
+            if a.asks.isEmpty { self.askEnded(a.id) }
+            self.away.stillOpen(Set(self.agents.agents.flatMap { $0.asks.map(\.requestID) }))
+            if let first = a.asks.first { self.away.asking(a, first) }
+        }
+        away.settings(config)
+        away.onAnswer = { [weak self] id, rid, reply in self?.phoneAnswer(id, rid, reply) }
         overlay.onHelperAsking = { [weak self] id in self?.helperAsking(id) }
         helperScreen.onCardAnswer = { [weak self] id, yes in self?.cardAnswer(id, yes) }
         helperScreen.settings(config)
@@ -189,7 +218,10 @@ final class CallController: NSObject, NSMenuDelegate {
         m.onBuddy = { [weak self] in self?.toggleBuddy() }
         m.onSettings = { [weak self] in self?.home.collapse(); self?.openSettings() }
         m.onQuit = { NSApp.terminate(nil) }
-        m.onOpenReport = { [weak self] r in self?.home.collapse(); NSWorkspace.shared.open(r.log) }
+        m.onOpenReport = { [weak self] r in
+            self?.home.collapse()
+            self?.helperWindows.show(log: r.log)
+        }
         refreshHomeLabels()
         home.show()
     }
@@ -207,6 +239,12 @@ final class CallController: NSObject, NSMenuDelegate {
             MainActor.assumeIsolated {
                 self?.ptt.cancel()
                 self?.toggleBuddy()
+            }
+        }
+        typeHotKey = HotKey(spec: config.typeHotkey) { [weak self] in
+            MainActor.assumeIsolated {
+                self?.ptt.cancel()   // ⌃⌥T starts with ⌃⌥: that wasn't talking
+                self?.openTypeBox()
             }
         }
         hotKey = HotKey(spec: config.hotkey) { [weak self] in
@@ -327,6 +365,14 @@ final class CallController: NSObject, NSMenuDelegate {
                 askAfterStart = false
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in self?.deliverAsk() }
             }
+            if let t = typedAfterStart {
+                typedAfterStart = nil
+                deliverTyped(t.text, helper: t.helper)
+            }
+            if let line = pendingLine {
+                pendingLine = nil
+                sayQuick(line, said: "")
+            }
             if !goodVoice {
                 overlay.setClaudeCaption("Tip: for a natural voice, download a Premium voice: ✨ menu → Get a Better Voice…")
             }
@@ -347,6 +393,8 @@ final class CallController: NSObject, NSMenuDelegate {
         if let id = askingNow { helperScreen.park(id: id); askingNow = nil; askSpoken = nil }
         parkWork?.cancel(); parkWork = nil
         askAfterStart = false
+        typedAfterStart = nil
+        pendingLine = nil
         listener.stop()
         speaker.stop()
         audio.stop()
@@ -636,6 +684,108 @@ final class CallController: NSObject, NSMenuDelegate {
         ask(question)
     }
 
+    @objc func openHelpers() { helperWindows.showList() }
+
+    /// "Undo what Mint did": puts back the files it changed in its last run, unless one of them changed
+    /// after it finished (maybe you did that): then it's left for its window, where you can confirm.
+    private func undoHelper(_ past: PastHelper, said: String?) {
+        let name = past.name
+        func say(_ line: String) {
+            if let said { sayQuick(line, said: said) }
+            else { DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in self?.sayWhenFree(line) } }
+        }
+        agents.undo(past, dryRun: true) { [weak self] outcome in
+            guard let self else { return }
+            switch outcome {
+            case .failed(let why): say("I couldn't undo what \(name) did. \(why)")
+            case .done: break
+            case .preview(let p):
+                if p.files.isEmpty { say("\(name) didn't change any files, so there's nothing to undo."); return }
+                if !p.changedSince.isEmpty {
+                    say("\(HelperUndo.names(p.changedSince)) changed after \(name) finished, so I didn't undo anything. You can still do it from \(name)'s window.")
+                    return
+                }
+                self.agents.undo(past, dryRun: false) { [weak self] result in
+                    switch result {
+                    case .done(let files): self?.sayWhenFree("Okay, I put back \(HelperUndo.names(files)) the way \(files.count == 1 ? "it was" : "they were") before \(name) started.")
+                    case .failed(let why): self?.sayWhenFree("I couldn't undo what \(name) did. \(why)")
+                    case .preview: break
+                    }
+                }
+            }
+        }
+        if said != nil { overlay.setClaudeCaption("Undoing what \(name) did…") }
+    }
+
+    /// A short line now if a session is up, or in a quiet one.
+    private func sayWhenFree(_ line: String) {
+        if state == .idle {
+            pendingLine = line
+            startSession(.push)
+        } else {
+            sayQuick(line, said: "")
+        }
+    }
+
+    // MARK: - Earlier helpers
+
+    /// Finished helpers, from this run and earlier ones (their saved windows), newest first.
+    /// `fromThisRun`: also the finished ones still in memory (the talker already sees those in its list).
+    private func pastHelpers(limit: Int, fromThisRun: Bool = true) -> [PastHelper] {
+        let finished = agents.agents.filter { $0.status != .running && $0.status != .queued }.reversed().map { agents.past($0) }
+        let skip = Set(agents.agents.map(\.chat.place))
+        return Array(((fromThisRun ? Array(finished) : []) + PastHelper.list(in: AgentManager.logDir, limit: limit, excluding: skip)).prefix(limit))
+    }
+
+    private func pastHelper(key: String) -> PastHelper? {
+        pastHelpers(limit: 40).first { $0.key == key || $0.session == key }
+    }
+
+    /// "5 minutes ago", "yesterday".
+    static func ago(_ d: Date) -> String {
+        let s = Date().timeIntervalSince(d)
+        if s < 90 { return "just now" }
+        if s < 3600 { return "\(Int(s / 60)) minutes ago" }
+        if s < 2 * 3600 { return "an hour ago" }
+        if s < 86400 { return "\(Int(s / 3600)) hours ago" }
+        if s < 2 * 86400 { return "yesterday" }
+        return "\(Int(s / 86400)) days ago"
+    }
+
+    // MARK: - Typing instead of talking
+
+    /// ⌃⌥T: the box to type in, for the helper under the mouse if there is one.
+    @objc func openTypeBox() {
+        if typeBox.isOpen { typeBox.close(); return }
+        if let id = overlay.pointedHelper, let a = agents.agents.first(where: { $0.id == id }),
+           a.status == .running || a.status == .queued {
+            let hex = HelperWindows.colors[a.name.components(separatedBy: " ")[0]] ?? "#34c98e"
+            typeBox.open(helper: (id, a.name, NSColor(hex: hex)))
+        } else {
+            typeBox.open()
+        }
+    }
+
+    /// What you typed: the same as saying it (a session starts if none is running).
+    private func typed(_ text: String, helper: Int?) {
+        lastActivity = ProcessInfo.processInfo.systemUptime
+        switch state {
+        case .idle:
+            typedAfterStart = (text, helper)
+            startSession(.push)
+        case .starting:
+            typedAfterStart = (text, helper)
+        default:
+            deliverTyped(text, helper: helper)
+        }
+    }
+
+    private func deliverTyped(_ text: String, helper: Int?) {
+        overlay.setYouCaption(text.count > 160 ? String(text.prefix(159)) + "…" : text)
+        if let helper, agents.agents.contains(where: { $0.id == helper }) { talkTarget = helper }
+        heard(utterance: text)
+    }
+
     /// You started talking while Claude was speaking: stop and listen.
     private func interrupt(maybeMore: Bool = true) {
         turn += 1
@@ -772,8 +922,24 @@ final class CallController: NSObject, NSMenuDelegate {
         // Background agents, and any results the user hasn't heard yet.
         let status = agents.statusLines()
         if !status.isEmpty { lines.append("Background agents:\n" + status.joined(separator: "\n")) }
+        let earlier = pastHelpers(limit: 6, fromThisRun: false).map { p in
+            "- \(p.name) \"\(p.title)\" in \(p.dir.path), \(p.status) \(Self.ago(p.started)) (key \(p.key)): \(HelperStream.clip(p.summary, 220))"
+        }
+        if !earlier.isEmpty {
+            lines.append("Earlier agents (to continue one, `<agent resume=\"KEY\">what to do now</agent>`; it remembers its work):\n" + earlier.joined(separator: "\n"))
+        }
         lines.append("If you start an agent now, it will be called \(agents.nextName).")
+        let commands = AgentManager.commands
+        if !commands.isEmpty {
+            lines.append("The user's commands and skills an agent can run (start one whose task begins with it, like `/review`): " + commands.prefix(40).map { "/" + $0 }.joined(separator: ", "))
+        }
+        if ["usage", "used", "cost", "spent", "limit", "tokens", "how much", "plan"].contains(where: { q.contains($0) }), !agents.agents.isEmpty || !pastHelpers(limit: 1).isEmpty {
+            lines.append(agents.usageLine())
+        }
         if let c = helperContext { lines.append(c); helperContext = nil }
+        if let h = agents.handsHolder, let a = agents.agents.first(where: { $0.id == h }) {
+            lines.append("(\(a.name) is using the mouse and keyboard right now. Don't click or type for the user until it's done; if they ask you to, say \(a.name) is using them.)")
+        }
         if agents.running.contains(where: { !$0.asks.isEmpty }) {
             lines.append("(Only the user can answer a helper that is WAITING: they say yes or no, or click its card. You can't approve anything for them, and <tell> doesn't answer it. If they ask what it wants, explain it plainly.)")
         }
@@ -828,7 +994,16 @@ final class CallController: NSObject, NSMenuDelegate {
         for name in ev.stops {
             if let a = helper(named: name) { agents.stop(id: a.id) }
         }
+        for who in ev.undos {
+            if let a = helper(named: who) { undoHelper(agents.past(a), said: nil) }
+            else if let p = pastHelper(key: who) ?? pastHelpers(limit: 40).first(where: { $0.name.lowercased() == who.lowercased() }) { undoHelper(p, said: nil) }
+        }
         for req in ev.agents {
+            // Continuing an earlier helper ("continue the login fix"): found by its key.
+            if let key = req.resumeKey {
+                if let past = pastHelper(key: key), agents.resume(past, text: req.task, config: config) != nil { continue }
+                NSLog("Poinky: no earlier helper with the key \(key); starting a new one")
+            }
             if agents.start(req, config: config) == nil {
                 overlay.setClaudeCaption("⚠️ Couldn't start the agent: background agents need Claude Code installed")
             }
@@ -1532,7 +1707,7 @@ final class CallController: NSObject, NSMenuDelegate {
         return "voice \(c.kokoroVoice) at speed \(String(format: "%.2f", c.kokoroSpeed)) (engine \(c.voiceEngine)); buddy \(c.buddy ? "on" : "off")"
             + (c.buddyAutoHide > 0 ? ", auto-hides after \(Int(c.buddyAutoHide)) s" : "") + "; sounds \(c.sounds ? "on at \(Int((c.soundVolume * 100).rounded()))% volume" : "off")"
             + "; teacher \(c.artistEnabled ? "on" : "off"); hold to talk \(PushToTalk.displayString(c.pushToTalk))"
-            + "; hands-free call \(HotKey.displayString(c.hotkey)); hide buddy \(HotKey.displayString(c.buddyHotkey))"
+            + "; hands-free call \(HotKey.displayString(c.hotkey)); hide buddy \(HotKey.displayString(c.buddyHotkey)); type instead of talking \(HotKey.displayString(c.typeHotkey))"
             + "; pause before answering (calls) \(c.silenceSeconds) s; language \(c.language); memory \(c.memoryEnabled ? "on" : "off")"
             + "; models (effort): talker \(c.model(for: .talker)) (\(c.talkerEffort.isEmpty ? "auto" : c.talkerEffort)), teacher \(c.model(for: .artist)) (\(c.artistEffort.isEmpty ? "auto" : c.artistEffort)), guide \(c.model(for: .guide)), doer \(c.model(for: .doer)), helpers \(c.agentModel.isEmpty ? "Claude Code default" : c.agentModel) (\(c.agentEffort.isEmpty ? "default" : c.agentEffort))"
     }
@@ -1558,6 +1733,14 @@ final class CallController: NSObject, NSMenuDelegate {
             let work = DispatchWorkItem { [weak self] in self?.overlay.fadeCaptions() }
             captionFade = work
             DispatchQueue.main.asyncAfter(deadline: .now() + 2, execute: work)
+        case .undo(let past)?:
+            undoHelper(past, said: said)
+        case .resume(let past, let text)?:
+            if let a = agents.resume(past, text: text, config: config) {
+                sayQuick("Okay, \(a.name) will pick it up.", said: said)
+            } else {
+                ask(said)
+            }
         case .askTalker(let context)?:
             helperContext = context
             if case .message(let m) = intent { ask(m) } else { ask(said) }
@@ -1688,6 +1871,23 @@ final class CallController: NSObject, NSMenuDelegate {
         }
         if let line { sayQuick(line, said: said ?? "") }
         else if state == .listening || state == .thinking { state = restingState }
+    }
+
+    /// Allow / Don't allow (or You choose / Skip) in a helper's window, for one request.
+    private func windowAnswer(_ id: Int, _ requestID: String, _ yes: Bool) {
+        guard let asks = agents.agents.first(where: { $0.id == id })?.asks else { return }
+        if asks.first?.requestID == requestID { cardAnswer(id, yes); return }
+        guard let ask = asks.first(where: { $0.requestID == requestID }) else { return }
+        let reply: HelperAsk.Reply = ask.kind == .question ? (yes ? .answer("No preference: you choose.") : .no(reason: ""))
+                                                           : (yes ? .yes(always: false, extra: "") : .no(reason: ""))
+        agents.answer(id: id, requestID: requestID, reply)
+    }
+
+    /// An answer from your phone (away mode), for one request.
+    private func phoneAnswer(_ id: Int, _ requestID: String, _ reply: HelperAsk.Reply) {
+        guard let asks = agents.agents.first(where: { $0.id == id })?.asks else { return }
+        if asks.first?.requestID == requestID { answerAsk(id, reply, said: nil) }
+        else if asks.contains(where: { $0.requestID == requestID }) { agents.answer(id: id, requestID: requestID, reply) }
     }
 
     /// Allow / Don't allow (or You choose / Skip) on a helper's card.
@@ -1852,6 +2052,8 @@ final class CallController: NSObject, NSMenuDelegate {
         let shortcut = HotKey.displayString(config.hotkey)
         let hold = PushToTalk.displayString(config.pushToTalk)
         if hold != "Off" { add("Hold \(hold) to talk, let go to send", nil) }
+        add("Type to Poinky…  (\(HotKey.displayString(config.typeHotkey)))", #selector(openTypeBox))
+        add("Helpers…", #selector(openHelpers))
         switch (state, mode) {
         case (.idle, _):
             add("Start Hands-Free Call  (\(shortcut))", #selector(toggleCall))
@@ -1915,12 +2117,14 @@ final class CallController: NSObject, NSMenuDelegate {
 
     /// The Settings window saved: pick up what can change right away.
     private func settingsChanged(_ cfg: AppConfig) {
-        let hotkeyChanged = cfg.hotkey != config.hotkey || cfg.buddyHotkey != config.buddyHotkey
+        away.settings(cfg)
+        let hotkeyChanged = cfg.hotkey != config.hotkey || cfg.buddyHotkey != config.buddyHotkey || cfg.typeHotkey != config.typeHotkey
         config = cfg
         ScreenCapture.excludedBundleIDs = Set(cfg.excludedApps)
         if hotkeyChanged {
             hotKey = nil
             buddyHotKey = nil
+            typeHotKey = nil
             registerHotKey()
         }
         ptt.configure(cfg.pushToTalk)
