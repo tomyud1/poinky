@@ -118,9 +118,18 @@ echo "4i. The mouse and keyboard: one helper at a time"
 run H POINKY_FAKE_SPEED=1 POINKY_TEST_ANSWERS="1=yes;2=yes" "$BIN" --helper-test "$TMP/H.txt" "$TMP/proj" fixture:hands fixture:hands
 expect "$TMP/H.txt" "#1 Mint ASKS: Can I use your mouse\\? .*spoken: \"Mint wants to use your mouse and keyboard. Is that okay\\?\"" "the first time, it asks you"
 [ "$(grep -c '#1 Mint ASKS' "$TMP/H.txt")" = 1 ] && pass "after your yes, it doesn't ask again" || bad "after your yes, it doesn't ask again ($(grep -c '#1 Mint ASKS' "$TMP/H.txt"))"
-awk '/mouse and keyboard: #1/{a=NR} /#1 Mint FINISHED/{b=NR} /mouse and keyboard: #2/{c=NR} END{exit !(a && b && c && a<b && b<c)}' "$TMP/H.txt" && pass "the second waits until the first is done with it" || bad "the second waits until the first is done with it"
-expect "$TMP/H.txt" "#2 Coral FINISHED done" "then it gets its turn and finishes"
-grep -q "Waiting for the mouse and keyboard (Mint is using them)" "$TMP"/logs-H/*.chat.jsonl && pass "its window says it's waiting for the mouse" || bad "its window says it's waiting for the mouse"
+# Both ask at the same moment, so either may get the mouse first: check the order from whoever did.
+first=$(grep -oE 'mouse and keyboard: #[0-9]+' "$TMP/H.txt" | head -1 | grep -oE '[0-9]+$')
+second=$([ "$first" = 2 ] && echo 1 || echo 2)
+firstName=$([ "$first" = 2 ] && echo Coral || echo Mint)
+secondName=$([ "$first" = 2 ] && echo Mint || echo Coral)
+awk -v f="$first" -v s="$second" -v n="$firstName" '
+  $0 ~ ("mouse and keyboard: #" f "$") && !a {a=NR}
+  $0 ~ ("#" f " " n " FINISHED") && !b {b=NR}
+  $0 ~ ("mouse and keyboard: #" s "$") && !c {c=NR}
+  END{exit !(a && b && c && a<b && b<c)}' "$TMP/H.txt" && pass "the second waits until the first is done with it" || { bad "the second waits until the first is done with it"; grep -E "mouse and keyboard|FINISHED" "$TMP/H.txt" | sed 's/^/       /'; }
+expect "$TMP/H.txt" "#$second $secondName FINISHED done" "then it gets its turn and finishes"
+grep -q "Waiting for the mouse and keyboard ($firstName is using them)" "$TMP"/logs-H/*.chat.jsonl && pass "its window says it's waiting for the mouse" || bad "its window says it's waiting for the mouse"
 
 echo "4j. Away: a helper's question reaches your phone (a fake ntfy server), and its button answers it"
 NP=$((8800 + RANDOM % 600))
