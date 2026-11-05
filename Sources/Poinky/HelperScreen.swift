@@ -16,6 +16,8 @@ final class HelperScreen {
     var onCardAnswer: ((Int, Bool) -> Void)?
     /// Open on its card: its window.
     var onOpen: ((Int) -> Void)?
+    /// A button on the card of a helper that isn't an agent (a video being made): id, action.
+    var onOtherAction: ((Int, String) -> Void)?
 
     init(overlay: Overlay, agents: AgentManager) {
         self.overlay = overlay
@@ -59,7 +61,7 @@ final class HelperScreen {
 
     /// A button on a helper's card.
     func action(id: Int, _ action: String) {
-        guard let a = agents?.agents.first(where: { $0.id == id }) else { return }
+        guard let a = agents?.agents.first(where: { $0.id == id }) else { onOtherAction?(id, action); return }
         switch action {
         case "allow": onCardAnswer?(id, true)
         case "deny": onCardAnswer?(id, false)

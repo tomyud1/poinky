@@ -838,8 +838,11 @@ final class AgentManager {
 
     // MARK: - Helpers
 
+    /// Names in use by helpers that aren't agents (a video being made).
+    var reservedNames: Set<String> = []
+
     private func freeName() -> String {
-        let taken = Set(agents.filter { $0.status == .running || $0.status == .queued }.map(\.name))
+        let taken = Set(agents.filter { $0.status == .running || $0.status == .queued }.map(\.name)).union(reservedNames)
         if let n = Self.names.first(where: { !taken.contains($0) }) { return n }
         var k = 2
         while true {

@@ -23,6 +23,8 @@
     done:    { label: 'Task done',           vol: .8,  pitch: 0, bright: .65, length: 1, room: .45 },
     fail:    { label: 'Couldn’t finish',     vol: .55, pitch: 0, bright: .35, length: 1, room: .35 },
     merge:   { label: 'Back into the main',  vol: .55, pitch: 0, bright: .5, length: 1, room: .3 },
+    screenOpen:  { label: 'Video opens',     vol: .6,  pitch: 0, bright: .55, length: 1, room: .45 },
+    screenClose: { label: 'Video closes',    vol: .5,  pitch: 0, bright: .5, length: 1, room: .4 },
   };
 
   class Sounds {
@@ -187,6 +189,30 @@
           this.mallet(g, out, t, n(2), .5 * L, .22);
           this.mallet(g, out, t + .17, n(-3), .8 * L, .22);
           break;
+        case 'screenOpen': {   // air rising as the card grows, a chord opening up, a soft shimmer when it fills the screen
+          const dur = 1.05 * L;
+          this.noise(g, out, t, dur, .5, { type: 'bandpass', f: 320, f1: 2600, q: 1.2 });
+          if (o.x2 !== undefined) {
+            b.pan.pan.setValueAtTime(Math.max(-1, Math.min(1, o.x || 0)) * .75, t);
+            b.pan.pan.linearRampToValueAtTime(Math.max(-1, Math.min(1, o.x2)) * .75, t + .7);
+          }
+          this.glide(g, out, t, n(-17), n(-12), .7 * L, .22);
+          [0, 4, 7, 12].forEach((s, i) => this.mallet(g, out, t + .08 + i * .075, n(s), .9 * L, .2 - i * .025));
+          this.bell(g, out, t + .55, n(24), 1.4 * L, .07, 2, 1.6);
+          this.bell(g, out, t + .6, n(31), 1.1 * L, .035, 3, 1.2);
+          break;
+        }
+        case 'screenClose': {   // the same, folding back down into the buddy
+          const dur = .75 * L;
+          this.noise(g, out, t, dur, .42, { type: 'bandpass', f: 2200, f1: 300, q: 1.2 });
+          if (o.x2 !== undefined) {
+            b.pan.pan.setValueAtTime(Math.max(-1, Math.min(1, o.x || 0)) * .75, t);
+            b.pan.pan.linearRampToValueAtTime(Math.max(-1, Math.min(1, o.x2)) * .75, t + .6);
+          }
+          [12, 7, 4, 0].forEach((s, i) => this.mallet(g, out, t + i * .065, n(s), .6 * L, .17 - i * .02));
+          this.glide(g, out, t + .3, n(0), n(-12), .35 * L, .2);
+          break;
+        }
         case 'merge':   // a small "bloop" down into the main buddy
           this.glide(g, out, t, n(12), n(0), .2 * L, .26);
           this.bell(g, out, t + .12, n(12 + own), .5 * L, .06, 2, 1.2);

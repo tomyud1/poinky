@@ -141,6 +141,23 @@ final class Overlay: NSObject, WKNavigationDelegate {
     }
     func helperDone(id: Int, ok: Bool, summary: String) { js("SB.helperDone(\(id), \(ok), \(jsString(summary)))") }
     func helperStop(id: Int) { js("SB.helperStop(\(id))") }
+    func helperVanish(id: Int) { js("SB.helperVanish(\(id))") }
+    /// A helper's card (screen points, top-left origin), e.g. where a video grows out of.
+    func helperCard(id: Int, done: @escaping (CGRect?) -> Void) {
+        evaluateForTest("SB.helperCard(\(id))") { r in
+            guard let s = r as? String, let d = s.data(using: .utf8), let o = try? JSONSerialization.jsonObject(with: d) as? [String: Double],
+                  let x = o["x"], let y = o["y"], let w = o["w"], let h = o["h"] else { done(nil); return }
+            done(CGRect(x: x, y: y, width: w, height: h))
+        }
+    }
+    /// Where the buddy is (screen points, top-left origin).
+    func buddyPosition(done: @escaping (CGPoint?) -> Void) {
+        evaluateForTest("JSON.stringify(SB.buddyPos())") { r in
+            guard let s = r as? String, let d = s.data(using: .utf8), let o = try? JSONSerialization.jsonObject(with: d) as? [String: Double],
+                  let x = o["x"], let y = o["y"] else { done(nil); return }
+            done(CGPoint(x: x, y: y))
+        }
+    }
     func helperListen(id: Int, on: Bool) { js("SB.helperListen(\(id), \(on))") }
     /// It heard you: "message" (a follow-up) or "status".
     func helperHeard(id: Int, kind: String) { js("SB.helperHeard(\(id), \(jsString(kind)))") }

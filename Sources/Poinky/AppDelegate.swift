@@ -56,6 +56,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let c = CallController()
         c.setup()
         controller = c
+        // Developer checks for video explainers (see CallController+Video.swift).
+        if let i = args.firstIndex(of: "--video"), i + 1 < args.count { c.devVideo(topic: args[i + 1]) }
+        if let i = args.firstIndex(of: "--play-video"), i + 1 < args.count { c.devPlayVideo(dir: args[i + 1]) }
     }
 
     func applicationWillTerminate(_ notification: Notification) {

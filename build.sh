@@ -41,7 +41,11 @@ cp phonon/phonon_server.py "$APP/Contents/Resources/"
 # Overlay page + 3D engine. libs.js packs three.js and the kit as text, so cards can
 # run them inside sandboxed frames that have no network access.
 mkdir -p "$APP/Contents/Resources/web"
-cp web/overlay.html web/lesson.js web/buddy.js web/sounds.js web/helpers.js web/helpers-app.js web/helper-window.html "$APP/Contents/Resources/web/"
+cp web/overlay.html web/lesson.js web/buddy.js web/sounds.js web/helpers.js web/helpers-app.js web/helper-window.html web/video.html "$APP/Contents/Resources/web/"
+# Video explainers: the pipeline that makes them (run by a helper) and the engine that plays them.
+mkdir -p "$APP/Contents/Resources/explainer/prompts"
+cp explainer/pipeline.py explainer/engine.js explainer/player.html explainer/render.mjs explainer/align.swift explainer/render.swift "$APP/Contents/Resources/explainer/"
+cp explainer/prompts/*.md "$APP/Contents/Resources/explainer/prompts/"
 python3 - "$APP/Contents/Resources/web/libs.js" <<'PY'
 import json, sys
 libs = {"three": open("vendor/three.min.js").read(),

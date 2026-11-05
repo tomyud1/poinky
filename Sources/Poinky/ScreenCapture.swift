@@ -63,6 +63,8 @@ enum ScreenCapture {
 
     /// Apps never captured (Settings → Privacy).
     @MainActor static var excludedBundleIDs: Set<String> = []
+    /// Poinky's own windows that screenshots should still show (a video playing full screen).
+    @MainActor static var includedWindowNumbers: Set<Int> = []
 
     /// The whole screen, minus our own overlay and any excluded apps.
     private static func filter(for screen: NSScreen) async throws -> SCContentFilter {
@@ -75,7 +77,9 @@ enum ScreenCapture {
         let mine = content.applications.filter {
             $0.processID == ProcessInfo.processInfo.processIdentifier || excluded.contains($0.bundleIdentifier)
         }
-        return SCContentFilter(display: display, excludingApplications: mine, exceptingWindows: [])
+        let include = await MainActor.run { includedWindowNumbers }
+        let keep = content.windows.filter { include.contains(Int($0.windowID)) }
+        return SCContentFilter(display: display, excludingApplications: mine, exceptingWindows: keep)
     }
 
     /// A sharp close-up of what you marked, plus its text. Taken right when you mark it,

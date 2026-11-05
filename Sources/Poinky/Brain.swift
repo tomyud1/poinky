@@ -91,6 +91,10 @@ struct TalkEvents {
     var tells: [(name: String, text: String)] = []   // a follow-up for a working helper, by name
     var stops: [String] = []                          // helpers to stop, by name
     var undos: [String] = []                          // helpers whose last changes to undo, by name or key
+    var video: (title: String, brief: String)?        // make a video explainer about this
+    var videoCancel = false                           // stop the video being made
+    var videoClose = false                            // close the video on screen
+    var videoPlay = false                             // continue the paused video
 }
 
 /// A background job for a Claude Code agent, asked for by the talker.
@@ -172,7 +176,7 @@ struct TalkParser {
             ev.sentences = takeSentences(final: true)
         } else if sayEmitted == 0 {
             var s = text
-            for tag in ["<draw>", "<visual>", "<guide>", "<do>", "<act", "<ask>", "<done>", "<end", "<set>", "<remember>", "<forget>", "<agent", "<tell", "<stop", "<undo"] {
+            for tag in ["<draw>", "<visual>", "<guide>", "<do>", "<act", "<ask>", "<done>", "<end", "<set>", "<remember>", "<forget>", "<agent", "<tell", "<stop", "<undo", "<video"] {
                 if let r = s.range(of: tag) { s = String(s[..<r.lowerBound]) }
             }
             s = s.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -215,6 +219,12 @@ struct TalkParser {
         if let re = try? NSRegularExpression(pattern: #"<stop\s+agent\s*=\s*"([^"]+)"\s*/?>"#) {
             let ns = text as NSString
             ev.stops = re.matches(in: text, range: NSRange(location: 0, length: ns.length)).map { ns.substring(with: $0.range(at: 1)) }
+        }
+        ev.videoCancel = text.range(of: #"<video-cancel\s*/?>"#, options: .regularExpression) != nil
+        ev.videoClose = text.range(of: #"<video-close\s*/?>"#, options: .regularExpression) != nil
+        ev.videoPlay = text.range(of: #"<video-play\s*/?>"#, options: .regularExpression) != nil
+        if let b = Self.blocks(text, "video").first, !b.body.isEmpty {
+            ev.video = (Self.attr("title", in: b.attrs).flatMap { $0.isEmpty ? nil : $0 } ?? String(b.body.prefix(60)), b.body)
         }
         if let re = try? NSRegularExpression(pattern: #"<undo\s+agent\s*=\s*"([^"]+)"\s*/?>"#) {
             let ns = text as NSString

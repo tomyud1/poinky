@@ -1,6 +1,6 @@
 // Connects the app to the helpers on screen (web/helpers.js) and their sounds (web/sounds.js).
 // Adds to window.SB: helperSpawn, helperStep, helperChecklist, helperDone, helperReport, helperRelease, helperStop,
-// helperAsk, helperAnswered, helperPark, helperSounds, helperPos.
+// helperAsk, helperAnswered, helperPark, helperSounds, helperPos, helperCard, helperVanish.
 // Posts {kind: 'helperAsking', id} when a helper reaches you with its question.
 // Tells the app how many helpers are on screen ({kind: 'helpers', count}), so the overlay stays up while they work.
 (function () {
@@ -95,6 +95,10 @@
     /** The window you're using (points), so helpers work at the edge with more room beside it. */
     helperAvoid(r) { layer.setAvoid(r); if (layer.chooseSide() !== layer.side) wake(); },
     helperPos(id) { return layer.pos(String(id)); },
+    /** Its card's rectangle as JSON {x,y,w,h} (points), or null. */
+    helperCard(id) { const r = layer.card(String(id)); return r ? JSON.stringify({ x: r[0], y: r[1], w: r[2], h: r[3] }) : null; },
+    /** It became something else on screen (a video): it goes without a puff or a sound. */
+    helperVanish(id) { layer.vanish(String(id)); wake(); },
     /** For tests: frame timing while helpers move, since the last call. */
     helperStats() {
       const g = stats.gaps.slice().sort((a, b) => a - b), n = g.length;

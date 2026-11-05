@@ -1,0 +1,307 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Poinky video</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- A video explainer, full screen. The app copies this page, engine.js and sounds.js into the videos
+     folder and calls window.V (see the bottom). It opens by growing out of the helper's card. -->
+<style>
+  :root { --bg:#0a1224; --ink:#e8edf7; --dim:#93a0bd; --accent:#4f8cff; }
+  html,body { margin:0; height:100%; overflow:hidden; background:transparent; font:14px -apple-system, system-ui, sans-serif; color:var(--ink); cursor:default; }
+  #scrim { position:fixed; inset:0; background:#02050c; opacity:0; }
+  #win { position:fixed; left:0; top:0; width:0; height:0; overflow:hidden; background:var(--bg); opacity:0;
+         box-shadow:0 30px 80px rgba(0,0,0,.55); will-change:left,top,width,height,border-radius; }
+  #win canvas { position:absolute; inset:0; width:100%; height:100%; display:block; }
+  #win .glow { position:absolute; inset:0; border-radius:inherit; pointer-events:none; box-shadow:inset 0 0 0 2px var(--accent); opacity:0; }
+  #ui { position:fixed; left:0; right:0; bottom:0; padding:0 32px 26px; opacity:0; transition:opacity .25s; pointer-events:none; }
+  #ui.on { opacity:1; }
+  #cap { position:fixed; left:10%; right:10%; bottom:64px; text-align:center; font-size:22px; line-height:1.35; color:#fff;
+         text-shadow:0 2px 10px rgba(0,0,0,.8); opacity:0; transition:opacity .3s; pointer-events:none; }
+  #cap.on { opacity:.92; }
+  #track { position:relative; height:5px; border-radius:3px; background:rgba(255,255,255,.16); }
+  #fill { position:absolute; left:0; top:0; bottom:0; border-radius:3px; background:#fff; width:0; }
+  .tick { position:absolute; top:-3px; width:2px; height:11px; border-radius:1px; background:rgba(255,255,255,.45); }
+  #row { display:flex; justify-content:space-between; margin-top:10px; color:var(--dim); font-size:13px; font-variant-numeric:tabular-nums; }
+  #pill { position:fixed; left:50%; top:22px; transform:translateX(-50%) scale(.96); padding:12px 20px; border-radius:999px;
+          background:rgba(10,16,32,.78); backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px); font-size:16px;
+          opacity:0; transition:opacity .2s, transform .2s; pointer-events:none; display:flex; gap:10px; align-items:center; }
+  #pill.on { opacity:1; transform:translateX(-50%) scale(1); }
+  #pill i { width:14px; height:14px; border-radius:50%; border:2px solid #ffb648; border-top-color:transparent; animation:spin .8s linear infinite; display:none; }
+  #pill.cook i { display:block; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  kbd { font:12px ui-monospace, Menlo, monospace; padding:1px 6px; border-radius:5px; background:rgba(255,255,255,.14); color:#fff; }
+</style></head>
+<body>
+<div id="scrim"></div>
+<div id="win"><canvas id="v"></canvas><div class="glow"></div></div>
+<div id="cap"></div>
+<div id="pill"><i></i><span id="pilltext"></span></div>
+<div id="ui"><div id="track"><div id="fill"></div></div>
+  <div id="row"><span id="time">0:00 / 0:00</span><span><kbd>Space</kbd> pause &nbsp; <kbd>←</kbd> <kbd>→</kbd> sentence &nbsp; <kbd>Esc</kbd> close &nbsp; hold <kbd>⌃⌥</kbd> to ask</span></div></div>
+<script src="engine.js"></script>
+<script src="sounds.js"></script>
+<script>
+(function () {
+  const E = window.Explainer, W = E.W, H = E.H;
+  const post = (m) => { try { window.webkit.messageHandlers.video.postMessage(m); } catch (e) {} };
+  window.onerror = (m) => post({ kind: 'error', message: String(m) });
+  const $ = (id) => document.getElementById(id);
+  const win = $('win'), cv = $('v'), ctx = cv.getContext('2d'), scrim = $('scrim');
+  const frame = document.createElement('canvas'), fctx = frame.getContext('2d');
+  const audio = new Audio(); audio.preload = 'auto';
+  const sounds = new Sounds(); let soundOn = true;
+
+  let M = null, dir = '.', loaded = {}, pending = {}, errors = [];
+  let phase = 'idle';            // opening, open, closing, closed
+  let anim = null;               // {kind, t0, from, to}
+  let want = false;              // should be playing (false = paused by the user or not started)
+  let stalled = false, ended = false, endTimer = null, uiUntil = 0, lastPrev = 0, reduced = false, captions = false;
+
+  // ---------- geometry ----------
+  const SW = () => window.innerWidth, SH = () => window.innerHeight;
+  const full = () => ({ x: 0, y: 0, w: SW(), h: SH(), r: 0 });
+  function mid() { const w = Math.min(SW() * .58, SH() * .58 * 16 / 9), h = w * 9 / 16; return { x: (SW() - w) / 2, y: (SH() - h) / 2, w, h, r: 18 }; }
+  const lerp = (a, b, k) => a + (b - a) * k;
+  const lr = (a, b, k) => ({ x: lerp(a.x, b.x, k), y: lerp(a.y, b.y, k), w: lerp(a.w, b.w, k), h: lerp(a.h, b.h, k), r: lerp(a.r, b.r, k) });
+  // A damped spring (0 → 1, with a little overshoot), the same feel as the helpers' motion.
+  function spring(t, dur = .55, z = .8) {
+    if (t <= 0) return 0; if (t >= dur * 1.6) return 1;
+    const w = 2 * Math.PI / dur, wd = w * Math.sqrt(1 - z * z);
+    return 1 - Math.exp(-z * w * t) * (Math.cos(wd * t) + z * w / wd * Math.sin(wd * t));
+  }
+  function place(r) {
+    win.style.left = r.x + 'px'; win.style.top = r.y + 'px'; win.style.width = Math.max(1, r.w) + 'px'; win.style.height = Math.max(1, r.h) + 'px';
+    win.style.borderRadius = r.r + 'px';
+  }
+
+  // ---------- timing helpers ----------
+  const sentences = () => (M && M.sentences) || [];
+  // The sentence playing at t (a sentence "starts" a moment before its first word).
+  function sIndex(t) { const s = sentences(); let i = 0; for (let k = 0; k < s.length; k++) if (s[k].start - .25 <= t) i = k; return i; }
+  const sStart = (i) => Math.max(0, sentences()[i].start - .2);
+  function sceneAt(t) {
+    if (!M) return null;
+    const list = M.scenes; const i = list.findIndex(s => t < s.end);
+    return i >= 0 ? list[i] : (M.status === 'done' ? list[list.length - 1] : null);
+  }
+  const ready = (t) => { const s = sceneAt(t); return !!(s && loaded[s.id]); };
+  const fmt = (x) => `${Math.floor(x / 60)}:${String(Math.floor(x % 60)).padStart(2, '0')}`;
+
+  // ---------- loading ----------
+  function loadScene(s) {
+    if (!s.file || loaded[s.id] === s.file || pending[s.id] === s.file) return;
+    // Don't swap a scene's code while it's on screen (a reviewed version comes in later).
+    const t = audio.currentTime || 0;
+    if (loaded[s.id] && !audio.paused && t >= s.start - .6 && t < s.end) return;
+    pending[s.id] = s.file;
+    const el = document.createElement('script'); el.src = `${dir}/${s.file}`;
+    el.onload = () => { loaded[s.id] = s.file; delete pending[s.id]; };
+    el.onerror = () => { delete pending[s.id]; post({ kind: 'error', message: `could not load ${s.file}` }); };
+    document.head.appendChild(el);
+  }
+  function setManifest(m) {
+    M = m;
+    for (const s of M.scenes) loadScene(s);
+    buildTicks();
+  }
+  function buildTicks() {
+    const tr = $('track'); tr.querySelectorAll('.tick').forEach(e => e.remove());
+    const d = (M && M.duration) || 1;
+    for (const s of (M ? M.scenes : []).slice(1)) { const e = document.createElement('div'); e.className = 'tick'; e.style.left = (s.start / d * 100) + '%'; tr.appendChild(e); }
+  }
+
+  // ---------- drawing ----------
+  function draw() {
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const ww = win.clientWidth, wh = win.clientHeight;
+    if (cv.width !== Math.round(ww * dpr) || cv.height !== Math.round(wh * dpr)) { cv.width = Math.round(ww * dpr); cv.height = Math.round(wh * dpr); }
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.fillStyle = E.STYLE.bg; ctx.fillRect(0, 0, cv.width, cv.height);
+    if (!M) return;
+    const t = audio.currentTime || 0, s = sceneAt(t);
+    if (!s || !loaded[s.id]) return;
+    // The video is 1280×720: draw it at the size it fills, then letterbox it into the window.
+    const k = Math.min(cv.width / W, cv.height / H);
+    const fw = Math.round(W * k), fh = Math.round(H * k);
+    if (frame.width !== fw || frame.height !== fh) { frame.width = fw; frame.height = fh; }
+    fctx.setTransform(k, 0, 0, k, 0, 0);
+    E.render(fctx, M, t, errors);
+    ctx.drawImage(frame, Math.round((cv.width - fw) / 2), Math.round((cv.height - fh) / 2));
+  }
+
+  // ---------- playback ----------
+  function showUI(secs = 2.5) { uiUntil = performance.now() + secs * 1000; $('ui').classList.add('on'); }
+  function pill(text, cook) { const p = $('pill'); p.classList.toggle('on', !!text); p.classList.toggle('cook', !!cook); if (text) $('pilltext').innerHTML = text; }
+  function setWant(on) {
+    want = on;
+    if (on) { ended = false; clearTimeout(endTimer); }
+    sync();
+    post({ kind: 'state', playing: want, t: audio.currentTime || 0 });
+  }
+  // Make the audio follow what we want: play only when the scene there is ready.
+  function sync() {
+    if (phase !== 'open') return;
+    const t = audio.currentTime || 0;
+    const ok = ready(t);
+    if (want && ok) {
+      if (audio.paused) audio.play().catch(() => {});
+      stalled = false; pill('');
+    } else {
+      if (!audio.paused) audio.pause();
+      stalled = want && !ok;
+      if (stalled) pill('Cooking the next scene…', true);
+      else if (!ended) pill('❚❚&nbsp; Paused · <kbd>Space</kbd> to continue');
+    }
+  }
+  function seek(t) {
+    const d = (M && M.duration) || audio.duration || 0;
+    audio.currentTime = Math.max(0, Math.min(d - .05, t));
+    ended = false; clearTimeout(endTimer);
+    showUI(); sync();
+    post({ kind: 'state', playing: want, t: audio.currentTime });
+  }
+  function prev() {
+    if (!sentences().length) return;
+    const t = audio.currentTime || 0, i = sIndex(t), now = performance.now();
+    // In the first second of a sentence (or pressed again right away): the sentence before.
+    const back = (t - sStart(i) < 1.0 || now - lastPrev < 1500) && i > 0;
+    lastPrev = now;
+    seek(sStart(back ? i - 1 : i));
+  }
+  function next() {
+    const s = sentences(); if (!s.length) return;
+    const i = sIndex(audio.currentTime || 0);
+    if (i + 1 < s.length) seek(sStart(i + 1));
+  }
+  audio.onended = () => {
+    ended = true; want = false; sync();
+    pill('<kbd>Space</kbd> to replay · <kbd>Esc</kbd> to close'); showUI(6);
+    post({ kind: 'ended' });
+    endTimer = setTimeout(() => { if (ended && phase === 'open') post({ kind: 'wantClose' }); }, 8000);
+  };
+
+  document.addEventListener('keydown', (e) => {
+    if (phase !== 'open') return;
+    if (e.metaKey) return;
+    if (e.code === 'Space') { e.preventDefault(); if (ended) { seek(0); setWant(true); } else setWant(!want); showUI(); }
+    else if (e.code === 'ArrowLeft') { e.preventDefault(); prev(); }
+    else if (e.code === 'ArrowRight') { e.preventDefault(); next(); }
+    else if (e.code === 'Escape') { e.preventDefault(); post({ kind: 'wantClose' }); }
+  });
+  document.addEventListener('mousemove', () => { if (phase === 'open') showUI(); });
+  $('ui').addEventListener('click', () => {});
+
+  // ---------- the loop ----------
+  let lastFrame = 0;
+  function loop(now) {
+    requestAnimationFrame(loop);
+    tickFrame(now);
+  }
+  // Without animation frames (a hidden or covered window) a timer keeps it going, so it never gets stuck.
+  setInterval(() => { const now = performance.now(); if (now - lastFrame > 250) tickFrame(now); }, 100);
+  function tickFrame(now) {
+    lastFrame = now;
+    if (anim) step(now);
+    if (phase === 'idle' || phase === 'closed') return;
+    draw();
+    if (phase === 'open') {
+      sync();
+      const t = audio.currentTime || 0, d = (M && M.duration) || 1;
+      $('fill').style.width = Math.min(100, t / d * 100) + '%';
+      $('time').textContent = `${fmt(t)} / ${fmt(d)}`;
+      if (want && performance.now() > uiUntil) $('ui').classList.remove('on');
+      const s = sentences()[sIndex(t)];
+      const capOn = captions && want && !stalled && s && t >= s.start - .1 && t <= s.end + .3;
+      $('cap').classList.toggle('on', !!capOn);
+      if (capOn && $('cap').textContent !== s.text) $('cap').textContent = s.text;
+    }
+  }
+  requestAnimationFrame(loop);
+
+  // ---------- opening and closing ----------
+  function step(now) {
+    const t = (now - anim.t0) / 1000;
+    if (anim.kind === 'open') {
+      if (reduced) {
+        const k = Math.min(1, t / .35); place(full()); win.style.opacity = k; scrim.style.opacity = .9 * k;
+        if (k >= 1) opened();
+        return;
+      }
+      // Out of the card to a window in the middle, then out to the whole screen.
+      const a = spring(t, .5, .78), b = spring(t - .3, .55, .86);
+      place(lr(lr(anim.from, mid(), a), full(), b));
+      win.style.opacity = Math.min(1, t / .12);
+      scrim.style.opacity = .9 * Math.min(1, t / .6);
+      win.querySelector('.glow').style.opacity = String(Math.max(0, 1 - b) * .9);
+      if (t > .3 + .55 * 1.6) { place(full()); opened(); }
+    } else if (anim.kind === 'close') {
+      if (reduced) {
+        const k = 1 - Math.min(1, t / .3); win.style.opacity = k; scrim.style.opacity = .9 * k;
+        if (k <= 0) closed();
+        return;
+      }
+      // Back down to a window, then into the buddy.
+      const a = spring(t, .42, .9), b = spring(t - .2, .45, .95);
+      const dot = { x: anim.to.x - 8, y: anim.to.y - 8, w: 16, h: 9, r: 8 };
+      place(lr(lr(full(), mid(), a), dot, b));
+      win.style.opacity = String(1 - Math.max(0, Math.min(1, (t - .45) / .2)));
+      scrim.style.opacity = .9 * (1 - Math.min(1, t / .55));
+      win.querySelector('.glow').style.opacity = String(Math.min(1, a) * .9);
+      if (t > .2 + .45 * 1.6) closed();
+    }
+  }
+  function opened() {
+    anim = null; phase = 'open';
+    win.style.borderRadius = '0px'; win.querySelector('.glow').style.opacity = '0';
+    showUI(3.5);
+    setWant(true);
+    post({ kind: 'opened' });
+  }
+  function closed() {
+    anim = null; phase = 'closed'; audio.pause();
+    win.style.opacity = '0'; scrim.style.opacity = '0';
+    post({ kind: 'closed', t: audio.currentTime || 0 });
+  }
+
+  window.V = {
+    /** o: {dir, manifest, from: {x,y,w,h} (the helper's card, points), color, x (-1…1, where the sound starts),
+     *  reduced, captions (subtitles of the narration), sound: {on, volume}} */
+    open(o) {
+      dir = o.dir; reduced = !!o.reduced; captions = !!o.captions; loaded = {}; pending = {};
+      soundOn = !o.sound || o.sound.on !== false;
+      if (o.sound) sounds.params.master = Math.max(0, Math.min(1.2, +o.sound.volume || .8)) * 1.1;
+      if (o.color) document.documentElement.style.setProperty('--accent', o.color);
+      setManifest(o.manifest);
+      audio.src = `${dir}/${o.manifest.audio || 'voice.wav'}`;
+      audio.load();
+      const f = o.from || { x: SW() - 120, y: 60, w: 60, h: 40 };
+      anim = { kind: 'open', t0: performance.now(), from: { x: f.x, y: f.y, w: f.w, h: f.h, r: 14 } };
+      phase = 'opening';
+      if (soundOn) sounds.play('screenOpen', { x: o.x || 0, x2: 0 });
+    },
+    manifest(m) { setManifest(m); },
+    pause() { if (phase === 'open') { setWant(false); showUI(); } },
+    resume() { if (phase === 'open') setWant(true); },
+    toggle() { if (phase === 'open') setWant(!want); },
+    prev, next, seek,
+    /** to: {x, y}, the buddy (points). */
+    close(to) {
+      if (phase === 'closing' || phase === 'closed') return;
+      if (phase === 'opening') place(full());
+      want = false; audio.pause(); pill(''); $('ui').classList.remove('on'); $('cap').classList.remove('on');
+      phase = 'closing';
+      anim = { kind: 'close', t0: performance.now(), to: to || { x: SW() / 2, y: SH() / 2 } };
+      if (soundOn) sounds.play('screenClose', { x: 0, x2: ((to ? to.x : SW() / 2) / SW()) * 2 - 1 });
+    },
+    state() { return JSON.stringify({ t: audio.currentTime || 0, playing: want && !audio.paused, phase, stalled, ended }); },
+    /** The frame on screen, as a JPEG data URL (for the talker). */
+    frame() {
+      if (!M) return '';
+      const c = document.createElement('canvas'); c.width = W; c.height = H;
+      const g = c.getContext('2d'); g.fillStyle = E.STYLE.bg; g.fillRect(0, 0, W, H);
+      try { E.render(g, M, audio.currentTime || 0, []); } catch (e) {}
+      return c.toDataURL('image/jpeg', .85);
+    },
+  };
+  post({ kind: 'loaded' });
+})();
+</script>
+</body></html>

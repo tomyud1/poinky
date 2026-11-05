@@ -274,6 +274,14 @@
       this.remove(h);
     }
 
+    /** It turned into something bigger (its card grows into the video window): it goes without a sound. */
+    vanish(id) { const h = this.helpers.get(id); if (h) this.remove(h); }
+    /** Its card's rectangle [x, y, w, h] in points (or a small box around it while it flies). */
+    card(id) {
+      const h = this.helpers.get(id); if (!h) return null;
+      return h.phase === 'dock' || h.phase === 'ready' ? this.cardRect(h) : [h.x - 10, h.y - 10, 36, 36];
+    }
+
     /** (hold) The app is about to tell you what it did: it flies to the main buddy and waits there. */
     report(id) {
       const h = this.helpers.get(id); if (!h || (!h.finished && !h.pendingDone)) return;

@@ -1,0 +1,211 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Explainer player</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root { --bg:#05080f; --panel:#0e1526; --ink:#e8edf7; --dim:#7f8aa6; --ok:#3ddc97; --wait:#3a4664; --cook:#ffb648; }
+  html,body { margin:0; background:var(--bg); color:var(--ink); font:13px -apple-system, system-ui, sans-serif; }
+  #wrap { max-width:1280px; margin:0 auto; padding:16px; }
+  canvas#v { width:100%; aspect-ratio:16/9; display:block; border-radius:10px; background:#0a1224; }
+  #stage { position:relative; }
+  #cook { position:absolute; inset:0; display:none; align-items:center; justify-content:center; gap:10px; background:rgba(5,8,15,.55); border-radius:10px; font-size:16px; }
+  #cook.on { display:flex; }
+  #cook i { width:14px; height:14px; border-radius:50%; border:2px solid var(--cook); border-top-color:transparent; animation:spin .8s linear infinite; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  #start { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; }
+  #start button { font-size:17px; padding:12px 22px; border-radius:999px; border:0; background:#fff; color:#000; cursor:pointer; }
+  #bar { display:flex; align-items:center; gap:10px; margin-top:10px; }
+  #bar button { background:var(--panel); color:var(--ink); border:1px solid #223; border-radius:8px; padding:6px 10px; cursor:pointer; }
+  #track { position:relative; flex:1; height:22px; background:var(--panel); border-radius:6px; overflow:hidden; cursor:pointer; }
+  #track .seg { position:absolute; top:3px; bottom:3px; border-radius:3px; background:var(--wait); }
+  #track .seg.ready { background:#1f6f52; } #track .seg.checking { background:#6b5222; }
+  #track .head { position:absolute; top:0; bottom:0; width:2px; background:#fff; }
+  #time { font-variant-numeric:tabular-nums; color:var(--dim); min-width:90px; text-align:right; }
+  #cap { min-height:22px; margin-top:8px; color:var(--dim); font-size:15px; }
+  #log { margin-top:10px; color:var(--dim); white-space:pre-wrap; font:12px ui-monospace, Menlo, monospace; max-height:220px; overflow:auto; }
+  body.grid #wrap { max-width:none; padding:0; } body.grid #bar, body.grid #log, body.grid #cap, body.grid #stage { display:none; }
+  #sheet { display:none; } body.grid #sheet { display:block; }
+</style></head>
+<body>
+<div id="wrap">
+  <div id="stage"><canvas id="v"></canvas><div id="cook"><i></i><span id="cooktext">Cooking the next scene…</span></div><div id="start"><button>▶ Play</button></div></div>
+  <div id="bar"><button id="pp">Pause</button><div id="track"></div><span id="time">0.0 / 0.0</span></div>
+  <div id="cap"></div>
+  <div id="log"></div>
+</div>
+<canvas id="sheet"></canvas>
+<script src="engine.js"></script>
+<script>
+(async function () {
+  const q = new URLSearchParams(window.__GRID_QS || location.search);   // __GRID_QS: set by render.swift
+  const dir = (q.get('dir') || '.').replace(/\/$/, '');
+  const E = window.Explainer, W = E.W, H = E.H;
+  const loaded = {};          // scene id -> file loaded
+  let M = null;               // manifest
+  const errors = [];
+  window.onerror = (m) => { errors.push(String(m)); };
+
+  async function fetchManifest() {
+    const url = `${dir}/manifest.json`;
+    if (url.startsWith('file:') || location.protocol === 'file:') {   // fetch() can't read files; XHR can (headless checks)
+      return new Promise(res => { const x = new XMLHttpRequest(); x.open('GET', url); x.onload = () => { try { res(JSON.parse(x.responseText)); } catch { res(null); } }; x.onerror = () => res(null); x.send(); });
+    }
+    try { const r = await fetch(`${url}?${Date.now()}`, { cache: 'no-store' }); if (r.ok) return await r.json(); } catch (e) {}
+    return null;
+  }
+  function loadScene(s) {
+    return new Promise(res => {
+      if (!s.file || loaded[s.id] === s.file) return res();
+      const el = document.createElement('script'); el.src = `${dir}/${s.file}`;
+      el.onload = () => { loaded[s.id] = s.file; res(); }; el.onerror = () => { errors.push(`could not load ${s.file}`); res(); };
+      document.head.appendChild(el);
+    });
+  }
+  function spokenAt(t) {
+    const s = (M.sentences || []).find(x => t >= x.start && t < x.end + 0.05);
+    if (!s) return '';
+    const ws = (M.words || []).filter(w => w.s === s.i && w.start <= t);
+    return ws.length ? s.text.split(/\s+/).slice(0, ws.length).join(' ') + ' …' : '';
+  }
+
+  /* ---- Grid mode: render chosen moments into one sheet (for the visual check). ---- */
+  if (q.get('grid')) {
+    document.body.classList.add('grid');
+    M = await fetchManifest();
+    const only = (q.get('scenes') || '').split(',').filter(Boolean);
+    for (const s of M.scenes) if (!only.length || only.includes(s.id)) { if (q.get('file_' + s.id)) s.file = q.get('file_' + s.id); await loadScene(s); }
+    if (only.length) for (const id of Object.keys(E.scenes)) if (!only.includes(id)) delete E.scenes[id];
+    const times = q.get('times').split(',').map(Number);
+    const cols = +(q.get('cols') || 3), cw = +(q.get('w') || 520), ch = cw * H / W, lab = 44;
+    const dpr = 1, sheet = document.getElementById('sheet');
+    const rows = Math.ceil(times.length / cols);
+    sheet.width = cols * cw * dpr; sheet.height = rows * (ch + lab) * dpr; sheet.style.width = cols * cw + 'px';
+    const sg = sheet.getContext('2d'); sg.fillStyle = '#000'; sg.fillRect(0, 0, sheet.width, sheet.height);
+    const frame = document.createElement('canvas'); frame.width = W; frame.height = H;
+    const fg = frame.getContext('2d');
+    times.forEach((t, i) => {
+      fg.setTransform(1, 0, 0, 1, 0, 0); fg.clearRect(0, 0, W, H);
+      E.render(fg, M, t, errors);
+      const x = (i % cols) * cw, y = Math.floor(i / cols) * (ch + lab);
+      sg.drawImage(frame, x * dpr, y * dpr, (cw - 4) * dpr, ch * dpr);
+      sg.fillStyle = '#ffe14a'; sg.font = `bold ${13 * dpr}px -apple-system, sans-serif`;
+      sg.fillText(`${t.toFixed(1)}s`, (x + 6) * dpr, (y + ch + 16) * dpr);
+      sg.fillStyle = '#cfd6e6'; sg.font = `${12 * dpr}px -apple-system, sans-serif`;
+      const said = spokenAt(t); const words = said.split(' '); let line = '', ly = y + ch + 16;
+      for (const w of words.slice(-14)) { if (sg.measureText(line + w).width > (cw - 60) * dpr) { sg.fillText(line, (x + 48) * dpr, ly * dpr); line = ''; ly += 14; if (ly > y + ch + lab) break; } line += w + ' '; }
+      if (ly <= y + ch + lab - 2) sg.fillText(line, (x + 48) * dpr, ly * dpr);
+    });
+    // Layout checks every 0.25 s over the checked scenes (or over the sheet's moments).
+    const problems = new Map();
+    const span = only.length ? M.scenes.filter(s => only.includes(s.id)) : [];
+    const lintTimes = span.length ? span.flatMap(s => { const a = []; for (let t = s.start + 0.05; t < s.end - 0.02; t += 0.25) a.push(t); a.push(s.end - 0.05); return a; }) : times;
+    for (const t of lintTimes) {
+      fg.setTransform(1, 0, 0, 1, 0, 0); fg.clearRect(0, 0, W, H);
+      for (const p of E.lint(fg, M, t, errors)) { const r = problems.get(p) || [t, t]; r[1] = t; problems.set(p, r); }
+    }
+    const lint = [...problems].map(([p, [a, b]]) => `${a.toFixed(1)}–${b.toFixed(1)}s: ${p}`).slice(0, 25);
+    window.renderDone = { errors: [...new Set(errors)], lint, w: sheet.width, h: sheet.height };
+    return;
+  }
+
+  /* ---- Playback ---- */
+  const cv = document.getElementById('v'), ctx = cv.getContext('2d');
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  cv.width = W * dpr; cv.height = H * dpr;
+  const audio = new Audio(); audio.preload = 'auto';
+  const logEl = document.getElementById('log');
+  const opened = performance.now();
+  const log = (s) => { logEl.textContent += `[${((performance.now() - opened) / 1000).toFixed(1)}s] ${s}\n`; logEl.scrollTop = 1e9; };
+  let playing = false, waiting = false, wantPlay = false, dur = 0, lastReady = '';
+  // Smart start: "Play when ready" arms playback; it starts when the pipeline's forecast says the
+  // rest will arrive in time (?start=asap starts as soon as the first scene is ready instead).
+  let armed = false, stallAt = 0;
+  const asap = q.get('start') === 'asap';
+  const stats = window.playerStats = { clickedAt: null, startedAt: null, stalls: [] };
+  const cook = (on, text) => { document.getElementById('cook').classList.toggle('on', on); if (text) document.getElementById('cooktext').textContent = text; };
+
+  async function refresh() {
+    const m = await fetchManifest(); if (!m) return;
+    const first = !M; M = m;
+    if (first || (M.audio && !audio.src)) { if (M.audio) { audio.src = `${dir}/${M.audio}?${M.audioVersion || ''}`; } }
+    dur = M.duration || 0;
+    // A better version of a scene replaces the old one only while that scene isn't on screen.
+    const t = audio.currentTime || 0;
+    for (const s of M.scenes) if (s.file && loaded[s.id] !== s.file) {
+      const onScreen = loaded[s.id] && !audio.paused && t >= s.start - 0.6 && t < s.end;
+      if (onScreen) continue;
+      const was = loaded[s.id]; await loadScene(s); log(`scene ${s.id} ${was ? 'improved' : 'ready'} (${s.file})`);
+    }
+    const r = M.scenes.map(s => s.state || (s.file ? 'ready' : 'wait')).join(',');
+    if (r !== lastReady) { lastReady = r; drawTrack(); }
+    if (M.status) document.title = `Explainer · ${M.status}`;
+    const b = document.querySelector('#start button'); if (b) b.textContent = M.status === 'done' ? '▶ Play' : '▶ Play when ready';
+  }
+  function drawTrack() {
+    const tr = document.getElementById('track'); tr.innerHTML = '';
+    if (!M || !dur) return;
+    for (const s of M.scenes) { const d = document.createElement('div'); d.className = 'seg ' + (loaded[s.id] ? 'ready' : (s.state || '')); d.style.left = (s.start / dur * 100) + '%'; d.style.width = ((s.end - s.start) / dur * 100 - 0.3) + '%'; d.title = s.id; tr.appendChild(d); }
+    const h = document.createElement('div'); h.className = 'head'; h.id = 'head'; tr.appendChild(h);
+  }
+  // The scene covering t. Scenes arrive one by one while the storyboard is written, so a moment
+  // no known scene covers isn't playable yet (unless the video is done: then the last scene holds).
+  const sceneAt = t => {
+    if (!M) return null;
+    const s = M.scenes.find(s => t >= s.start - 0.01 && t < s.end);
+    return s || (M.status === 'done' ? M.scenes[M.scenes.length - 1] : null);
+  };
+
+  // Start / stall decisions and manifest polling run on a worker's timer, so they keep time even
+  // in a hidden tab (no animation frames there, and the page's own timers slow to once a minute).
+  function every(ms, fn) {
+    try {
+      const w = new Worker(URL.createObjectURL(new Blob([`setInterval(() => postMessage(0), ${ms})`])));
+      w.onmessage = fn; return;
+    } catch (e) { setInterval(fn, ms); }
+  }
+  function tick() {
+    if (!M) return;
+    const t = audio.currentTime || 0;
+    const sc = sceneAt(t);
+    const ready = sc && loaded[sc.id];
+    if (armed && !wantPlay) {
+      const nowS = Date.now() / 1000, f = M.forecast;
+      const allIn = M.status === 'done' && M.scenes.every(s => loaded[s.id]);
+      if (ready && (allIn || asap || (f && nowS >= f.playAt))) {
+        wantPlay = true; cook(false); audio.play().catch(() => {}); stats.startedAt = nowS;
+        log(`play (${(nowS - stats.clickedAt).toFixed(1)}s after the click)`);
+      } else cook(true, f ? `Starting in ${Math.max(1, Math.ceil(f.playAt - nowS))} s…` : 'Planning the video…');
+    }
+    if (wantPlay && !ready && !waiting) { waiting = true; stallAt = performance.now(); audio.pause(); cook(true, 'Cooking the next scene…'); log(`waiting for ${sc && sc.id}`); }
+    if (waiting && ready) { waiting = false; cook(false); const d = (performance.now() - stallAt) / 1000; stats.stalls.push({ at: +t.toFixed(1), s: +d.toFixed(1) }); if (wantPlay) audio.play(); log(`resumed at ${t.toFixed(1)}s after ${d.toFixed(1)}s`); }
+    return ready;
+  }
+  every(200, tick);
+
+  function frame() {
+    requestAnimationFrame(frame);
+    if (!M) return;
+    const t = audio.currentTime || 0;
+    const ready = tick();
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    if (ready) E.render(ctx, M, t, null);
+    document.getElementById('time').textContent = `${t.toFixed(1)} / ${dur.toFixed(1)}`;
+    const h = document.getElementById('head'); if (h && dur) h.style.left = (t / dur * 100) + '%';
+    document.getElementById('cap').textContent = q.get('captions') === '0' ? '' : spokenAt(t);
+  }
+
+  document.querySelector('#start button').onclick = () => {
+    document.getElementById('start').remove(); armed = true; stats.clickedAt = Date.now() / 1000;
+    if (audio.src) audio.play().then(() => { if (!wantPlay) { audio.pause(); audio.currentTime = 0; } }).catch(() => {});   // unlock audio inside the click
+    log('play when ready');
+  };
+  document.getElementById('pp').onclick = () => { wantPlay = !wantPlay; if (wantPlay) audio.play(); else audio.pause(); document.getElementById('pp').textContent = wantPlay ? 'Pause' : 'Play'; };
+  document.getElementById('track').onclick = (e) => { const r = e.currentTarget.getBoundingClientRect(); audio.currentTime = (e.clientX - r.left) / r.width * dur; };
+  audio.onended = () => { wantPlay = false; document.getElementById('pp').textContent = 'Play'; log('ended'); };
+  window.seek = (t) => { audio.currentTime = t; };
+
+  log('waiting for the manifest…');
+  await refresh(); every(700, refresh);
+  requestAnimationFrame(frame);
+})();
+</script>
+</body></html>

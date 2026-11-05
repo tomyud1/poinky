@@ -36,9 +36,9 @@ Poinky is free and open source. It isn't notarized by Apple (that needs a paid d
 | Requirement | Details |
 |---|---|
 | **A Mac with macOS 26 or later** | Built and tested on Apple Silicon. Intel Macs on macOS 26 should work but are untested. A notch is optional (without one, Poinky lives in the menu bar). |
-| **Claude, one of:** | **Claude Code**, signed in, with a Claude Pro or Max plan ([get it](https://claude.com/claude-code)), **or** an **Anthropic API key** (pay per use; add it in Settings → Claude). Claude Code is needed for background agents ("go fix this in my project"). Everything else works with just an API key. |
+| **Claude, one of:** | **Claude Code**, signed in, with a Claude Pro or Max plan ([get it](https://claude.com/claude-code)), **or** an **Anthropic API key** (pay per use; add it in Settings → Claude). Claude Code is needed for background agents ("go fix this in my project") and video explainers. Everything else works with just an API key. |
 | **Internet** | Poinky talks to Claude. Your voice is turned into text on your Mac. |
-| **Apple's Command Line Tools** | Free, no Xcode needed. They bring Swift, git and python3, which build Poinky. The installer opens Apple's installer for you if they're missing (version 26 or newer). |
+| **Apple's Command Line Tools** | Free, no Xcode needed. They bring Swift, git and python3, which build Poinky (and make video explainers: no Chrome or Node needed). The installer opens Apple's installer for you if they're missing (version 26 or newer). |
 | **macOS permissions** | Microphone and Speech Recognition (click Allow), Screen Recording (switch on by hand, see below), Accessibility (only if you ask Poinky to click or type for you). |
 | **About 0.6 GB of disk** | ~0.16 GB for the natural voice, ~0.2 GB for the build, the rest for the source and the app. The Command Line Tools themselves are separate (~1 GB) if you don't have them. |
 
@@ -74,6 +74,7 @@ It removes the app and the source, and asks before deleting your settings, memor
 | Hold <kbd>⌃</kbd><kbd>⌥</kbd> and drag with the mouse | Circle what you mean |
 | Tap <kbd>⌃</kbd><kbd>⌥</kbd> | Stop it |
 | <kbd>⌃</kbd><kbd>⌥</kbd><kbd>Space</kbd> | Hands-free conversation |
+| Ask "make me a video about…" | A narrated animated explainer, drawn by code. It takes a few minutes (a helper makes it while you work) and opens full screen when it's ready: <kbd>Space</kbd> pause, <kbd>←</kbd> <kbd>→</kbd> sentence, <kbd>Esc</kbd> close, hold <kbd>⌃</kbd><kbd>⌥</kbd> to ask about it. Needs Claude Code and the natural voice. |
 
 **Private by design:** your voice is turned into text on your Mac, and screenshots go only to Claude, only when you ask. No accounts, no tracking. [More on privacy and safety →](docs/GUIDE.md#privacy)
 

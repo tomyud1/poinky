@@ -17,10 +17,10 @@ final class CallController: NSObject, NSMenuDelegate {
     private let listener = SpeechListener()
     private let speaker = Speaker()
     private let phonon = PhononVoice()      // stays loaded between calls so it starts instantly
-    private let overlay = Overlay()
+    let overlay = Overlay()
     private lazy var helperScreen = HelperScreen(overlay: overlay, agents: agents)   // helpers (agents) on screen
     private let home = NotchHome()            // the status + controls at the notch
-    private let agents = AgentManager()       // background Claude Code agents
+    let agents = AgentManager()       // background Claude Code agents
     private let helperWindows = HelperWindows()   // each helper's own window (its transcript and a box to type to it)
     private let typeBox = TypeBox()               // typing to Poinky instead of talking (⌃⌥T)
     private let away = AwayNotifier()             // away from the Mac: helpers' questions go to your phone (opt-in)
@@ -124,6 +124,15 @@ final class CallController: NSObject, NSMenuDelegate {
 
     private var state: State = .idle { didSet { updateUI() } }
 
+    // Video explainers (CallController+Video.swift).
+    let video = VideoState()
+    var pttDown: Bool { ptt.isDown || pushCommitted }
+    var callState: State { state }
+    var guideActive: Bool { guide != nil }
+    var handsFreeHearing: Bool { mode == .handsFree && state != .idle && !listener.currentText.isEmpty }
+    var soundsOn: Bool { config.sounds }
+    var soundsVolume: Double { Double(config.soundVolume) }
+
     // MARK: - Setup
 
     func setup() {
@@ -180,6 +189,11 @@ final class CallController: NSObject, NSMenuDelegate {
             return self.agents.resume(past, text: text, config: self.config)
         }
         helperScreen.onOpen = { [weak self] id in self?.helperWindows.show(id) }
+        helperScreen.onOtherAction = { [weak self] id, action in
+            if action == "stop", self?.video.job?.id == id { self?.cancelVideo(say: true) }
+        }
+        video.window.onWantClose = { [weak self] in self?.closeVideo() }
+        video.window.onClosed = { [weak self] job in self?.videoClosed(job) }
         typeBox.onSend = { [weak self] text, helper in self?.typed(text, helper: helper) }
         agents.onStarted = { [weak self] a in self?.helperScreen.started(a) }
         agents.onEvent = { [weak self] a, e in self?.helperScreen.event(a, e) }
@@ -486,6 +500,7 @@ final class CallController: NSObject, NSMenuDelegate {
 
     /// The talk keys went down: open the mic right away (so your first word isn't cut off).
     private func pushDown() {
+        videoKeysDown()   // a playing video pauses right away
         // In a hands-free call the mic is already on (⌥ still marks).
         guard !(mode == .handsFree && state != .idle) else { return }
         guard AVCaptureDevice.authorizationStatus(for: .audio) == .authorized else {
@@ -502,6 +517,13 @@ final class CallController: NSObject, NSMenuDelegate {
 
     /// A quick tap of the talk keys: stop Claude (nothing is sent).
     private func pushTap() {
+        // A video being made: a tap cancels it (holding to ask something else doesn't).
+        if video.job?.status == .cooking, !video.window.isOpen {
+            if state == .speaking || state == .thinking { turn += 1; speaker.stop(); stopLesson(); state = restingState }
+            cancelVideo(say: true)
+            playSound(.cancel)
+            return
+        }
         guard state != .idle, mode == .push else { return }
         // A walkthrough or "doing it for you" stops completely (not just the sentence).
         if guide != nil {
@@ -730,7 +752,7 @@ final class CallController: NSObject, NSMenuDelegate {
     }
 
     /// A short line now if a session is up, or in a quiet one.
-    private func sayWhenFree(_ line: String) {
+    func sayWhenFree(_ line: String) {
         if state == .idle {
             pendingLine = line
             startSession(.push)
@@ -949,6 +971,7 @@ final class CallController: NSObject, NSMenuDelegate {
             lines.append(agents.usageLine())
         }
         if let c = helperContext { lines.append(c); helperContext = nil }
+        lines.append(contentsOf: videoContext)
         if let h = agents.handsHolder, let a = agents.agents.first(where: { $0.id == h }) {
             lines.append("(\(a.name) is using the mouse and keyboard right now. Don't click or type for the user until it's done; if they ask you to, say \(a.name) is using them.)")
         }
@@ -1020,6 +1043,7 @@ final class CallController: NSObject, NSMenuDelegate {
                 overlay.setClaudeCaption("⚠️ Couldn't start the agent: background agents need Claude Code installed")
             }
         }
+        handleVideoTags(ev)
         if ev.end { endAfterSpeaking = true }
     }
 
@@ -1280,6 +1304,9 @@ final class CallController: NSObject, NSMenuDelegate {
         // "How do I…" / "where do I…" questions get a step-by-step guide instead.
         let howTo = ["how do i", "how can i", "how to ", "where do i", "where can i", "help me ", "walk me through", "show me how to"]
         if howTo.contains(where: { s.contains($0) }) { return false }
+        // A video or a long explanation: the talker decides (it may make a video instead of a sketch).
+        let long = ["video", "explainer", "long explanation", "in depth", "in-depth", "deep dive", "the whole story", "full story"]
+        if long.contains(where: { s.contains($0) }) { return false }
         let strong = ["explain", "how does", "how do ", "how is ", "how are", "how it works", "show me", "draw", "sketch",
                       "diagram", "in 3d", "3d model", "teach me", "visualize", "what's the difference",
                       "what is the difference", "compare"]
@@ -2021,7 +2048,7 @@ final class CallController: NSObject, NSMenuDelegate {
     /// A hold-to-talk session that hasn't been used for a while ends by itself (frees the Claude sessions).
     private func checkIdle() {
         guard mode == .push, state == .ready, guide == nil, !artistBusy, !ptt.isDown, agentReports.isEmpty, reportingIDs.isEmpty,
-              askingNow == nil else { return }
+              askingNow == nil, video.job == nil, !video.window.isOpen else { return }
         if ProcessInfo.processInfo.systemUptime - lastActivity > Self.idleTimeout { endCall(quietly: true) }
     }
 
