@@ -4,6 +4,9 @@ All notable changes to Poinky. The format follows [Keep a Changelog](https://kee
 
 ## [Unreleased]
 
+### Changed
+- The natural voice is now Phonon 31m (Gradium, Apache 2.0) instead of Kokoro. It starts speaking about 25 ms after a sentence arrives (Kokoro took about half a second), sentences follow each other without long gaps, interrupting stops it mid-word, and it's a 75 MB download instead of 350 MB. 25 English voices (US and UK); the default is Easton. If you had Kokoro, Poinky installs Phonon by itself in the background and removes Kokoro (Apple's voice speaks until it's ready). Settings → Voice → Install adds it for anyone who skipped it.
+
 ### Added
 - Helpers (background agents) get names (Mint, Coral, Violet…), live progress in plain words ("Reading tipsplit.py", "Running the tests"), their to-do lists, and a record of anything they weren't allowed to do. This is the groundwork for seeing them on screen.
 - You can send a working helper a follow-up; it folds it into its work.

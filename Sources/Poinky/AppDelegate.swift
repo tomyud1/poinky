@@ -46,7 +46,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         if let i = args.firstIndex(of: "--settings-shot"), i + 1 < args.count {
-            SettingsWindowController.shared.snapshotClaudeTab(to: args[i + 1])
+            SettingsWindowController.shared.snapshotTab(to: args[i + 1], voice: args.dropFirst(i + 2).first == "voice")
             return
         }
         if let i = args.firstIndex(of: "--helper-test"), i + 2 < args.count {

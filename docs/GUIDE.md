@@ -4,7 +4,7 @@ The full tour. For a quick start, see the [README](../README.md).
 
 ## Privacy
 
-- **Your voice stays on your Mac.** Speech-to-text is Apple's on-device engine; the voice (Kokoro or Apple) runs locally.
+- **Your voice stays on your Mac.** Speech-to-text is Apple's on-device engine; the voice (Phonon or Apple) runs locally.
 - **Screenshots and your transcribed question go to Claude** (through Claude Code or the Anthropic API), only when you ask something (and at each step while it's guiding you or acting for you). Nothing is captured in between.
 - **Password managers are never captured** (Passwords, Keychain, 1Password, Bitwarden, LastPass by default; add more in Settings → Privacy).
 - Memory, settings and agent logs are plain files in `~/Library/Application Support/Poinky/`.
@@ -92,7 +92,7 @@ Tip: in busy feeds (X, Instagram), circle the post first with ⌥-drag so the gu
 
 - macOS asks for **Microphone** and **Speech Recognition**. **Screen Recording** is turned on by hand in System Settings → Privacy & Security → Screen & System Audio Recording, then quit and reopen Poinky.
 - The first session may download Apple's speech model (one time).
-- **Voice:** Poinky speaks with **Kokoro**, a free neural voice that runs on your Mac (English). Pick a voice in Settings → Voice (each has a ▶ preview). For other languages it uses Apple's voice from System Settings → Accessibility → **Read & Speak** → System voice.
+- **Voice:** Poinky speaks with **Phonon** (Gradium's Phonon 31m), a free neural voice that runs on your Mac, offline (English, 25 voices). Pick a voice in Settings → Voice (▶ plays a preview). If it isn't installed, Settings → Voice → Install adds it (about 75 MB). For other languages it uses Apple's voice from System Settings → Accessibility → **Read & Speak** → System voice.
 
 Poinky is signed with a local certificate ("Poinky Local Signing", created by `build.sh` the first time) or your Apple Development certificate, so macOS keeps the permissions across updates and rebuilds.
 
@@ -108,13 +108,13 @@ Poinky is signed with a local certificate ("Poinky Local Signing", created by `b
           ▼                        ▼
    TALKER (Haiku, ~1.5 s)    TEACHER (Sonnet, streams in parallel)
    answers or hands over     writes a storyboard: <say> line, <step> drawing, <say>, <step>…
-   in one line, marks the    each line is spoken (Kokoro) and its step is drawn by the
+   in one line, marks the    each line is spoken (Phonon) and its step is drawn by the
    screen instantly          yellow pen at the same moment; or builds a 3D model
 ```
 
 - **Listening:** Apple's newer on-device speech engine. The mic uses the same voice processing as FaceTime (echo cancellation, noise suppression, auto gain), so you don't need to raise your voice, and Claude's own voice is removed from the mic so you can interrupt it.
-- **Speaking:** Kokoro, a free neural voice, runs locally in a small helper that stays loaded (`kokoro/kokoro_server.py`), ~0.5 s per sentence. The first sentence starts playing while the rest is still being written, and each next sentence is made while the current one plays. If Kokoro fails, Apple's voice takes over.
-- **Installing Kokoro:** The main installer runs `kokoro/install.sh`, which sets up a private Python environment (installing [uv](https://docs.astral.sh/uv/) into the settings folder if you don't have it) and downloads the model (~330 MB, checksum-verified) into the settings folder. It starts the helper once to check it works. Run it again any time; it only adds what's missing.
+- **Speaking:** Phonon 31m runs locally in a small helper that stays loaded (`phonon/phonon_server.py`, Phonon's Rust engine through its `ptts` package, 8-bit weights on the performance cores). It streams each sentence in chunks as it's made, so the voice starts about 25 ms after a sentence arrives (Kokoro took about half a second), at roughly 35× real time. The silence Phonon puts around each sentence is trimmed as it streams, so sentences follow each other with a natural pause. Interrupting stops it mid-sentence. If it fails, Apple's voice takes over.
+- **Installing Phonon:** The main installer runs `phonon/install.sh` (the app can run it too: Settings → Voice → Install, and it runs by itself for people updating from the old Kokoro voice, which it then removes). It sets up a private Python environment with uv's own Python (installing [uv](https://docs.astral.sh/uv/) into the settings folder if you don't have it), installs the pinned runtime (`ptts==0.6.0`), and downloads the model and 25 voices from Hugging Face at pinned revisions (~75 MB, every file checked against its SHA-256). It makes the helper speak once to check it works. Run it again any time; it only fixes what's missing or damaged.
 - **Two Claude sessions** stay open for the whole call, so each question skips the startup cost.
 - **Cards** run inside sandboxed frames with no network access. If a 3D model's code crashes, the error goes back to the artist, which fixes it once automatically.
 
@@ -131,10 +131,10 @@ Poinky is signed with a local certificate ("Poinky Local Signing", created by `b
 | `apiModel` / `apiArtistModel` | `claude-haiku-5-5` / `claude-sonnet-5-5` | The same two roles for the API brain |
 | `apiKey` | | Anthropic API key (API brain only) |
 | `language` | `en-US` | e.g. `he-IL` for Hebrew (uses Apple's dictation engine). Claude replies in the language you speak. |
-| `voiceEngine` | `kokoro` | `kokoro` (free local neural voice) or `apple` |
-| `kokoroVoice` | `am_michael` | Kokoro voice: `am_` American male, `af_` American female, `bm_`/`bf_` British. E.g. `am_adam`, `bm_george`, `af_heart`. |
-| `kokoroSpeed` | `1.0` | Kokoro speaking speed (0.5–2) |
-| `voice` | your System voice | Apple voice name (used for non-English, or if Kokoro is off) |
+| `voiceEngine` | `phonon` | `phonon` (free local neural voice) or `apple` |
+| `phononVoice` | `Easton` | US: Easton, Micah, Trevor, Russell, Preston, Miles (male), Zoey, Juniper, Everly, Harper, Hadley, Delia (female). UK: Alfie, Hugh, Edwin, Spencer, Toby, Teddy (male), Maeve, Freya, Pippa, Elodie-Rose, Imogen, Lottie, Bryony (female). |
+| `voiceSpeed` | `1.0` | Natural voice speed (0.86–1.24; Phonon's speed control is reliable in that range) |
+| `voice` | your System voice | Apple voice name (used for non-English, or if the natural voice is off) |
 | `speechRate` | `0.53` | Apple voice speed, 0–1 |
 | `pushToTalk` | `ctrl+option` | Keys to hold while talking: `ctrl+option`, `ctrl+shift`, `option+cmd`, or `off` |
 | `buddy` | `true` | The buddy at your cursor (captions appear next to it instead of at the bottom) |
@@ -185,7 +185,7 @@ The 3D kit (`web/kit.js`) gives the artist simple building blocks on top of thre
 | `Speaker.swift` | Sentence-by-sentence voice through the shared engine |
 | `Brain.swift` | The swappable `Brain` protocol and the reply parsers |
 | `ClaudeCodeBrain.swift` / `APIBrain.swift` | The two brain types |
-| `KokoroVoice.swift` + `kokoro/` | The local neural voice helper and its installer |
+| `PhononVoice.swift` + `phonon/` | The local neural voice (helper process, streaming, in-app installer) and its install script |
 | `VoiceActivity.swift` | Real silence detection from the mic level |
 | `ScreenCapture.swift` | Screenshot with your marks, sized so Claude's coordinates line up |
 | `Overlay.swift` + `web/overlay.html` | The click-through window, hand-drawn marks and cards |

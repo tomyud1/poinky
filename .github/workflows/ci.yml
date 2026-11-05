@@ -14,8 +14,8 @@ jobs:
 
       - name: Check the scripts
         run: |
-          for f in install.sh build.sh kokoro/install.sh tools/test-helpers.sh; do bash -n "$f"; done
-          python3 -m py_compile kokoro/kokoro_server.py tools/fake-helper.py
+          for f in install.sh build.sh phonon/install.sh tools/test-helpers.sh; do bash -n "$f"; done
+          python3 -m py_compile phonon/phonon_server.py tools/fake-helper.py
           node --check web/lesson.js
           node --check web/buddy.js
           node --check web/kit.js
@@ -34,8 +34,8 @@ jobs:
           APP=build/Poinky.app
           codesign --verify --verbose "$APP"
           for f in Contents/MacOS/Poinky Contents/Info.plist Contents/Resources/web/libs.js Contents/Resources/web/helpers.js Contents/Resources/web/helpers-app.js Contents/Resources/web/sounds.js \
-                   Contents/Resources/talker-prompt.md Contents/Resources/kokoro_server.py \
-                   Contents/Resources/kokoro/install.sh; do
+                   Contents/Resources/talker-prompt.md Contents/Resources/phonon_server.py \
+                   Contents/Resources/phonon/install.sh Contents/Resources/phonon/phonon_server.py; do
             test -s "$APP/$f" || { echo "missing from the app: $f"; exit 1; }
           done
 

@@ -40,9 +40,9 @@ Poinky is free and open source. It isn't notarized by Apple (that needs a paid d
 | **Internet** | Poinky talks to Claude. Your voice is turned into text on your Mac. |
 | **Apple's Command Line Tools** | Free, no Xcode needed. They bring Swift, git and python3, which build Poinky. The installer opens Apple's installer for you if they're missing (version 26 or newer). |
 | **macOS permissions** | Microphone and Speech Recognition (click Allow), Screen Recording (switch on by hand, see below), Accessibility (only if you ask Poinky to click or type for you). |
-| **About 1 GB of disk** | ~0.5 GB for the natural voice, ~0.2 GB for the build, the rest for the source and the app. The Command Line Tools themselves are separate (~1 GB) if you don't have them. |
+| **About 0.6 GB of disk** | ~0.16 GB for the natural voice, ~0.2 GB for the build, the rest for the source and the app. The Command Line Tools themselves are separate (~1 GB) if you don't have them. |
 
-The installer sets up everything else for you, in `~/Library/Application Support/Poinky`: the **natural voice** ([Kokoro](https://github.com/thewh1teagle/kokoro-onnx), runs on your Mac, English) with its own private Python (installed through [uv](https://docs.astral.sh/uv/)), plus Poinky's settings and memory. Nothing is installed system-wide, and uninstalling removes it all. It also offers to install Claude Code if you don't have it.
+The installer sets up everything else for you, in `~/Library/Application Support/Poinky`: the **natural voice** ([Phonon 31m](https://huggingface.co/gradium/phonon-31m-en) by Gradium, runs on your Mac, English, Apache 2.0) with its own private Python (installed through [uv](https://docs.astral.sh/uv/)), plus Poinky's settings and memory. Nothing is installed system-wide, and uninstalling removes it all. It also offers to install Claude Code if you don't have it.
 
 ### First run
 

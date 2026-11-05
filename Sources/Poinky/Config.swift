@@ -28,9 +28,9 @@ struct AppConfig: Codable {
     var language = "en-US"         // speech recognition + voice language, e.g. "he-IL"
     var voice = ""                 // voice name or identifier; empty = best installed voice
     var speechRate: Float = 0.53   // 0.0 – 1.0 (Apple voices)
-    var voiceEngine = "kokoro"     // "kokoro" (free local neural voice) or "apple"
-    var kokoroVoice = "am_michael" // e.g. am_michael, am_adam, bm_george, af_heart, af_bella, bf_emma
-    var kokoroSpeed = 1.0          // 0.5 – 2.0
+    var voiceEngine = "phonon"     // "phonon" (free local neural voice) or "apple"
+    var phononVoice = PhononVoice.defaultVoice   // e.g. Easton, Miles, Harper, Hugh, Maeve (PhononVoice.voices)
+    var voiceSpeed = 1.0           // natural voice speed, 0.86 – 1.24
     var silenceSeconds = 1.0       // seconds of real silence that end your question
     var hotkey = "ctrl+option+space"   // starts / ends a hands-free call
     var pushToTalk = "ctrl+option"     // hold to talk, let go to send ("off" to turn it off)
@@ -58,6 +58,9 @@ struct AppConfig: Codable {
 
     init() {}
 
+    /// Settings from older versions, read once and then written under their new names.
+    private enum LegacyKeys: String, CodingKey { case kokoroSpeed }
+
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         let d = AppConfig()
@@ -82,8 +85,12 @@ struct AppConfig: Codable {
         voice = try c.decodeIfPresent(String.self, forKey: .voice) ?? d.voice
         speechRate = try c.decodeIfPresent(Float.self, forKey: .speechRate) ?? d.speechRate
         voiceEngine = try c.decodeIfPresent(String.self, forKey: .voiceEngine) ?? d.voiceEngine
-        kokoroVoice = try c.decodeIfPresent(String.self, forKey: .kokoroVoice) ?? d.kokoroVoice
-        kokoroSpeed = try c.decodeIfPresent(Double.self, forKey: .kokoroSpeed) ?? d.kokoroSpeed
+        if voiceEngine == "kokoro" { voiceEngine = "phonon" }   // Phonon replaced Kokoro
+        phononVoice = (try c.decodeIfPresent(String.self, forKey: .phononVoice)).flatMap(PhononVoice.voiceName) ?? d.phononVoice
+        let legacy = try decoder.container(keyedBy: LegacyKeys.self)
+        let speed = try c.decodeIfPresent(Double.self, forKey: .voiceSpeed)
+            ?? legacy.decodeIfPresent(Double.self, forKey: .kokoroSpeed) ?? d.voiceSpeed
+        voiceSpeed = min(PhononVoice.speedRange.upperBound, max(PhononVoice.speedRange.lowerBound, speed))
         silenceSeconds = try c.decodeIfPresent(Double.self, forKey: .silenceSeconds) ?? d.silenceSeconds
         hotkey = try c.decodeIfPresent(String.self, forKey: .hotkey) ?? d.hotkey
         pushToTalk = try c.decodeIfPresent(String.self, forKey: .pushToTalk) ?? d.pushToTalk

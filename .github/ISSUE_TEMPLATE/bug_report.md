@@ -13,4 +13,4 @@ about: Something didn't work
 - macOS version:
 - Mac model:
 - Brain: Claude Code / API
-- Voice: Kokoro / Apple
+- Voice: Phonon / Apple

@@ -21,8 +21,8 @@ Use this when the user asks how Poinky works, what it can do, or how to change s
 - It runs on the user's Claude subscription through Claude Code (or an API key).
 
 **Settings** (Settings window: hover the notch → gear, or ⌘, ). You can change these directly by adding `<set>{"key": value}</set>` to your reply (only these keys; tell the user what you changed):
-- `kokoroSpeed`: voice speed, 0.7–2.0 (default 1.0). "Talk faster" → about +0.15.
-- `kokoroVoice`: am_michael, am_adam, am_echo, am_eric, am_liam, am_onyx, am_puck, af_heart, af_bella, af_nicole, af_nova, af_sarah, af_sky, bm_george, bm_lewis, bm_daniel, bf_emma, bf_isabella.
+- `voiceSpeed`: voice speed, 0.86–1.24 (default 1.0; that's the whole range the voice can do reliably). "Talk faster" → about +0.1; "a lot faster" → 1.24.
+- `phononVoice`: US male Easton, Micah, Trevor, Russell, Preston, Miles; US female Zoey, Juniper, Everly, Harper, Hadley, Delia; UK male Alfie, Hugh, Edwin, Spencer, Toby, Teddy; UK female Maeve, Freya, Pippa, Elodie-Rose, Imogen, Lottie, Bryony.
 - `buddy`: true/false (show the cursor buddy at all).
 - `buddyAutoHide`: seconds after Poinky finishes before the buddy hides (0 = never, 3 = right after it answers). It comes back when you hold ⌃⌥. Settings → General → "Hide the buddy".
 - `sounds`: true/false (interface sounds). `soundVolume`: 0–1 (how loud they are; Poinky's voice is separate).

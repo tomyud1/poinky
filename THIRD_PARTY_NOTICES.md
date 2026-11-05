@@ -10,15 +10,17 @@ Poinky is MIT licensed (see [LICENSE](LICENSE)). It includes or downloads the fo
 
 ## Downloaded by the installer (not stored in this repository)
 
-The natural voice is installed on your Mac by `kokoro/install.sh`. Poinky only talks to it through a local helper process.
+The natural voice is installed on your Mac by `phonon/install.sh`. Poinky only talks to it through a local helper process.
 
 | Component | Source | License |
 |---|---|---|
-| [Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M) model, as ONNX files | [kokoro-onnx releases](https://github.com/thewh1teagle/kokoro-onnx/releases) | Apache-2.0 |
-| [kokoro-onnx](https://github.com/thewh1teagle/kokoro-onnx) | PyPI | MIT |
-| [onnxruntime](https://github.com/microsoft/onnxruntime), numpy and other Python dependencies | PyPI | MIT / BSD (see each package) |
-| [espeakng-loader](https://github.com/thewh1teagle/espeakng-loader) and [phonemizer](https://github.com/bootphon/phonemizer) (use eSpeak NG for pronunciation) | PyPI | espeak-ng is GPL-3.0-or-later; run as a separate local process, not linked into Poinky |
+| [Phonon 31m](https://huggingface.co/gradium/phonon-31m-en) model (weights, tokenizer, default voice) by Gradium | Hugging Face, `gradium/phonon-31m-en` | Apache-2.0 |
+| Voices from the [Phonon voice catalog](https://huggingface.co/gradium/phonon-voices) (25 English voices) | Hugging Face, `gradium/phonon-voices` | Apache-2.0 |
+| [ptts](https://github.com/gradium-ai/xn-ptts), Phonon's Rust runtime (Python package) | PyPI | MIT or Apache-2.0 |
+| numpy | PyPI | BSD-3-Clause |
 | [uv](https://github.com/astral-sh/uv) and the Python it installs | astral.sh | MIT or Apache-2.0 / PSF |
+
+Phonon builds on Kyutai's Pocket TTS and Mimi codec. Gradium asks that it not be used to impersonate a real person or to clone a voice without the speaker's consent; Poinky does neither.
 
 ## Services
 

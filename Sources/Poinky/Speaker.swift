@@ -57,7 +57,7 @@ final class Speaker {
         return (voice?.quality ?? .default) != .default
     }
 
-    var voiceName: String { usingKokoro ? "Kokoro \(kokoroVoice)" : (voice?.name ?? "default") }
+    var voiceName: String { usingPhonon ? "Phonon \(phononVoice)" : (voice?.name ?? "default") }
 
     /// Reads the "System voice" chosen in Accessibility → Read & Speak for this language.
     /// macOS stores it as [language, {voiceId: …}, language, {…}, …].
@@ -128,36 +128,71 @@ final class Speaker {
         turnOpen = false
         turnActive = false
         synth.stopSpeaking(at: .immediate)
-        kokoro?.cancelPending()
+        phonon?.cancelPending()
         audio?.player.stop()
     }
 
     // The free local neural voice. When it's running it's used; Apple's voice is the fallback.
-    var kokoro: KokoroVoice?
-    var kokoroVoice = "am_michael"
-    var kokoroSpeed = 1.0
-    var usingKokoro: Bool { kokoro?.isRunning == true }
+    var phonon: PhononVoice?
+    var phononVoice = PhononVoice.defaultVoice
+    var voiceSpeed = 1.0
+    var usingPhonon: Bool { phonon?.isRunning == true }
+    /// Audio held back before a sentence starts playing, so a busy moment on the main thread
+    /// can't leave a gap mid-word. Phonon makes this much in a few milliseconds.
+    private static let prebuffer = 0.1
 
     private func pump() {
         guard turnActive, !synthesizing, !queue.isEmpty else { checkDone(); return }
         let (text, tag) = queue.removeFirst()
         synthesizing = true
         let gen = generation
-        if let k = kokoro, k.isRunning {
-            k.synthesize(text, voice: kokoroVoice, speed: kokoroSpeed) { [weak self] pcm in
-                guard let self, gen == self.generation else { return }
-                if let pcm {
-                    self.schedule(pcm, gen: gen, wholeSentence: true, text: text, tag: tag)
-                    self.synthesizing = false
-                    self.pump()          // make the next sentence while this one plays
-                } else {
-                    self.speakWithApple(text, tag: tag, gen: gen)
-                }
-            }
+        if let p = phonon, p.isRunning {
+            speakWithPhonon(p, text, tag: tag, gen: gen)
             return
         }
         speakWithApple(text, tag: tag, gen: gen)
     }
+
+    /// Streams the sentence: chunks are played as they're generated, starting once a little is
+    /// buffered. The next sentence is asked for as soon as this one is generated, while it plays.
+    private func speakWithPhonon(_ p: PhononVoice, _ text: String, tag: Int?, gen: Int) {
+        var waiting: [AVAudioPCMBuffer] = []
+        var waitingSeconds = 0.0
+        var started = false
+        let play: (AVAudioPCMBuffer) -> Void = { [weak self] buf in
+            guard let self else { return }
+            self.schedule(buf, gen: gen, wholeSentence: false, text: started ? nil : text, tag: tag)
+            started = true
+        }
+        p.speak(text, voice: phononVoice, speed: voiceSpeed, onChunk: { [weak self] buf in
+            guard let self, gen == self.generation else { return }
+            if started { play(buf); return }
+            waiting.append(buf)
+            waitingSeconds += Double(buf.frameLength) / buf.format.sampleRate
+            if waitingSeconds >= Self.prebuffer {
+                waiting.forEach(play)
+                waiting.removeAll()
+            }
+        }, onEnd: { [weak self] ok in
+            guard let self, gen == self.generation else { return }
+            waiting.forEach(play)
+            waiting.removeAll()
+            if !started {
+                if !ok { self.speakWithApple(text, tag: tag, gen: gen) } else { self.synthesizing = false; self.pump() }
+                return
+            }
+            // A few milliseconds of silence close the sentence: it flushes the resampler's tail and
+            // marks where the sentence ends, for the captions.
+            if let tail = AVAudioPCMBuffer(pcmFormat: self.format24k, frameCapacity: 240), let d = tail.floatChannelData?[0] {
+                d.initialize(repeating: 0, count: 240)
+                tail.frameLength = 240
+                self.schedule(tail, gen: gen, wholeSentence: true)
+            }
+            self.synthesizing = false
+            self.pump()          // make the next sentence while this one plays
+        })
+    }
+    private let format24k = AVAudioFormat(standardFormatWithSampleRate: PhononVoice.sampleRate, channels: 1)!
 
     private func speakWithApple(_ text: String, tag: Int?, gen: Int) {
         appleCaption = (text, tag)
@@ -223,7 +258,7 @@ final class Speaker {
         }
         guard let conv = converter else { return nil }
         let ratio = format.sampleRate / buffer.format.sampleRate
-        let capacity = AVAudioFrameCount(Double(buffer.frameLength) * ratio + 64)
+        let capacity = AVAudioFrameCount(Double(buffer.frameLength) * ratio + 512)
         guard let out = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: capacity) else { return nil }
         var consumed = false
         var error: NSError?

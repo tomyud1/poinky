@@ -16,7 +16,7 @@ final class CallController: NSObject, NSMenuDelegate {
     private let audio = AudioIO()
     private let listener = SpeechListener()
     private let speaker = Speaker()
-    private let kokoro = KokoroVoice()      // stays loaded between calls so it starts instantly
+    private let phonon = PhononVoice()      // stays loaded between calls so it starts instantly
     private let overlay = Overlay()
     private lazy var helperScreen = HelperScreen(overlay: overlay, agents: agents)   // helpers (agents) on screen
     private let home = NotchHome()            // the status + controls at the notch
@@ -195,10 +195,15 @@ final class CallController: NSObject, NSMenuDelegate {
         ScreenCapture.excludedBundleIDs = Set(config.excludedApps)
         let settings = SettingsWindowController.shared.model
         settings.onSaved = { [weak self] cfg in self?.settingsChanged(cfg) }
-        settings.previewKokoro = { [weak self] voice, speed in self?.previewKokoro(voice: voice, speed: speed) }
+        settings.previewVoice = { [weak self] voice, speed in self?.previewVoice(voice: voice, speed: speed) }
         // Load the local voice in the background now, so the first call doesn't wait for it.
-        if config.voiceEngine == "kokoro", config.language.lowercased().hasPrefix("en"), KokoroVoice.isInstalled {
-            try? kokoro.start()
+        if wantsPhonon(config) { try? phonon.start() }
+        PhononInstaller.shared.onInstalled = { [weak self] in self?.voiceInstalled() }
+        // Updating from the old Kokoro voice: it's replaced by Phonon, which installs itself in the
+        // background (~75 MB; Apple's voice speaks until it's ready).
+        if config.voiceEngine == "phonon", !PhononVoice.isInstalled,
+           FileManager.default.fileExists(atPath: PhononVoice.oldKokoroDir.path) {
+            PhononInstaller.shared.start()
         }
         let menu = NSMenu()
         menu.delegate = self
@@ -302,13 +307,13 @@ final class CallController: NSObject, NSMenuDelegate {
             config = AppConfig.load()
             goodVoice = speaker.configure(language: config.language, voiceName: config.voice, rate: config.speechRate)
             // The free local neural voice (English only); Apple's voice is the fallback.
-            speaker.kokoro = nil
-            if config.voiceEngine == "kokoro", config.language.lowercased().hasPrefix("en"), KokoroVoice.isInstalled {
+            speaker.phonon = nil
+            if wantsPhonon(config) {
                 do {
-                    try kokoro.start()
-                    speaker.kokoro = kokoro
-                    speaker.kokoroVoice = config.kokoroVoice
-                    speaker.kokoroSpeed = config.kokoroSpeed
+                    try phonon.start()
+                    speaker.phonon = phonon
+                    speaker.phononVoice = config.phononVoice
+                    speaker.voiceSpeed = config.voiceSpeed
                     goodVoice = true
                 } catch {
                     NSLog("Poinky: local voice failed to start: \(error.localizedDescription)")
@@ -1683,8 +1688,10 @@ final class CallController: NSObject, NSMenuDelegate {
         var cfg = AppConfig.load()
         func num(_ k: String) -> Double? { (obj[k] as? NSNumber)?.doubleValue }
         func flag(_ k: String) -> Bool? { obj[k] as? Bool }
-        if let v = num("kokoroSpeed") { cfg.kokoroSpeed = min(2, max(0.7, v)) }
-        if let v = obj["kokoroVoice"] as? String, v.range(of: #"^[ab][mf]_[a-z]+$"#, options: .regularExpression) != nil { cfg.kokoroVoice = v }
+        if let v = num("voiceSpeed") ?? num("kokoroSpeed") {
+            cfg.voiceSpeed = min(PhononVoice.speedRange.upperBound, max(PhononVoice.speedRange.lowerBound, v))
+        }
+        if let v = (obj["phononVoice"] ?? obj["voice"]) as? String, let name = PhononVoice.voiceName(v) { cfg.phononVoice = name }
         if let v = flag("buddy") { cfg.buddy = v }
         if let v = num("buddyAutoHide") { cfg.buddyAutoHide = max(0, min(3600, v)) }
         if let v = flag("sounds") { cfg.sounds = v }
@@ -1704,7 +1711,7 @@ final class CallController: NSObject, NSMenuDelegate {
 
     private func settingsSummary() -> String {
         let c = config
-        return "voice \(c.kokoroVoice) at speed \(String(format: "%.2f", c.kokoroSpeed)) (engine \(c.voiceEngine)); buddy \(c.buddy ? "on" : "off")"
+        return "voice \(c.phononVoice) at speed \(String(format: "%.2f", c.voiceSpeed)) (engine \(c.voiceEngine)\(c.voiceEngine == "phonon" && !PhononVoice.isInstalled ? ", not installed yet: Apple's voice is speaking" : "")); buddy \(c.buddy ? "on" : "off")"
             + (c.buddyAutoHide > 0 ? ", auto-hides after \(Int(c.buddyAutoHide)) s" : "") + "; sounds \(c.sounds ? "on at \(Int((c.soundVolume * 100).rounded()))% volume" : "off")"
             + "; teacher \(c.artistEnabled ? "on" : "off"); hold to talk \(PushToTalk.displayString(c.pushToTalk))"
             + "; hands-free call \(HotKey.displayString(c.hotkey)); hide buddy \(HotKey.displayString(c.buddyHotkey)); type instead of talking \(HotKey.displayString(c.typeHotkey))"
@@ -2131,25 +2138,24 @@ final class CallController: NSObject, NSMenuDelegate {
         overlay.setBuddy(cfg.buddy)
         helperScreen.settings(cfg)
         refreshHomeLabels()
-        if cfg.voiceEngine == "kokoro", KokoroVoice.isInstalled { try? kokoro.start() }
+        if wantsPhonon(cfg) { try? phonon.start() } else { phonon.stop() }
         // Voice changes apply right away, even in the middle of a call.
-        speaker.kokoroVoice = cfg.kokoroVoice
-        speaker.kokoroSpeed = cfg.kokoroSpeed
+        speaker.phononVoice = cfg.phononVoice
+        speaker.voiceSpeed = cfg.voiceSpeed
         speaker.configure(language: cfg.language, voiceName: cfg.voice, rate: cfg.speechRate)
         listener.silenceSeconds = cfg.silenceSeconds
         if state != .idle {
-            let useKokoro = cfg.voiceEngine == "kokoro" && cfg.language.lowercased().hasPrefix("en") && KokoroVoice.isInstalled
-            speaker.kokoro = useKokoro ? kokoro : nil
+            speaker.phonon = wantsPhonon(cfg) ? phonon : nil
         }
     }
 
     private var previewPlayer: AVAudioPlayer?
 
     /// Plays a short sample in the chosen natural voice (Settings → Voice → ▶).
-    private func previewKokoro(voice: String, speed: Double) {
-        guard KokoroVoice.isInstalled else { return }
-        try? kokoro.start()
-        kokoro.synthesize("Hi! This is how I'll sound when I explain things.", voice: voice, speed: speed) { [weak self] pcm in
+    private func previewVoice(voice: String, speed: Double) {
+        guard PhononVoice.isInstalled else { return }
+        try? phonon.start()
+        phonon.synthesize("Hi! This is how I'll sound when I explain things.", voice: voice, speed: speed) { [weak self] pcm in
             guard let self, let pcm else { return }
             let url = FileManager.default.temporaryDirectory.appendingPathComponent("poinky-preview.caf")
             try? FileManager.default.removeItem(at: url)
@@ -2159,6 +2165,23 @@ final class CallController: NSObject, NSMenuDelegate {
             } catch { return }
             self.previewPlayer = try? AVAudioPlayer(contentsOf: url)
             self.previewPlayer?.play()
+        }
+    }
+
+    /// The natural voice speaks English; other languages use Apple's voice.
+    private func wantsPhonon(_ cfg: AppConfig) -> Bool {
+        cfg.voiceEngine == "phonon" && cfg.language.lowercased().hasPrefix("en") && PhononVoice.isInstalled
+    }
+
+    /// The voice finished installing (Settings, or the update from Kokoro): use it from the next sentence.
+    private func voiceInstalled() {
+        config = AppConfig.load()
+        guard wantsPhonon(config) else { return }
+        try? phonon.start()
+        if state != .idle {
+            speaker.phonon = phonon
+            speaker.phononVoice = config.phononVoice
+            speaker.voiceSpeed = config.voiceSpeed
         }
     }
 

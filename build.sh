@@ -31,10 +31,12 @@ cp .build/release/Poinky "$APP/Contents/MacOS/Poinky"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
 cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 cp prompts/talker-prompt.md prompts/artist-prompt.md prompts/guide-prompt.md prompts/doer-prompt.md prompts/poinky-manual.md "$APP/Contents/Resources/"
-# The voice helper and its installer travel with the app, so the app can tell you exactly what to run.
-mkdir -p "$APP/Contents/Resources/kokoro"
-cp kokoro/kokoro_server.py kokoro/install.sh "$APP/Contents/Resources/kokoro/"
-cp kokoro/kokoro_server.py "$APP/Contents/Resources/"
+# The voice helper and its installer travel with the app, so the app can install the voice itself
+# (Settings → Voice → Install, or automatically when updating from the old Kokoro voice).
+mkdir -p "$APP/Contents/Resources/phonon"
+cp phonon/phonon_server.py phonon/install.sh "$APP/Contents/Resources/phonon/"
+chmod +x "$APP/Contents/Resources/phonon/install.sh"
+cp phonon/phonon_server.py "$APP/Contents/Resources/"
 
 # Overlay page + 3D engine. libs.js packs three.js and the kit as text, so cards can
 # run them inside sandboxed frames that have no network access.

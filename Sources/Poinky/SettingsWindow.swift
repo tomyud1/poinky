@@ -14,7 +14,7 @@ final class SettingsModel: ObservableObject {
     /// What happened when you sent a test notification to your phone.
     @Published var awayTestResult: String?
     /// Plays a sample with the local voice (provided by the app, which owns the voice helper).
-    var previewKokoro: ((String, Double) -> Void)?
+    var previewVoice: ((String, Double) -> Void)?
 
     private var loading = false
     private var saveWork: DispatchWorkItem?
@@ -132,11 +132,12 @@ final class SettingsWindowController {
         window?.makeKeyAndOrderFront(nil)
     }
 
-    /// Developer check (`--settings-shot <out.png>`): a picture of the Claude tab, then quit.
-    func snapshotClaudeTab(to out: String) {
+    /// Developer check (`--settings-shot <out.png> [voice]`): a picture of the Claude (or Voice) tab, then quit.
+    func snapshotTab(to out: String, voice: Bool = false) {
         model.reload()
-        let host = NSHostingView(rootView: ClaudeTab(model: model).frame(width: 620, height: 900))
-        let w = NSWindow(contentRect: CGRect(x: -3000, y: 0, width: 620, height: 900), styleMask: [.borderless], backing: .buffered, defer: false)
+        let tab = voice ? AnyView(VoiceTab(model: model)) : AnyView(ClaudeTab(model: model))
+        let host = NSHostingView(rootView: tab.frame(width: 620, height: voice ? 560 : 900))
+        let w = NSWindow(contentRect: CGRect(x: -3000, y: 0, width: 620, height: voice ? 560 : 900), styleMask: [.borderless], backing: .buffered, defer: false)
         w.contentView = host
         w.orderFrontRegardless()
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
@@ -250,53 +251,39 @@ private let pushOptions: [(String, String)] = [
     ("⌥⌘  Option + Command", "option+cmd"), ("Off", "off"),
 ]
 
-private let kokoroVoices: [(String, String)] = [
-    ("Michael · US male", "am_michael"), ("Adam · US male", "am_adam"), ("Echo · US male", "am_echo"),
-    ("Eric · US male", "am_eric"), ("Liam · US male", "am_liam"), ("Onyx · US male", "am_onyx"),
-    ("Puck · US male", "am_puck"), ("Fenrir · US male", "am_fenrir"),
-    ("Heart · US female", "af_heart"), ("Bella · US female", "af_bella"), ("Nicole · US female", "af_nicole"),
-    ("Nova · US female", "af_nova"), ("Sarah · US female", "af_sarah"), ("Sky · US female", "af_sky"),
-    ("Jessica · US female", "af_jessica"), ("River · US female", "af_river"),
-    ("George · UK male", "bm_george"), ("Lewis · UK male", "bm_lewis"), ("Daniel · UK male", "bm_daniel"),
-    ("Fable · UK male", "bm_fable"), ("Emma · UK female", "bf_emma"), ("Isabella · UK female", "bf_isabella"),
-    ("Alice · UK female", "bf_alice"), ("Lily · UK female", "bf_lily"),
-]
-
 private struct VoiceTab: View {
     @ObservedObject var model: SettingsModel
+    @ObservedObject var installer = PhononInstaller.shared
     var body: some View {
         Form {
             Section {
                 Picker("Voice engine", selection: $model.config.voiceEngine) {
-                    Text("Natural (Kokoro, on this Mac)").tag("kokoro")
+                    Text("Natural (Phonon, on this Mac)").tag("phonon")
                     Text("Apple voices").tag("apple")
                 }
                 .pickerStyle(.radioGroup)
-                if model.config.voiceEngine == "kokoro" && !model.config.language.lowercased().hasPrefix("en") {
+                if model.config.voiceEngine == "phonon" && !model.config.language.lowercased().hasPrefix("en") {
                     Text("The natural voice speaks English only. For other languages, Apple's voice is used.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }
-            if model.config.voiceEngine == "kokoro" {
+            if model.config.voiceEngine == "phonon" {
                 Section("Natural voice") {
-                    if KokoroVoice.isInstalled {
+                    if PhononVoice.isInstalled {
                         HStack {
-                            Picker("Voice", selection: $model.config.kokoroVoice) {
-                                ForEach(kokoroVoices, id: \.1) { Text($0.0).tag($0.1) }
+                            Picker("Voice", selection: $model.config.phononVoice) {
+                                ForEach(PhononVoice.voices, id: \.name) { Text($0.label).tag($0.name) }
                             }
-                            Button { model.previewKokoro?(model.config.kokoroVoice, model.config.kokoroSpeed) } label: {
+                            Button { model.previewVoice?(model.config.phononVoice, model.config.voiceSpeed) } label: {
                                 Image(systemName: "play.fill")
                             }
                             .help("Hear this voice")
                         }
-                        Slider(value: $model.config.kokoroSpeed, in: 0.7...2.0, step: 0.05) {
-                            Text("Speed  \(model.config.kokoroSpeed, specifier: "%.2f")×")
+                        Slider(value: $model.config.voiceSpeed, in: PhononVoice.speedRange, step: 0.02) {
+                            Text("Speed  \(model.config.voiceSpeed, specifier: "%.2f")×")
                         }
-                        Text("1.25 is only a little faster; try 1.4–1.5 for a clearly quicker voice.")
-                            .font(.caption).foregroundStyle(.secondary)
                     } else {
-                        Text("Not installed (one-time, about 350 MB). Re-run the Poinky installer to add it:\ncurl -fsSL https://raw.githubusercontent.com/tomyud1/poinky/main/install.sh | bash")
-                            .font(.callout).foregroundStyle(.secondary).textSelection(.enabled)
+                        installRow
                     }
                 }
             }
@@ -316,6 +303,29 @@ private struct VoiceTab: View {
             }
         }
         .formStyle(.grouped)
+    }
+
+    /// Not installed yet: one click downloads it (~75 MB) and tests it.
+    @ViewBuilder private var installRow: some View {
+        switch installer.state {
+        case .running:
+            VStack(alignment: .leading, spacing: 6) {
+                ProgressView(value: installer.progress)
+                Text(installer.step).font(.caption).foregroundStyle(.secondary)
+            }
+        case .failed(let why):
+            VStack(alignment: .leading, spacing: 6) {
+                Text("The install didn't finish: \(why)").font(.callout).foregroundStyle(.secondary).textSelection(.enabled)
+                Button("Try again") { installer.start() }
+            }
+        case .idle, .done:
+            HStack {
+                Text("Not installed yet. A one-time download of about 75 MB; it runs on this Mac, offline.")
+                    .font(.callout).foregroundStyle(.secondary)
+                Spacer()
+                Button("Install") { installer.start() }
+            }
+        }
     }
 }
 

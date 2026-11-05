@@ -12,7 +12,7 @@ Restart after a rebuild: `pkill -f "Poinky.app/Contents/MacOS/Poinky"; open buil
 
 `build.sh` signs with your Apple Development certificate if you have one, otherwise with a local "Poinky Local Signing" certificate it creates in your login keychain the first time, so macOS remembers the Microphone, Screen Recording and Accessibility permissions between builds. (If both fail it signs ad hoc, and macOS asks again after each build.)
 
-For the natural voice, run `kokoro/install.sh`. To test the installer, run `./install.sh` (it builds from the repo on GitHub; set `POINKY_REF=your-branch` to try a branch).
+For the natural voice, run `phonon/install.sh` (or use Settings → Voice → Install in the app). To test the installer, run `./install.sh` (it builds from the repo on GitHub; set `POINKY_REF=your-branch` to try a branch).
 
 ## Where things are
 

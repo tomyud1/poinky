@@ -4,7 +4,7 @@
 #   curl -fsSL https://raw.githubusercontent.com/tomyud1/poinky/main/install.sh | bash
 #
 # Options (add after `bash -s --`, e.g.  ... | bash -s -- --no-voice):
-#   --no-voice    skip the natural voice (Kokoro, ~350 MB); Poinky then speaks with Apple's voice
+#   --no-voice    skip the natural voice (Phonon, ~75 MB); Poinky then speaks with Apple's voice (add it later in Settings → Voice)
 #   --uninstall   remove Poinky (asks before deleting your settings and the voice)
 #   --purge       with --uninstall: also delete settings, memory and the voice, without asking
 #
@@ -31,7 +31,7 @@ for arg in "$@"; do
     --purge) PURGE=1 ;;
     -h|--help)
       echo "Usage: install.sh [--no-voice] [--uninstall [--purge]]"
-      echo "  --no-voice   skip the natural voice (Kokoro, ~350 MB)"
+      echo "  --no-voice   skip the natural voice (Phonon, ~75 MB)"
       echo "  --uninstall  remove Poinky (asks before deleting settings and the voice)"
       echo "  --purge      with --uninstall: delete settings, memory and the voice without asking"
       exit 0 ;;
@@ -146,12 +146,12 @@ grep -E '^Signed' "$LOG" | tail -1 | sed 's/^/  /'
 # ---------------------------------------------------------------- 6. Natural voice
 VOICE_OK=0
 if [ "$VOICE" = 1 ]; then
-  say "Installing the natural voice (Kokoro, ~350 MB download, runs on your Mac)…"
-  if "$SRC/kokoro/install.sh"; then
+  say "Installing the natural voice (Phonon, ~75 MB download, runs on your Mac)…"
+  if "$SRC/phonon/install.sh"; then
     VOICE_OK=1
   else
     warn "The natural voice didn't install. Poinky still works with Apple's voice."
-    note "Try again any time:  \"$SRC/kokoro/install.sh\""
+    note "Try again any time in Poinky's Settings → Voice → Install, or run:  \"$SRC/phonon/install.sh\""
   fi
 fi
 
@@ -176,5 +176,5 @@ note "3. macOS asks for permissions as Poinky needs them:"
 note "     - Microphone and Speech Recognition: click Allow."
 note "     - Screen Recording: turn Poinky on in System Settings > Privacy & Security > Screen & System Audio Recording, then reopen Poinky."
 note "     - Accessibility: only when you ask it to click or type for you."
-[ "$VOICE" = 1 ] && [ "$VOICE_OK" = 0 ] && note "(Natural voice not installed: re-run the installer to add it.)"
+[ "$VOICE" = 1 ] && [ "$VOICE_OK" = 0 ] && note "(Natural voice not installed: add it in Settings → Voice → Install.)"
 echo "Update later by running the same install command. Remove with:  ... | bash -s -- --uninstall"
