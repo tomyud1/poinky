@@ -14,12 +14,15 @@
 
   .card{position:absolute;display:flex;flex-direction:column;animation:pop .4s cubic-bezier(.2,.9,.3,1.15)}
   .card.paper{border-radius:14px;overflow:hidden;background:#fbf8f0;box-shadow:0 22px 60px rgba(0,0,0,.35),0 0 0 1px rgba(0,0,0,.08)}
-  .card .bar{height:30px;flex:none;display:flex;align-items:center;justify-content:center;position:relative;cursor:grab;
+  .card .bar{height:38px;flex:none;display:flex;align-items:center;justify-content:center;position:relative;cursor:grab;
     font:500 13px ui-monospace,Menlo,monospace;color:#8a8577;background:rgba(0,0,0,.045);border-bottom:1px solid rgba(0,0,0,.06)}
-  .card .bar span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:80%}
-  .card .x{position:absolute;right:8px;top:5px;width:20px;height:20px;border-radius:10px;border:0;background:rgba(0,0,0,.08);
-    color:#666;font:600 13px -apple-system,system-ui;line-height:20px;padding:0;cursor:pointer;opacity:.5;transition:opacity .2s;z-index:3}
-  .card:hover .x{opacity:1}
+  .card .bar span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:calc(100% - 90px)}
+  /* Close: a big dark round button, red under the mouse, always visible */
+  .card .x{position:absolute;right:6px;top:5px;width:28px;height:28px;border-radius:14px;border:0;background:rgba(30,32,38,.72);
+    color:#fff;font:700 15px -apple-system,system-ui;line-height:28px;padding:0;cursor:pointer;z-index:3;
+    box-shadow:0 1px 4px rgba(0,0,0,.25);transition:background .15s,transform .15s}
+  .card .x:hover{background:#ff3b30;transform:scale(1.1)}
+  .card .x:active{transform:scale(.95)}
   .card iframe{flex:1;border:0;width:100%;background:transparent;display:block}
   /* 3D models float on the screen with no card around them */
   .card.float .bar{position:absolute;top:0;left:50%;transform:translateX(-50%);width:auto;padding:0 34px 0 14px;border-radius:0 0 10px 10px;
@@ -30,6 +33,28 @@
   .card.studio{border-radius:16px;overflow:hidden;background:linear-gradient(180deg,#fbfcfd 0%,#eef1f5 100%);
     box-shadow:0 22px 60px rgba(0,0,0,.32),0 0 0 1px rgba(0,0,0,.07)}
   .card.studio .bar{color:#7d8592;background:rgba(0,0,0,.035)}
+  /* Notes beside a narrated 3D model: one short line per step, the current one highlighted; click one to see that step again.
+     The panel grows to make room for them, so the 3D view itself keeps its size. */
+  .card.studio .notes{position:absolute;top:38px;bottom:0;width:var(--nw,232px);box-sizing:border-box;padding:12px 10px 14px;overflow-y:auto;
+    background:rgba(255,255,255,.55);opacity:0;transition:opacity .35s;scrollbar-width:thin}
+  .card.studio.notes-right .notes{right:0;border-left:1px solid rgba(0,0,0,.07)}
+  .card.studio.notes-left .notes{left:0;border-right:1px solid rgba(0,0,0,.07)}
+  .card.studio.notes-inside .notes{left:0;background:rgba(251,252,253,.9);box-shadow:4px 0 16px rgba(0,0,0,.08)}
+  .card.studio.has-notes .notes{opacity:1}
+  .card.studio.notes-right iframe{width:calc(100% - var(--nw,232px))}
+  .card.studio.notes-left iframe{width:calc(100% - var(--nw,232px));margin-left:var(--nw,232px)}
+  .notes h3{margin:0 4px 8px;font:700 11px -apple-system,system-ui;letter-spacing:.06em;text-transform:uppercase;color:#9097a3}
+  .notes ol{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px}
+  .notes li{display:flex;gap:9px;align-items:flex-start;padding:7px 8px;border-radius:9px;cursor:pointer;
+    font:500 14.5px/1.3 -apple-system,system-ui,sans-serif;color:#5b616b;transition:background .15s,color .25s;animation:note-in .35s ease-out}
+  .notes li:hover{background:rgba(59,110,246,.08);color:#2b2f36}
+  .notes li .n{flex:none;width:20px;height:20px;border-radius:10px;margin-top:-1px;background:#e3e6eb;color:#7d8592;
+    font:700 11.5px/20px -apple-system,system-ui;text-align:center;transition:background .25s,color .25s}
+  .notes li.now{color:#1f2328;font-weight:650}
+  .notes li.now .n{background:#3b6ef6;color:#fff}
+  .notes li.viewing{background:rgba(59,110,246,.12);color:#1f2328}
+  .notes li.viewing .n{background:#1f2328;color:#fff}
+  @keyframes note-in{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
   /* A photo of the real thing, pinned like a polaroid next to the model */
   .card.photo{animation:drop .5s cubic-bezier(.2,.9,.3,1.2)}
   .card.photo .note{position:relative;flex:1;background:#fff;padding:12px 12px 0;border-radius:3px;cursor:grab;
@@ -39,7 +64,7 @@
     text-align:center;padding:12px 6px 14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .card.photo .tape{position:absolute;top:-11px;left:50%;width:96px;height:24px;margin-left:-48px;transform:rotate(-5deg);
     background:rgba(120,165,235,.55);box-shadow:0 1px 2px rgba(0,0,0,.12)}
-  .card.photo .x{top:-6px;right:-6px;background:#fff;box-shadow:0 2px 6px rgba(0,0,0,.25)}
+  .card.photo .x{top:-10px;right:-10px}
   @keyframes drop{from{opacity:0;transform:translateY(-30px) rotate(-6deg) scale(.9)}to{opacity:1;transform:none}}
   .pill.clear{pointer-events:auto;cursor:pointer;border:0;background:rgba(22,22,26,.82)}
   .pill.clear:hover{background:#ff3b30}
@@ -85,8 +110,11 @@
     const items = [];
     svg.querySelectorAll(':scope > g[data-id]').forEach(g => items.push({id:g.dataset.id, type:g.dataset.type, label:g.dataset.label||''}));
     const rects = [];
+    // Where each card rests (its pop-in animation shifts and shrinks it for a moment): the app lets clicks
+    // through only inside these rects, so a rect taken mid-animation left the close button unclickable.
+    const m = /translate\(([-\d.]+)px, ([-\d.]+)px\)/.exec(cards.style.transform || ''), sx = m ? +m[1] : 0, sy = m ? +m[2] : 0;
     cards.querySelectorAll('.card:not(.leaving)').forEach(c => {
-      const r = c.getBoundingClientRect();
+      const r = {left: c.offsetLeft + sx, top: c.offsetTop + sy, width: c.offsetWidth, height: c.offsetHeight};
       rects.push([r.left, r.top, r.width, r.height]);
       items.push({id:c.dataset.id, type:c.dataset.type, label:c.dataset.label||'',
                   box:[Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)]});
@@ -262,7 +290,8 @@
             var d = ev.data; if (!d) return;
             if (typeof d.sbFeed === 'string') { writer.feed(d.sbFeed); return; }
             if (d.sbEnd) { end(); return; }
-            if (typeof d.sbRun === 'string') { try { kit.run(d.sbRun); } catch(e){ fail(e); } }
+            if (typeof d.sbRun === 'string') { try { kit.run(d.sbRun, d.note); } catch(e){ fail(e); } }
+            if (typeof d.sbRevisit === 'number') { try { kit.revisit(d.sbRevisit); } catch(e){} }
           });
         })();
       <\/script></body></html>`;
@@ -403,6 +432,9 @@
       if (owner) {
         const r = owner.getBoundingClientRect();
         x = r.right + 18 + w <= innerWidth - 8 ? r.right - w * 0.25 : r.left - w * 0.75;   // overlap the outer top corner
+        // The model has notes on that side: sit past them instead of over them.
+        if (owner.classList.contains('notes-right') && x > r.left) x = r.right + 12 + w <= innerWidth - 8 ? r.right + 12 : r.left - w * 0.75;
+        if (owner.classList.contains('notes-left') && x < r.left) x = r.left - w - 12 >= 8 ? r.left - w - 12 : r.right - w * 0.25;
         if (x + w > innerWidth - 8) x = r.right - w - 8;
         x = Math.max(8, x); y = Math.max(46, r.top + 44);   // below the card's title bar, so its close button stays free
       } else { x = innerWidth - w - 40; y = 90; }
@@ -419,8 +451,11 @@
       cards.appendChild(c);
       report();
     },
-    /** Run more code in an existing 3D model (by id). */
-    run3d(id, code){ send3d(id, {sbRun: code}); },
+    /** Run more code in an existing 3D model (by id). note: this step's line in the notes beside it. */
+    run3d(id, code, note){
+      const i = note ? addNote(String(id), String(note)) : null;
+      send3d(id, {sbRun: code, note: i});
+    },
     /** More code of a model that's still being written, and the end of it. */
     feed3d(id, code){ send3d(id, {sbFeed: code}); },
     end3d(id){ send3d(id, {sbEnd: true}); }
@@ -435,6 +470,57 @@
     if (!f) return;
     if (c.dataset.ready === '1') f.contentWindow.postMessage(msg, '*');
     else (c._waiting = c._waiting || []).push(msg);
+  }
+  // ---------- notes beside a narrated 3D model ----------
+  const NOTES_W = 232;
+  function addNote(id, text){
+    const c = cards.querySelector(`.card[data-id="${CSS.escape(id)}"][data-type="scene3d"]:not(.leaving)`);
+    if (!c) return null;
+    let box = c.querySelector('.notes');
+    if (!box) {
+      box = document.createElement('div');
+      box.className = 'notes';
+      box.innerHTML = '<h3>Steps</h3><ol></ol>';
+      box.addEventListener('click', e => {
+        const li = e.target.closest('li'); if (!li) return;
+        box.querySelectorAll('li.viewing').forEach(o => o.classList.remove('viewing'));
+        if (!li.classList.contains('now')) li.classList.add('viewing');
+        send3d(id, {sbRevisit: +li.dataset.i});
+      });
+      // Grow on a side with room (the one without the photo if both have room), so the 3D view doesn't move
+      // or change size. No room on either side: over the view's left edge.
+      const x = c.offsetLeft, w = c.offsetWidth;
+      const right = innerWidth - (x + w) - 12, left = x - 12;
+      const photo = cards.querySelector(`.card.photo[data-for="${CSS.escape(id)}"]:not(.leaving)`);
+      const photoRight = photo && photo.offsetLeft + photo.offsetWidth / 2 > x + w / 2;
+      let side = right >= NOTES_W ? 'right' : left >= NOTES_W ? 'left' : 'inside';
+      if (photo && side !== 'inside' && (side === 'right') === photoRight) {
+        const other = side === 'right' ? 'left' : 'right';
+        if ((other === 'left' ? left : right) >= NOTES_W) side = other;
+      }
+      c.style.setProperty('--nw', NOTES_W + 'px');
+      if (side === 'right') c.style.width = (w + NOTES_W) + 'px';
+      if (side === 'left') { c.style.width = (w + NOTES_W) + 'px'; c.style.left = (x - NOTES_W) + 'px'; }
+      c.classList.add('notes-' + side);
+      c.appendChild(box);
+      void box.offsetWidth;            // lay it out invisible first, so it fades in
+      c.classList.add('has-notes');
+      // The photo is on the same side anyway: it moves out past the notes (as far as the screen allows).
+      if (photo && side === 'right' && photoRight) photo.style.left = Math.min(innerWidth - photo.offsetWidth - 8, x + w + NOTES_W + 12) + 'px';
+      if (photo && side === 'left' && !photoRight) photo.style.left = Math.max(8, x - NOTES_W - photo.offsetWidth - 12) + 'px';
+      setTimeout(report, 30);
+    }
+    const ol = box.querySelector('ol');
+    ol.querySelectorAll('li.now, li.viewing').forEach(o => o.classList.remove('now', 'viewing'));
+    const i = ol.children.length;
+    const li = document.createElement('li');
+    li.dataset.i = i; li.className = 'now'; li.title = 'Show this step again';
+    li.innerHTML = '<span class="n"></span><span class="t"></span>';
+    li.querySelector('.n').textContent = i + 1;
+    li.querySelector('.t').textContent = text;
+    ol.appendChild(li);
+    box.scrollTo({top: box.scrollHeight, behavior: 'smooth'});
+    return i;
   }
   function paint(){
     if (marking) { statusEl.textContent = '✏️ Marking — click to pin, drag to circle'; statusEl.className='pill marking'; statusEl.hidden=false; return; }

@@ -120,12 +120,29 @@
 
     const scene = new T.Scene();
     const camera = new T.PerspectiveCamera(32, W() / H(), 0.01, 5000);
-    scene.add(new T.HemisphereLight(0xffffff, 0x9aa0aa, 1.7));
+    scene.add(new T.HemisphereLight(0xffffff, 0x9aa0aa, 0.8));   // low: the studio map below lights things too
     const sun = new T.DirectionalLight(0xffffff, 2.4); sun.position.set(5, 9, 7); scene.add(sun); scene.add(sun.target);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
     sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.02; sun.shadow.radius = 4;
     const rim = new T.DirectionalLight(0xc8d8ff, 0.9); rim.position.set(-7, 3, -6); scene.add(rim);
+    // Studio reflections: a few soft white boxes around a grey room, baked into an environment map
+    // so metal, gold and glass have something to reflect (without it they read as flat grey).
+    try {
+      const room = new T.Scene();
+      room.background = new T.Color('#8d939c');
+      const softbox = (w, h, at, k) => {
+        const m = new T.Mesh(new T.PlaneGeometry(w, h), new T.MeshBasicMaterial({ color: new T.Color(1, 1, 1).multiplyScalar(k), side: T.DoubleSide }));
+        m.position.set(...at); m.lookAt(0, 0, 0); room.add(m);
+      };
+      softbox(8, 8, [0, 6, 1], 2.4);      // overhead
+      softbox(2.5, 8, [6, 1.5, 3], 1.5);  // key strip, right
+      softbox(2.5, 8, [-6, 1.5, 2], 0.9); // fill strip, left
+      softbox(8, 2, [0, 0.5, -6], 0.6);   // low back light
+      const pm = new T.PMREMGenerator(renderer);
+      scene.environment = pm.fromScene(room, 0.04).texture;
+      pm.dispose();
+    } catch (e) {}
     const world = new T.Group(); scene.add(world);
 
     const anims = [], labels = [], timers = [];
@@ -137,6 +154,10 @@
     let clock = 0;                       // seconds since start (for things added later)
     let fitted = false, shadow = null, floor = true;   // floor: the soft shadow under the model (off for things in space)
     cam.goalTarget = new T.Vector3(); cam.goalDist = 10;
+    // Narrated steps that have a line in the notes beside the model: where the camera ended up for each one
+    // and its notes-about-this-moment labels, so clicking a note shows that step again.
+    let curNote = null, viewingNote = null;
+    const noteViews = {}, noteTemps = {};
 
     // ---------- helpers ----------
     const color = c => new T.Color(PALETTE[c] || c || PALETTE.metal);
@@ -251,6 +272,19 @@
     function aimCamera(az, el, dur) {
       camTween = { az0: cam.baseAz, el0: cam.el, az1: az, el1: Math.max(-80 * DEG, Math.min(85 * DEG, el)), t0: clock, dur: Math.max(0.05, dur) };
       if (fitted && !focused) fit();   // a new angle can need a different distance
+    }
+    // A step's camera: where it was heading when the next step started (or when you looked back).
+    function saveView(note) {
+      if (note == null || noteViews[note]) return;
+      noteViews[note] = { az: camTween ? camTween.az1 : cam.baseAz, el: camTween ? camTween.el1 : cam.el,
+                          target: cam.goalTarget.clone(), dist: cam.goalDist, focused, spin: cam.spin };
+    }
+    function showView(v, dur) {
+      let az = v.az;
+      while (az - cam.baseAz > Math.PI) az -= 2 * Math.PI;
+      while (az - cam.baseAz < -Math.PI) az += 2 * Math.PI;
+      camTween = { az0: cam.baseAz, el0: cam.el, az1: az, el1: v.el, t0: clock, dur };
+      cam.goalTarget.copy(v.target); cam.goalDist = v.dist; focused = v.focused; cam.spin = v.spin || 0;
     }
     const camDir = () => new T.Vector3(Math.cos(cam.el) * Math.sin(cam.baseAz), Math.sin(cam.el), Math.cos(cam.el) * Math.cos(cam.baseAz));
     function pivotOf(obj, p) {
@@ -660,7 +694,8 @@
         (o.parent || world).add(g);
         return g;
       },
-      /** A callout tag with a leader line pointing at a spot or a part. */
+      /** A callout tag with a leader line pointing at a spot or a part. It stays (part names build up a map
+          of the model); temp: true makes a note about this moment that fades when the next step starts. */
       label(text, o = {}) {
         if (o && o.isObject3D) o = { to: o };                       // label('Fan', fan)
         if (text && text.isObject3D) [text, o] = [String(o && o.text || o || ''), { to: text }];
@@ -668,20 +703,22 @@
         o = o || {};
         const c = o.color || 'blue', ink = PALETTE[c] || c;
         const tag = document.createElement('div');
-        tag.className = 'tag';
+        tag.className = o.temp ? 'tag temp' : 'tag';
         tag.textContent = String(text ?? '');
         tag.style.setProperty('--c', ink);
         tagsDiv.appendChild(tag);
         const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
         const dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
         line.setAttribute('stroke', ink); line.setAttribute('stroke-width', '2');
+        if (o.temp) { tag.style.setProperty('--bg', TAG_BG[c] || '#fffdf8'); line.setAttribute('stroke-dasharray', '5 4'); }
         dot.setAttribute('r', '4'); dot.setAttribute('fill', '#fff'); dot.setAttribute('stroke', ink); dot.setAttribute('stroke-width', '2.5');
         linesSvg.appendChild(line); linesSvg.appendChild(dot);
         const target = o.at || o.to || o.target || [0, 0, 0];
-        const L = { text, tag, line, dot, target,
+        const L = { text, tag, line, dot, target, temp: !!o.temp, note: o._note ?? curNote,
                     side: o.side, anchor: null, x: null, y: null,
                     delay: clock + (fitted ? 0.5 : 0.9 + labels.length * 0.15) };
         labels.push(L);
+        if (o.temp && curNote != null && o._note == null) (noteTemps[curNote] = noteTemps[curNote] || []).push([String(text ?? ''), { ...o }]);
         return L;
       },
       /** Run fn(t, dt) every frame. t is seconds since start. */
@@ -831,14 +868,14 @@
       },
       /** Run fn once, sec seconds from now (to sequence things within one step). */
       after(sec, fn) { tween({ delay: sec, dur: 0.001 }, (e, u) => { if (u >= 1) fn(); }); },
-      /** Remove all callout tags (before a new part of the explanation). */
-      clearLabels() { labels.slice().forEach(L => kit.remove(L)); },
+      /** Fade out callout tags: all of them (a whole new topic), or 'temp' for just this moment's notes. */
+      clearLabels(which) { labels.filter(L => which !== 'temp' || L.temp).forEach(L => fadeLabel(L)); },
       /** Find a part made with name: '…' (also from earlier steps). */
       get(name) { return world.getObjectByName(name); },
       /** Remove a part (or a label returned by kit.label). */
       remove(obj) {
         if (!obj) return;
-        if (obj.tag) { obj.tag.remove(); obj.line.remove(); obj.dot.remove(); labels.splice(labels.indexOf(obj), 1); return; }
+        if (obj.tag) { obj.tag.remove(); obj.line.remove(); obj.dot.remove(); const i = labels.indexOf(obj); if (i >= 0) labels.splice(i, 1); return; }
         if (obj.userData && obj.userData.cut) kit.uncut(obj, { dur: 0 });
         obj.parent && obj.parent.remove(obj);
       },
@@ -907,9 +944,32 @@
       },
       /** Run more code in this same scene (a narrated step or a follow-up question). Throws the first error
           after running every statement that works. */
-      run(code) {
+      run(code, note) {
+        if (note != null) {
+          saveView(curNote);
+          // You were looking back at an earlier step: return to where the lesson is before it moves on.
+          if (viewingNote != null && viewingNote !== curNote && noteViews[curNote]) showView(noteViews[curNote], 0.7);
+          viewingNote = null;
+          curNote = note;
+        }
+        kit.clearLabels('temp');   // a new step (the next sentence): notes about the last moment go
         const errs = runAll(splitStatements(code, true).stmts);
         if (errs.length) throw new Error(errs[0]);
+      },
+      /** Show narrated step `note` again (its line in the notes was clicked): the camera glides back to
+          where it was for that step, its moment notes come back, and the part labels it added flash. */
+      revisit(note) {
+        if (note == null) return;
+        saveView(curNote);
+        const v = noteViews[note];
+        if (v) showView(v, 1.2);
+        viewingNote = note;
+        kit.clearLabels('temp');
+        for (const [text, o] of noteTemps[note] || []) kit.label(text, { ...o, temp: true, _note: note });
+        for (const L of labels) {
+          if (L.note !== note || L.temp || L.gone) continue;
+          L.tag.classList.remove('flash'); void L.tag.offsetWidth; L.tag.classList.add('flash');
+        }
       },
       /** For code that arrives in pieces: feed(text) runs each statement once it's complete; end() runs the
           rest and returns the errors (statements that failed are skipped, the others still run). */
@@ -1115,6 +1175,18 @@
         for (let i = 0; i < 6; i++) { const a = i * Math.PI / 3; atoms.push(['H', [2.48 * Math.cos(a), 0, 2.48 * Math.sin(a)]]); bonds.push([i, (i + 1) % 6, i % 2 ? 1 : 2], [i, i + 6, 1]); }
         return { atoms, bonds };
       })(),
+    };
+
+    // Theo Jansen's Strandbeest leg: his eleven "holy numbers" (cm). The crank turns at O, the frame pivot is P,
+    // two rigid triangles (P-B-D, C-E-F), and the foot F walks a flat-bottomed path.
+    const JANSEN = size => {
+      const [a, b, c, d, e, f, g, h, i, j, k, l, m] = [38, 41.5, 39.3, 40.1, 55.8, 39.4, 36.7, 65.7, 49, 50, 61.9, 7.8, 15];
+      return { unit: size / 120, fixed: { O: [0, 0], P: [-a, -l] }, crank: { name: 'A', around: 'O', r: m },
+        joints: { B: { from: ['A', 'P'], len: [j, b], side: 'up' }, C: { from: ['A', 'P'], len: [k, c], side: 'down' },
+                  D: { from: ['B', 'P'], len: [e, d], side: 'left' }, E: { from: ['D', 'C'], len: [f, g], side: 'left' },
+                  F: { from: ['E', 'C'], len: [h, i], side: 'down' } },
+        bars: [['O', 'A'], ['A', 'B'], ['A', 'C'], ['P', 'C'], ['D', 'E']],
+        plates: [['P', 'B', 'D'], ['C', 'E', 'F']], trace: 'F' };
     };
 
     Object.assign(kit, {
@@ -1351,6 +1423,168 @@
         const n = o.spokes ?? 5;
         for (let i = 0; i < n; i++) { const s = sub(g, new T.BoxGeometry(r * 0.13, wd * 0.25, r * 0.5).translate(0, wd * 0.15, r * 0.38), { color: o.color || 'metal', metal: true }); s.rotation.y = i * 2 * Math.PI / n; }
         return finishPart(orientKids(g, o.axis || 'z'), o);
+      },
+      /** A piston on a crank (slider-crank) that really works: the crank turns, the rod follows, the piston slides.
+          r: crank radius (or stroke: the piston's travel, 2r), rod: rod length, bore: piston diameter. The crank turns
+          around z (axis:'x' turns around x) and the piston rides up +y; tilt it with rot (a V engine: rot:[0,0,±45]).
+          speed: radians per second (set .speed later to change it, 0 stops). phase: degrees (multi-cylinder engines);
+          follow: another crank or linkage to turn with. Parts: .crank, .rod, .piston, .cylinder (a glass liner, liner:false
+          leaves it out). .angle is the crank angle in radians (0 = piston at the top). */
+      crank(o = {}) {
+        const r = o.r ?? (o.stroke ? o.stroke / 2 : 0.5), L = Math.max(o.rod ?? r * 3.4, r * 1.3), bore = o.bore ?? r * 2.2;
+        const th = Math.min(r * 0.4, bore * 0.3), ph = (o.phase ?? 0) * DEG;
+        const g = new T.Group(), inner = new T.Group(); g.add(inner);
+        if (o.axis === 'x') inner.rotation.y = Math.PI / 2;
+        const zc = geo => geo.rotateX(Math.PI / 2);   // cylinders along z
+        const steel = { color: o.crankColor || 'dark', metal: true };
+        const crank = new T.Group(); crank.name = 'crank'; inner.add(crank);
+        sub(crank, new T.BoxGeometry(r * 0.8, r, th), steel, [0, r / 2, -th * 1.15], { edges: true });
+        sub(crank, zc(new T.CylinderGeometry(r * 0.4, r * 0.4, th, 32)), steel, [0, r, -th * 1.15]);
+        sub(crank, zc(new T.CylinderGeometry(r, r, th, 40, 1, false, -Math.PI / 2, Math.PI)), steel, [0, 0, -th * 1.15], { edges: true });   // counterweight
+        sub(crank, zc(new T.CylinderGeometry(r * 0.3, r * 0.3, th * 3, 24)), steel, [0, 0, -th * 1.6]);              // main journal
+        sub(crank, zc(new T.CylinderGeometry(r * 0.24, r * 0.24, th * 1.6, 20)), { color: 'metal', metal: true }, [0, r, -th * 0.5]);   // crankpin
+        const rod = new T.Group(); rod.name = 'rod'; inner.add(rod);
+        const rodMat = { color: o.rodColor || 'metal', metal: true };
+        sub(rod, new T.BoxGeometry(r * 0.3, L, th * 0.75).translate(0, L / 2, 0), rodMat, null, { edges: true });
+        sub(rod, zc(new T.CylinderGeometry(r * 0.4, r * 0.4, th * 0.9, 28)), rodMat);
+        sub(rod, zc(new T.CylinderGeometry(r * 0.24, r * 0.24, th * 0.9, 20)), rodMat, [0, L, 0]);
+        const piston = new T.Group(); piston.name = 'piston'; inner.add(piston);
+        sub(piston, new T.CylinderGeometry(bore / 2, bore / 2, bore * 0.8, 40), { color: o.color || 'light', metal: true }, [0, bore * 0.15, 0], { edges: true });
+        for (const y of [0.45, 0.36]) sub(piston, new T.CylinderGeometry(bore * 0.503, bore * 0.503, bore * 0.035, 40), { color: 'dark' }, [0, bore * y, 0]);
+        sub(piston, zc(new T.CylinderGeometry(r * 0.16, r * 0.16, bore * 0.92, 16)), { color: 'dark', metal: true });   // wrist pin
+        let liner = null;
+        if (o.liner !== false) {
+          const y0 = L - r - bore * 0.25, y1 = L + r + bore * 0.63;
+          liner = sub(inner, new T.CylinderGeometry(bore * 0.53, bore * 0.53, y1 - y0, 40, 1, true),
+            { color: o.cylinderColor || '#bcd7ff', opacity: 0.16 }, [0, (y0 + y1) / 2, 0]);
+          liner.material.depthWrite = false; liner.material.envMapIntensity = 0.35; liner.castShadow = false; liner.name = 'cylinder';
+        }
+        g.speed = o.speed ?? 4;
+        g.angle = o.follow ? (o.follow.angle || 0) + ph : ph + g.speed * clock;   // same speed, same clock: cranks made one after another stay in step
+        const pose = () => {
+          const a = g.angle, px = r * Math.sin(a), py = r * Math.cos(a), yp = py + Math.sqrt(Math.max(0, L * L - px * px));
+          crank.rotation.z = -a;
+          rod.position.set(px, py, 0); rod.rotation.z = Math.atan2(px, yp - py);
+          piston.position.y = yp;
+        };
+        pose();
+        anims.push((t, dt) => { g.angle = o.follow ? (o.follow.angle || 0) + ph : g.angle + dt * g.speed; pose(); });
+        Object.assign(g, { crank, rod, piston, cylinder: liner });
+        return finishPart(g, o);
+      },
+      /** A planar linkage solved exactly every frame (a four-bar, a pump jack, a wiper, Theo Jansen's walking leg): a crank
+          turns and every other joint sits where its two bars meet. Points are [x, y] in the plane seen face-on from kit.view('side') (axis:'x' turns
+          it to face x). fixed: {name:[x,y]} pivots on the frame. crank: {name, around:'<fixed point>', r, speed, phase}
+          (radians per second, degrees). joints: {name:{from:['P','Q'], len:[toP, toQ], side:'up'|'down'|'left'|'right'}}:
+          the point len[0] from P and len[1] from Q; side picks which of the two possible spots it starts at. bars: [['P','Q'], …]
+          links to draw; plates: [['P','Q','R'], …] rigid triangles. trace: a point name (or names) whose path is drawn.
+          unit scales the numbers (unit:0.01 for cm). preset:'jansen' is a Strandbeest leg (size: about its height).
+          .joint(name) is that pin (label it), .point(name) its position now, .angle / .speed / follow like kit.crank. */
+      linkage(o = {}) {
+        if (o.preset === 'jansen') o = { ...JANSEN(o.size ?? 4), ...o };
+        const fixed = o.fixed || {}, cr = o.crank || {}, joints = o.joints || {};
+        if (!cr.name || !(cr.around in fixed)) throw new Error("kit.linkage needs crank:{name, around:'<a fixed point>', r}");
+        const known = new Set([...Object.keys(fixed), cr.name]), order = [], left = Object.keys(joints);
+        while (left.length) {
+          const i = left.findIndex(n => (joints[n].from || []).length === 2 && joints[n].from.every(p => known.has(p)));
+          if (i < 0) throw new Error(`kit.linkage: joint ${left[0]} needs from:[two existing points] and len:[two lengths]`);
+          known.add(left[i]); order.push(left.splice(i, 1)[0]);
+        }
+        const R = cr.r ?? 1, C0 = fixed[cr.around], ph = (cr.phase ?? o.phase ?? 0) * DEG, U = o.unit ?? 1;
+        const d2 = (a, b) => (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2;
+        const pick = { up: (a, b) => a[1] >= b[1] ? a : b, down: (a, b) => a[1] <= b[1] ? a : b,
+                       left: (a, b) => a[0] <= b[0] ? a : b, right: (a, b) => a[0] >= b[0] ? a : b };
+        // Every point for crank angle ang. The first solve uses each joint's side; later ones stay on the branch the
+        // linkage is already on (a real linkage can't jump to its mirror image). Returns the failing joint's name if a pair can't reach.
+        const solve = (ang, prev) => {
+          const Q = { ...fixed };
+          Q[cr.name] = [C0[0] + R * Math.cos(ang), C0[1] + R * Math.sin(ang)];
+          for (const n of order) {
+            const j = joints[n], p0 = Q[j.from[0]], p1 = Q[j.from[1]], r0 = (j.len || [])[0], r1 = (j.len || [])[1];
+            const dx = p1[0] - p0[0], dy = p1[1] - p0[1], D = Math.hypot(dx, dy), eps = 1e-6 * (r0 + r1);
+            if (!(D > 1e-9) || D > r0 + r1 + eps || D < Math.abs(r0 - r1) - eps) return n;
+            const a = (r0 * r0 - r1 * r1 + D * D) / (2 * D), h = Math.sqrt(Math.max(0, r0 * r0 - a * a));
+            const mx = p0[0] + a * dx / D, my = p0[1] + a * dy / D;
+            const s1 = [mx + h * dy / D, my - h * dx / D], s2 = [mx - h * dy / D, my + h * dx / D];
+            Q[n] = prev ? (d2(s1, prev[n]) <= d2(s2, prev[n]) ? s1 : s2) : (pick[j.side] || pick.up)(s1, s2);
+          }
+          return Q;
+        };
+        const g = new T.Group(), inner = new T.Group(); g.add(inner);
+        if (o.axis === 'x') inner.rotation.y = Math.PI / 2;
+        g.speed = cr.speed ?? o.speed ?? 3;
+        g.angle = o.follow ? (o.follow.angle || 0) + ph : ph + g.speed * clock;
+        let Q = solve(g.angle, null);
+        if (typeof Q === 'string') throw new Error(`kit.linkage: joint ${Q} can't reach both its points at the start (check its len)`);
+        // Walk one full turn in 2° steps: the crank must be able to go all the way round. The samples draw the traces,
+        // and each frame takes its branch from the nearest one, so the pose depends only on the angle, never on the frame rate.
+        const N = 180, turn = [], a0 = g.angle, step = 2 * Math.PI / N;
+        for (let i = 0, prev = Q; i < N; i++) {
+          const s = solve(a0 + i * step, prev);
+          if (typeof s === 'string') throw new Error(`kit.linkage: the crank can't make a full turn (joint ${s} can't reach at ${Math.round(i * 360 / N)}°); change the lengths`);
+          turn.push(prev = s);
+        }
+        const names = new Set(known), check = l => l.forEach(n => { if (!names.has(n)) throw new Error(`kit.linkage: no point named ${n}`); });
+        const bars = (o.bars || []).map(b => (check(b), b)), plates = (o.plates || []).map(p => (check(p), p));
+        const lens = bars.map(([a, b]) => Math.sqrt(d2(Q[a], Q[b])) * U);
+        const w = o.width ?? (lens.length ? lens.reduce((s, x) => s + x, 0) / lens.length : R * U * 3) * 0.12, th = w * 0.45;
+        const layer = i => ((i % 3) - 1) * th * 1.25;
+        const mat = { color: o.color || 'metal', metal: true };
+        const barObjs = bars.map(([a, b], i) => {
+          const len = lens[i], hw = w / 2, s = new T.Shape();
+          s.moveTo(0, -hw); s.lineTo(len, -hw); s.absarc(len, 0, hw, -Math.PI / 2, Math.PI / 2, false);
+          s.lineTo(0, hw); s.absarc(0, 0, hw, Math.PI / 2, Math.PI * 1.5, false);
+          const geo = new T.ExtrudeGeometry(s, { depth: th, bevelEnabled: false, curveSegments: 10 }).translate(0, 0, -th / 2);
+          const bg = new T.Group(); bg.name = a + b; bg.position.z = layer(i); inner.add(bg);
+          sub(bg, geo, [a, b].sort().join() === [cr.name, cr.around].sort().join() ? { color: o.crankColor || 'dark', metal: true } : mat, null, { edges: true, edgeAngle: 40 });
+          return { bg, a, b, len };
+        });
+        const plateObjs = plates.map(([a, b, c], i) => {
+          const base = Math.atan2(Q[b][1] - Q[a][1], Q[b][0] - Q[a][0]), loc = p => {
+            const x = (Q[p][0] - Q[a][0]) * U, y = (Q[p][1] - Q[a][1]) * U;
+            return [x * Math.cos(-base) - y * Math.sin(-base), x * Math.sin(-base) + y * Math.cos(-base)];
+          };
+          const s = new T.Shape(); s.moveTo(0, 0); s.lineTo(...loc(b)); s.lineTo(...loc(c)); s.closePath();
+          const pg = new T.Group(); pg.name = a + b + c; pg.position.z = layer(bars.length + i); inner.add(pg);
+          sub(pg, new T.ExtrudeGeometry(s, { depth: th, bevelEnabled: false }).translate(0, 0, -th / 2), { color: o.plateColor || 'gray', metal: true }, null, { edges: true });
+          return { pg, a, b };
+        });
+        const pins = {};
+        for (const n of names) {
+          const isFixed = n in fixed;
+          if (!isFixed && ![...bars, ...plates].some(l => l.includes(n))) continue;
+          const pg = new T.Group(); pg.name = n; inner.add(pg);
+          sub(pg, new T.CylinderGeometry(w * (isFixed ? 0.5 : 0.3), w * (isFixed ? 0.5 : 0.3), th * (isFixed ? 5 : 4), 20).rotateX(Math.PI / 2),
+            { color: isFixed ? 'black' : 'dark', metal: true });
+          pins[n] = pg;
+        }
+        [].concat(o.trace || []).filter(n => names.has(n)).forEach(n => {
+          const curve = new T.CatmullRomCurve3(turn.map(q => new T.Vector3(q[n][0] * U, q[n][1] * U, th * 2.2)), true);
+          const m = new T.Mesh(new T.TubeGeometry(curve, N, w * 0.1, 8, true), new T.MeshBasicMaterial({ color: color(o.traceColor || 'orange') }));
+          m.name = 'trace ' + n; inner.add(m);
+        });
+        const pose = () => {
+          for (const n in pins) pins[n].position.set(Q[n][0] * U, Q[n][1] * U, 0);
+          for (const { bg, a, b, len } of barObjs) {
+            const dx = (Q[b][0] - Q[a][0]) * U, dy = (Q[b][1] - Q[a][1]) * U;
+            bg.position.x = Q[a][0] * U; bg.position.y = Q[a][1] * U;
+            bg.rotation.z = Math.atan2(dy, dx); bg.scale.x = Math.hypot(dx, dy) / (len || 1);
+          }
+          for (const { pg, a, b } of plateObjs) {
+            pg.position.x = Q[a][0] * U; pg.position.y = Q[a][1] * U;
+            pg.rotation.z = Math.atan2(Q[b][1] - Q[a][1], Q[b][0] - Q[a][0]);
+          }
+        };
+        pose();
+        anims.push((t, dt) => {
+          g.angle = o.follow ? (o.follow.angle || 0) + ph : g.angle + dt * g.speed;
+          const i = ((Math.round((g.angle - a0) / step) % N) + N) % N, s = solve(g.angle, turn[i]);
+          if (typeof s !== 'string') { Q = s; pose(); }
+        });
+        g.joint = n => pins[n] || null;
+        g.point = n => { if (!Q[n]) return null; inner.updateWorldMatrix(true, false); return inner.localToWorld(new T.Vector3(Q[n][0] * U, Q[n][1] * U, 0)); };
+        g.points = () => Q;
+        return finishPart(g, o);
       },
       /** A double helix (DNA): two backbones with base-pair rungs, along y from at. */
       helix(o = {}) {
@@ -1819,12 +2053,17 @@
       }
       return L.anchor ? L.anchor.frame.localToWorld(L.anchor.local.clone()) : worldPoint(tg);
     }
+    function fadeLabel(L) {
+      if (L.gone) return;
+      L.gone = true;                                   // updateLabels hides it (the CSS fades it) and leaves its slot free
+      setTimeout(() => kit.remove(L), 400);
+    }
     function updateLabels(t) {
       const cx = W() / 2, gap = 8, items = [];
       for (const L of labels) {
         const w = anchorOf(L);
         const p = w ? project(w) : [0, 0, 2];
-        const visible = !!w && p[2] < 1 && t > L.delay;
+        const visible = !L.gone && !!w && p[2] < 1 && t > L.delay;
         L.tag.style.opacity = visible ? 1 : 0;
         L.line.style.opacity = L.dot.style.opacity = visible ? 1 : 0;
         if (!visible) continue;

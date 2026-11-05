@@ -10,4 +10,9 @@ body { font-family: ui-rounded, -apple-system, system-ui, sans-serif; }
        background: #fffdf8; border-left: 5px solid var(--c, #3b6ef6); border-radius: 3px;
        font: 700 18px Noteworthy, "Chalkboard SE", "Marker Felt", ui-rounded, system-ui, sans-serif; opacity: 0;
        transition: opacity .35s; box-shadow: 0 2px 8px rgba(0,0,0,.2), 0 0 0 1px rgba(0,0,0,.08); }
+/* A part label from a step whose note was clicked: it lights up for a moment */
+.tag.flash { animation: tag-flash 1.6s ease-out; }
+@keyframes tag-flash { 0%, 40% { background: #fff4c2; box-shadow: 0 0 0 3px var(--c, #3b6ef6), 0 4px 14px rgba(0,0,0,.25); }
+                       100% { background: #fffdf8; box-shadow: 0 2px 8px rgba(0,0,0,.2), 0 0 0 1px rgba(0,0,0,.08); } }
+.tag.temp { background: var(--bg, #fffdf8); font-style: italic; border-left-style: dotted; }
 #err { position: absolute; left: 12px; bottom: 12px; right: 12px; font: 12px ui-monospace, Menlo, monospace; color: #b42318; }

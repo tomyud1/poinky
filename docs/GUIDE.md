@@ -45,7 +45,7 @@ Hold two keys and talk with Claude about what's on your screen. It answers out l
    - **Drag while holding ⌃⌥** to circle or underline something as you talk (or use **⌥ + click / ⌥ + drag** on its own). A click drops a red pin. Claude also gets a sharp close-up of what you marked (and the text in it), so it answers about *that*, not the whole page.
 5. Ask "what does this do?", "how does this work?", "show me", "now in 3D". You get a narrated sketch: a paper opens on the side away from what you asked about, and each drawing step plays as its sentence is spoken.
    - Each new question starts with a clean screen (old marks are removed); papers and 3D models stay until the topic changes. Drawings **build up** within a topic. A follow-up on the same topic **continues on the same paper**, and a follow-up about a 3D model **adds to that model** (e.g. "how do I connect a camera?" adds a camera module and animates the cable plugging in).
-   - 3D models are narrated too: as each sentence is spoken, the model zooms to, highlights or animates the part being explained.
+   - 3D models are narrated too: as each sentence is spoken, the model zooms to, highlights or animates the part being explained. A **list of steps** opens beside the model, one short note per sentence ("Fuel burns → turbine spins"), so you can catch up on anything you missed. **Click a note** to see that step again: the camera goes back to its view and its labels come back. Each step also gets a couple of seconds on screen before the next sentence starts.
    - **Hover a card** to use it: drag the title bar to move it, **drag a 3D model to rotate it**, scroll to zoom, ✕ to close.
    - Scrolling the page clears the quick marks (they'd no longer line up), but the close-up of what you circled is kept, so you can still ask about it. Cards stay.
    - Drawings belong to the window they're about: they hide when it's minimized, covered or on another desktop, come back with it, and move along when you drag it.
@@ -161,7 +161,7 @@ The 3D kit (`web/kit.js`) gives the artist simple building blocks on top of thre
 - Parts: `body` (fuselages, bottles), `plate` (wings, boards), `fin`, `box`, `cylinder`, `tube` (cables)
 - Callouts: `label` (colored tags with leader lines)
 - Motion: `arrow` and `flow` (animated forces, air, current), `spin`, `move` (assembly steps)
-- Narration: `get` (find a named part), `highlight` (glow and pulse), `focus` (zoom the camera to a part), `remove`. Each spoken line can run a `<step3d>` in the live model.
+- Narration: `get` (find a named part), `highlight` (glow and pulse), `focus` (zoom the camera to a part), `remove`. Each spoken line can run a `<step3d note="…">` in the live model; the note is its line in the list of steps beside the model.
 - Look and feel: real soft shadows, rounded `box` edges, `ground` (shadow-only floor), `person` and `measure` for scale; parts drop in one by one and the camera swoops in. 3D models are placed by the app in free space beside what's being explained.
 
 ## Code map

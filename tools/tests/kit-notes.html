@@ -1,0 +1,65 @@
+<!doctype html><html><head><meta charset="utf-8">
+<!-- Notes beside a 3D model: clicking a step's note brings back that step's camera view and its moment notes,
+     flashes the part labels it added, and the next step returns to where the lesson is. -->
+<link rel="stylesheet" href="../../web/kit.css"></head><body>
+<div id="stage"></div><svg id="lines"></svg><div id="tags"></div><div id="err"></div>
+<script src="../../vendor/three.min.js"></script>
+<script src="../../web/kit.js"></script>
+<script>
+(async () => {
+  const results = [], fail = [];
+  const check = (ok, what) => { results.push((ok ? 'ok   ' : 'FAIL ') + what); if (!ok) fail.push(what); };
+  const wait = ms => new Promise(r => setTimeout(r, ms));
+  const tags = () => [...document.querySelectorAll('#tags .tag')].map(t => t.textContent);
+  const tag = text => [...document.querySelectorAll('#tags .tag')].find(t => t.textContent === text);
+  const shown = text => { const t = tag(text); return !!t && +t.style.opacity === 1; };
+  try {
+    const kit = Kit(); kit.start(); window.kit = kit;
+    // Where the camera looks from, as an angle around the model (degrees).
+    const azimuth = () => { const d = kit.camera.getWorldDirection(new THREE.Vector3()); return Math.round(Math.atan2(-d.x, -d.z) * 180 / Math.PI); };
+    const near = (a, b, tol = 24) =>  // the camera sways gently (about ±18°) when idle
+      Math.abs(((a - b + 540) % 360) - 180) <= tol;
+
+    kit.run(`const body = kit.box({size:[4,1,1], name:'body'}); const fan = kit.box({size:[0.5,1.4,1.4], at:[2.3,0,0], name:'fan'});`);
+    kit.run(`kit.view('side', {dur:0.3}); kit.label('Fan', {to: kit.get('fan'), color:'blue'}); kit.label('Air rushes in', {at:[2.6,1,0], temp:true});`, 0);
+    await wait(1800);
+    const az0 = azimuth();
+    check(near(az0, 0), `step 1 looks from the side (${az0}°)`);
+    kit.run(`kit.view({az:120, el:30, dur:0.3}); kit.label('Body', {to: kit.get('body'), color:'green'}); kit.label('Squeeze', {at:[0,1,0], temp:true});`, 1);
+    await wait(1800);
+    const az1 = azimuth();
+    check(near(az1, 120), `step 2 swings around (${az1}°)`);
+    check(!tags().includes('Air rushes in') && shown('Squeeze'), `step 1's moment note went when step 2 ran (${tags()})`);
+
+    kit.revisit(0);
+    await wait(80);
+    check(tag('Fan').classList.contains('flash'), 'the part label step 1 added flashes');
+    check(!tag('Body').classList.contains('flash'), "step 2's part label doesn't");
+    await wait(2200);
+    check(near(azimuth(), 0), `clicking step 1's note brings its view back (${azimuth()}°, was ${az0}°)`);
+    check(shown('Air rushes in') && !tags().includes('Squeeze'), `and its moment note, not step 2's (${tags()})`);
+    check(shown('Fan') && shown('Body'), 'part names stay');
+
+    kit.revisit(1);
+    await wait(2200);
+    check(near(azimuth(), 120), `step 2's note brings the lesson's view back (${azimuth()}°)`);
+    check(shown('Squeeze'), "step 2's moment note is back");
+
+    kit.revisit(0);
+    await wait(1500);
+    // The lesson moves on while you look back: the camera first returns to where the lesson was.
+    kit.run(`kit.label('Nozzle', {at:[-2,0,0], color:'pink'});`, 2);
+    await wait(2000);
+    check(near(azimuth(), 120), `the next step returns to the lesson's view first (${azimuth()}°)`);
+    check(!tags().includes('Air rushes in'), 'and the replayed moment note goes');
+
+    kit.run(`kit.label('Fixed', {at:[0,-1,0], temp:true});`);   // a fix with no note: doesn't start a new step
+    kit.revisit(2);
+    await wait(600);
+    check(shown('Nozzle') && shown('Fixed'), `revisiting the current step keeps what's on screen (${tags()})`);
+  } catch (e) { check(false, 'threw: ' + (e && e.stack || e)); }
+  document.body.textContent = results.join('\n');
+  document.title = fail.length ? 'FAIL' : 'PASS';
+  window.testResults = { pass: !fail.length, lines: results };
+})();
+</script></body></html>

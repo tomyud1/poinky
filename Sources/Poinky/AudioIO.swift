@@ -25,9 +25,18 @@ final class AudioIO {
     /// Whether echo cancellation is active (false if voice processing couldn't start).
     private(set) var voiceProcessing = false
 
+    /// The engine was rebuilt on a new output device (AirPods connected, or moved to the iPhone and back).
+    /// Audio scheduled on the old one is gone: the voice says the cut sentence again.
+    var onRestart: (() -> Void)?
+    private var deviceObserver: NSObjectProtocol?
+    private var micObserver: NSObjectProtocol?
+    private var restartWork: DispatchWorkItem?
+    private var restartTries = 0
+
     /// `mic`: also listen through this engine, with echo cancellation (hands-free calls).
     func start(mic: Bool = true) throws {
         guard !running else { return }
+        defer { if running { watchDevice() } }
         // A fresh engine each time: one that ever had a mic would open it again on start.
         engine = AVAudioEngine()
         player = AVAudioPlayerNode()
@@ -87,9 +96,20 @@ final class AudioIO {
         e.prepare()
         try e.start()
         micEngine = e
+        // AirPods switch to headset mode when their mic opens, which can stop this engine right after it
+        // starts: start it again on the new format, so the hold still hears you.
+        micObserver = NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange, object: e, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, self.micEngine === e, !e.isRunning else { return }
+                NSLog("Poinky: the microphone changed; reopening it")
+                self.stopMic()
+                try? self.startMic()
+            }
+        }
     }
 
     func stopMic() {
+        if let o = micObserver { NotificationCenter.default.removeObserver(o); micObserver = nil }
         guard let e = micEngine else { return }
         e.inputNode.removeTap(onBus: 0)
         e.stop()
@@ -132,6 +152,7 @@ final class AudioIO {
 
     func stop() {
         stopMic()
+        unwatchDevice()
         guard running else { return }
         player.stop()
         sfx.stop()
@@ -143,6 +164,74 @@ final class AudioIO {
         engineHasMic = false
         micRelay.dropEarly()
         running = false
+    }
+}
+
+// MARK: Output device changes
+// When the output or input device changes (headphones in, AirPods connecting or switching between
+// the iPhone and the Mac), macOS stops the engine and posts a configuration change. Nothing scheduled
+// on it plays after that, so the voice went silent for the rest of the session. A fresh engine on
+// the new device fixes it; AirPods switching can send several changes in a row, so wait for quiet.
+extension AudioIO {
+    private func watchDevice() {
+        unwatchDevice()
+        deviceObserver = NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange,
+                                                                object: engine, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.deviceChanged() }
+        }
+    }
+
+    private func unwatchDevice() {
+        if let o = deviceObserver { NotificationCenter.default.removeObserver(o) }
+        deviceObserver = nil
+        restartWork?.cancel()
+        restartWork = nil
+    }
+
+    /// Restarts the engine once the device has settled, if the change stopped it.
+    func deviceChanged() {
+        guard running, restartWork == nil else { return }
+        restartTries = 0
+        scheduleRestart(after: 0.3)
+    }
+
+    private func scheduleRestart(after delay: TimeInterval) {
+        restartWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in MainActor.assumeIsolated { self?.restartIfStopped() } }
+        restartWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+    }
+
+    private func restartIfStopped() {
+        restartWork = nil
+        // Some changes leave the engine running (nothing to do); a real device switch stops it.
+        guard running, !engine.isRunning else { return }
+        let mic = engineHasMic
+        NSLog("Poinky: the audio device changed; restarting the audio")
+        player.stop()
+        sfx.stop()
+        if mic {
+            engine.inputNode.removeTap(onBus: 0)
+            try? engine.inputNode.setVoiceProcessingEnabled(false)
+        }
+        engine.stop()
+        unwatchDevice()
+        running = false
+        do {
+            try start(mic: mic)
+            onRestart?()
+        } catch {
+            // The new device isn't ready yet (Bluetooth still connecting): try again shortly.
+            restartTries += 1
+            NSLog("Poinky: couldn't restart the audio (\(error.localizedDescription)), try \(restartTries)")
+            if restartTries < 8 {
+                running = true          // still in a session: keep trying
+                engineHasMic = mic
+                scheduleRestart(after: 0.75)
+            } else {
+                onRestart?()            // give up: the voice lets go of the turn instead of waiting forever
+            }
+        }
     }
 }
 

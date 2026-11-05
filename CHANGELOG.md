@@ -4,10 +4,14 @@ All notable changes to Poinky. The format follows [Keep a Changelog](https://kee
 
 ## [Unreleased]
 
+### Fixed
+- The voice no longer goes silent after AirPods connect, hop between your iPhone and Mac, or switch to headset mode when Poinky opens the mic. macOS stops the audio when the device changes; Poinky now starts it again on the new device and repeats the sentence that was cut off. The mic for hold-to-talk reopens the same way.
+
 ### Changed
 - The natural voice is now Phonon 31m (Gradium, Apache 2.0) instead of Kokoro. It starts speaking about 25 ms after a sentence arrives (Kokoro took about half a second), sentences follow each other without long gaps, interrupting stops it mid-word, and it's a 75 MB download instead of 350 MB. 25 English voices (US and UK); the default is Easton. If you had Kokoro, Poinky installs Phonon by itself in the background and removes Kokoro (Apple's voice speaks until it's ready). Settings → Voice → Install adds it for anyone who skipped it.
 
 ### Added
+- 3D lessons are easier to follow: a list of steps opens beside the model with one short note per sentence ("Compressor squeezes the air", "Fuel burns → turbine spins"), the current one highlighted. Click a note to see that step again: the camera glides back to its view, its labels come back, and the part labels it added light up. Each step also stays on screen a couple of seconds before the next sentence starts, with a short pause after its sentence.
 - Helpers (background agents) get names (Mint, Coral, Violet…), live progress in plain words ("Reading tipsplit.py", "Running the tests"), their to-do lists, and a record of anything they weren't allowed to do. This is the groundwork for seeing them on screen.
 - You can send a working helper a follow-up; it folds it into its work.
 - At most 3 helpers work at once (Settings → Background agents, 1 to 6); more wait in line and start by themselves.

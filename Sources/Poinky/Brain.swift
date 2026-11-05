@@ -436,7 +436,8 @@ enum JSONRepair {
 /// or a finished <scene3d …>…</scene3d> / <panel …>…</panel> card.
 enum ArtistEvent: Equatable {
     case lessonStart(title: String, continuing: Bool)
-    case step3d(id: String, code: String)   // code to run in an existing 3D model while a line is spoken
+    case step3d(id: String, code: String, note: String?)   // code to run in an existing 3D model while a line is spoken,
+                                                         // and its short note for the list beside the model
     case say(String)
     case step(String)        // {"ops":[…]} JSON
     case lessonEnd
@@ -510,10 +511,12 @@ struct ArtistStream {
                 }
                 pos = lt.location + (tail[tail.startIndex..<close.upperBound] as Substring).utf16.count
             } else if tail.hasPrefix("<step3d") {
-                guard let gt = tail.firstIndex(of: ">"), let close = tail.range(of: "</step3d>") else { break }
+                guard let gt = Self.tagEnd(tail), let close = tail.range(of: "</step3d>") else { break }
                 let attrs = String(tail[tail.startIndex..<gt])
                 let code = String(tail[tail.index(after: gt)..<close.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
-                if let id = Self.attr("id", in: attrs), !code.isEmpty { out.append(.step3d(id: id, code: code)) }
+                if let id = Self.attr("id", in: attrs), !code.isEmpty {
+                    out.append(.step3d(id: id, code: code, note: Self.attr("note", in: attrs).map(Self.unescape)))
+                }
                 pos = lt.location + (tail[tail.startIndex..<close.upperBound] as Substring).utf16.count
             } else if tail.hasPrefix("<scene3d") {
                 // The model appears as soon as its tag opens; its code follows as it's written.
@@ -580,8 +583,24 @@ struct ArtistStream {
         return String(data: data, encoding: .utf8)
     }
 
+    /// The ">" that ends the opening tag at the start of s, skipping any inside quoted attributes
+    /// (a note like "pressure -> flow").
+    static func tagEnd(_ s: String) -> String.Index? {
+        var quoted = false
+        for i in s.indices {
+            if s[i] == "\"" { quoted.toggle() } else if s[i] == ">", !quoted { return i }
+        }
+        return nil
+    }
+
+    static func unescape(_ s: String) -> String {
+        s.replacingOccurrences(of: "&quot;", with: "\"").replacingOccurrences(of: "&lt;", with: "<")
+         .replacingOccurrences(of: "&gt;", with: ">").replacingOccurrences(of: "&amp;", with: "&")
+    }
+
     static func attr(_ name: String, in s: String) -> String? {
-        guard let r = s.range(of: name + "=\"") else { return nil }
+        // " name=": a whole attribute name (so "id" doesn't match inside another name)
+        guard let r = s.range(of: " " + name + "=\"") else { return nil }
         let rest = s[r.upperBound...]
         guard let end = rest.firstIndex(of: "\"") else { return nil }
         return String(rest[..<end])

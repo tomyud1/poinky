@@ -1,0 +1,85 @@
+<!doctype html><html><head><meta charset="utf-8">
+<!-- kit.crank / kit.linkage move like the real thing: every bar keeps its length, the piston stays on its axis,
+     the Jansen leg matches Jansen's own solution through whole turns, and impossible linkages say why. -->
+<link rel="stylesheet" href="../../web/kit.css"></head><body>
+<div id="stage"></div><svg id="lines"></svg><div id="tags"></div><div id="err"></div>
+<script src="../../vendor/three.min.js"></script>
+<script src="../../web/kit.js"></script>
+<script>
+(async () => {
+  const results = [], fail = [];
+  const check = (ok, what) => { results.push((ok ? 'ok   ' : 'FAIL ') + what); if (!ok) fail.push(what); };
+  const finish = () => {
+    document.body.textContent = results.join('\n');
+    document.title = fail.length ? 'FAIL' : 'PASS';
+    window.testResults = { pass: !fail.length, lines: results };
+  };
+  try {
+    const kit = Kit(); kit.start();
+    check(!!kit.scene.environment, 'the studio reflection map is set');
+
+    const eng = kit.crank({ stroke: 1.2, rod: 2, speed: 9 });
+    const fb = kit.linkage({ fixed: { O: [0, 0], B: [3, 0] }, crank: { name: 'A', around: 'O', r: 1, speed: -7 },
+      joints: { C: { from: ['A', 'B'], len: [3.2, 2.4], side: 'up' } }, bars: [['O', 'A'], ['A', 'C'], ['B', 'C']], trace: 'C', at: [6, 0, 0] });
+    const leg = kit.linkage({ preset: 'jansen', speed: 8, at: [-6, 0, 0] });
+    const follower = kit.crank({ follow: eng, phase: 90, at: [0, 0, 3] });
+    const fast = kit.linkage({ preset: 'jansen', speed: 60, at: [-6, 0, 4] });   // ~3 radians a frame: frame rate mustn't matter
+
+    // Jansen's leg solved his own way (fixed rules per joint), to compare with the kit's branch-following solve.
+    const cc = (p0, r0, p1, r1, pick) => {
+      const dx = p1[0] - p0[0], dy = p1[1] - p0[1], D = Math.hypot(dx, dy), A = (r0 * r0 - r1 * r1 + D * D) / (2 * D);
+      const H = Math.sqrt(Math.max(0, r0 * r0 - A * A)), mx = p0[0] + A * dx / D, my = p0[1] + A * dy / D;
+      return pick([mx + H * dy / D, my - H * dx / D], [mx - H * dy / D, my + H * dx / D]);
+    };
+    const hi = (s, t) => s[1] > t[1] ? s : t, lo = (s, t) => s[1] < t[1] ? s : t, lx = (s, t) => s[0] < t[0] ? s : t;
+    const jansen = th => {
+      const P = [-38, -7.8], A = [15 * Math.cos(th), 15 * Math.sin(th)];
+      const B = cc(A, 50, P, 41.5, hi), C = cc(A, 61.9, P, 39.3, lo), D = cc(B, 55.8, P, 40.1, lx);
+      const E = cc(D, 39.4, C, 36.7, lx), F = cc(E, 65.7, C, 49, lo);
+      return { A, B, C, D, E, F };
+    };
+    const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
+    let firstLegMiss = '', frames = 0, worstRod = 0, worstAxis = 0, worstBar = 0, worstLeg = 0, worstFollow = 0, worstFast = 0, legStart = leg.angle;
+    const fbLen = { OA: 1, AC: 3.2, BC: 2.4 };
+    kit.animate(() => {
+      frames++;
+      // crank: the rod's ends stay one rod length apart, the piston stays on its line
+      const pin = new kit.THREE.Vector3(), wrist = new kit.THREE.Vector3();
+      eng.rod.updateWorldMatrix(true, false); eng.piston.updateWorldMatrix(true, false);
+      eng.rod.getWorldPosition(pin); eng.piston.getWorldPosition(wrist);
+      worstRod = Math.max(worstRod, Math.abs(pin.distanceTo(wrist) - 2));
+      worstAxis = Math.max(worstAxis, Math.abs(wrist.x - eng.position.x));
+      worstFollow = Math.max(worstFollow, Math.abs(follower.angle - eng.angle - Math.PI / 2));
+      const q = fb.points();
+      worstBar = Math.max(worstBar, Math.abs(dist(q.O, q.A) - 1), Math.abs(dist(q.A, q.C) - 3.2), Math.abs(dist(q.B, q.C) - 2.4));
+      const fq = fast.points(), fref = jansen(fast.angle);
+      for (const k of 'ABCDEF') worstFast = Math.max(worstFast, dist(fq[k], fref[k]));
+      const l = leg.points(), ref = jansen(leg.angle);
+      for (const k of 'ABCDEF') {
+        const e = dist(l[k], ref[k]);
+        if (e > 1e-6 && !firstLegMiss) firstLegMiss = `frame ${frames}, angle ${(leg.angle % (2 * Math.PI)).toFixed(2)}, joint ${k}: ${l[k].map(v => v.toFixed(1))} vs ${ref[k].map(v => v.toFixed(1))}`;
+        worstLeg = Math.max(worstLeg, e);
+      }
+    });
+    await new Promise(r => setTimeout(r, 2500));
+    check(frames > 30, `animation ran (${frames} frames)`);
+    check(Math.abs(leg.angle - legStart) > 2 * Math.PI, `the Jansen crank made a full turn (${(Math.abs(leg.angle - legStart) / (2 * Math.PI)).toFixed(1)} turns)`);
+    check(worstRod < 1e-4, `rod length holds (worst error ${worstRod.toExponential(1)})`);
+    check(worstAxis < 1e-4, `piston stays on its axis (worst ${worstAxis.toExponential(1)})`);
+    check(worstFollow < 1e-9, 'a following crank keeps its phase');
+    check(worstBar < 1e-6, `four-bar lengths hold (worst ${worstBar.toExponential(1)})`);
+    check(worstLeg < 1e-6, `Jansen leg matches Jansen's solution (worst ${worstLeg.toExponential(1)}${firstLegMiss ? '; first at ' + firstLegMiss : ''})`);
+    check(worstFast < 1e-6, `a very fast leg still matches (worst ${worstFast.toExponential(1)})`);
+    check(!!fb.joint('C') && !!leg.joint('F') && !!fb.point('C'), 'joints and points can be looked up for labels');
+    check(!!kit.scene.getObjectByName('trace C'), 'the trace is drawn');
+
+    const err = f => { try { f(); return ''; } catch (e) { return e.message; } };
+    const e1 = err(() => kit.linkage({ fixed: { O: [0, 0], B: [3, 0] }, crank: { name: 'A', around: 'O', r: 2 },
+      joints: { C: { from: ['A', 'B'], len: [1.5, 1.2] } }, bars: [['A', 'C']] }));
+    check(/joint C/.test(e1), `a linkage that can't turn says which joint (${e1})`);
+    const e2 = err(() => kit.linkage({ fixed: { O: [0, 0] }, crank: { name: 'A', around: 'O' }, joints: { C: { from: ['A', 'Z'], len: [1, 1] } } }));
+    check(/joint C/.test(e2), `a joint on a missing point is named (${e2})`);
+  } catch (e) { check(false, 'threw: ' + (e && e.stack || e)); }
+  finish();
+})();
+</script></body></html>

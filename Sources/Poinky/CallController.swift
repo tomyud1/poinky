@@ -78,7 +78,12 @@ final class CallController: NSObject, NSMenuDelegate {
     private var nextTag = 0
     private var currentTag: Int?
     private var startedTags: Set<Int> = []
-    private enum PendingStep { case paper(String), model(id: String, code: String) }
+    private enum PendingStep { case paper(String), model(id: String, code: String, note: String?) }
+    private var lineForTag: [Int: String] = [:]   // each lesson line's words (a 3D step's note falls back to them)
+    private var notedTags: Set<Int> = []          // lines whose 3D step already added a note
+    /// How long a 3D step stays on screen before the next sentence starts, and the pause after its sentence.
+    private static let stepDwell: TimeInterval = 2.2
+    private static let stepBreath: TimeInterval = 0.4
     private var pendingSteps: [Int: [PendingStep]] = [:]
     private var narrationOpen = false        // the teacher is adding spoken lines to the voice
     private var lessonScale: CGFloat = 1
@@ -135,7 +140,7 @@ final class CallController: NSObject, NSMenuDelegate {
             // A lesson line just started: draw what goes with it.
             if let tag {
                 self.startedTags.insert(tag)
-                for step in self.pendingSteps.removeValue(forKey: tag) ?? [] { self.play(step) }
+                for step in self.pendingSteps.removeValue(forKey: tag) ?? [] { self.play(step, paced: true) }
             }
         }
         overlay.onCardError = { [weak self] id, type, message in self?.cardFailed(id: id, type: type, message: message) }
@@ -414,6 +419,8 @@ final class CallController: NSObject, NSMenuDelegate {
         narrationOpen = false
         pendingSteps.removeAll()
         startedTags.removeAll()
+        lineForTag.removeAll()
+        notedTags.removeAll()
         anchor = nil
         pendingFocus = nil
         focusRegion = nil
@@ -1124,13 +1131,14 @@ final class CallController: NSObject, NSMenuDelegate {
             nextTag += 1
             currentTag = nextTag
             pendingSteps[nextTag] = []
+            lineForTag[nextTag] = line
             speaker.enqueue(line, tag: nextTag)
             state = .speaking
         case .step(let json):
             if !lessonOpen { openPaper(title: "", continuing: true) }
             schedule(.paper(snapScreenMarks(json, snapshot: snapshot)))
-        case .step3d(let id, let code):
-            schedule(.model(id: id, code: code))
+        case .step3d(let id, let code, let note):
+            schedule(.model(id: id, code: code, note: stepNote(note)))
         case .lessonEnd:
             lessonOpen = false
         case .card(let spec):
@@ -1195,15 +1203,45 @@ final class CallController: NSObject, NSMenuDelegate {
         if let tag = currentTag, !startedTags.contains(tag) {
             pendingSteps[tag, default: []].append(step)
         } else {
-            play(step)
+            play(step, paced: currentTag != nil && speaker.isSpeaking)
         }
     }
 
-    private func play(_ step: PendingStep) {
+    /// paced: the step runs with its sentence, so the next sentence waits until it has been seen.
+    private func play(_ step: PendingStep, paced: Bool = false) {
         switch step {
         case .paper(let json): overlay.lessonStep(json, scale: lessonScale)
-        case .model(let id, let code): overlay.run3d(id: id, code: code)
+        case .model(let id, let code, let note):
+            overlay.run3d(id: id, code: code, note: note)
+            if paced { speaker.holdNext(for: Self.stepDwell, breath: Self.stepBreath) }
         }
+    }
+
+    /// The line in the notes beside a 3D model for the step being written: the teacher's own note, or
+    /// else the sentence it goes with, shortened (once per sentence). A step with no sentence (a fix) has none.
+    private func stepNote(_ note: String?) -> String? {
+        guard let tag = currentTag else { return nil }
+        if var n = note?.trimmingCharacters(in: .whitespacesAndNewlines), !n.isEmpty {
+            // The list numbers the notes itself: drop a "1 " / "2. " / "3) " the teacher added.
+            // ("70 beats a minute" stays: only "N." / "N)" / "N:" or a number before a capital is a list number.)
+            if let r = n.range(of: #"^\d{1,2}(?:[.):]\s*|\s+(?=[A-Z]))"#, options: .regularExpression) { n.removeSubrange(r) }
+            notedTags.insert(tag)
+            return n
+        }
+        guard !notedTags.contains(tag), let line = lineForTag[tag] else { return nil }
+        notedTags.insert(tag)
+        return Self.shortNote(line)
+    }
+
+    /// A spoken sentence as a short note: no final period, at most about 60 characters, cut at a word.
+    static func shortNote(_ line: String) -> String {
+        var s = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        while let last = s.last, ".!".contains(last) { s.removeLast() }
+        guard s.count > 60 else { return s }
+        var cut = String(s.prefix(57))
+        if let sp = cut.lastIndex(of: " ") { cut = String(cut[..<sp]) }
+        while let last = cut.last, ",;:-–—".contains(last) { cut.removeLast() }
+        return cut + "…"
     }
 
     /// Screen marks inside a lesson step also snap to the real text.
