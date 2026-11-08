@@ -18,9 +18,17 @@ final class ClaudeCodeBrain: Brain {
     private struct Pending {
         let cont: CheckedContinuation<String, Error>
         let onText: (String) -> Void
+        let id: Int
         var text = ""
         var gotDeltas = false
     }
+    private var nextID = 0
+    private var lastOutputAt: TimeInterval = 0
+    private var watchdog: Timer?
+    private var cancelledID: Int?   // its result (an "error_during_execution") is a cancellation, not an error
+    /// No output at all for this long while answering: Claude Code is stuck, so it's restarted.
+    /// (Any line counts, thinking included, so long answers never trip it.)
+    static let stallSeconds: TimeInterval = 75
     private var pending: Pending? {
         didSet { if pending == nil { wakeWaiters() } }
     }
@@ -68,7 +76,10 @@ final class ClaudeCodeBrain: Brain {
         line.append(0x0A)
 
         return try await withCheckedThrowingContinuation { cont in
-            pending = Pending(cont: cont, onText: onText)
+            nextID += 1
+            pending = Pending(cont: cont, onText: onText, id: nextID)
+            lastOutputAt = ProcessInfo.processInfo.systemUptime
+            startWatchdog()
             do {
                 try stdin?.write(contentsOf: line)
             } catch {
@@ -78,7 +89,51 @@ final class ClaudeCodeBrain: Brain {
         }
     }
 
+    /// Interrupt the turn in progress (Claude Code ends it with a result); if it doesn't end soon, restart.
+    func cancelCurrent() {
+        guard let id = pending?.id, cancelledID != id, let stdin else { return }
+        cancelledID = id
+        let req: [String: Any] = ["type": "control_request", "request_id": "cancel-\(id)", "request": ["subtype": "interrupt"]]
+        if var line = try? JSONSerialization.data(withJSONObject: req) {
+            line.append(0x0A)
+            try? stdin.write(contentsOf: line)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self, self.pending?.id == id else { return }
+                self.restart(CancellationError())
+            }
+        }
+    }
+
+    private func startWatchdog() {
+        guard watchdog == nil else { return }
+        watchdog = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                guard self.pending != nil else { self.watchdog?.invalidate(); self.watchdog = nil; return }
+                if ProcessInfo.processInfo.systemUptime - self.lastOutputAt > Self.stallSeconds {
+                    self.restart(BrainError("Claude Code stopped answering, so I restarted it. Ask again?"))
+                }
+            }
+        }
+    }
+
+    /// Kill a stuck process: the waiting question fails with `reason`, the next one starts a fresh process.
+    private func restart(_ error: Error) {
+        NSLog("Poinky: restarting claude (\(error is CancellationError ? "didn't stop when interrupted" : error.localizedDescription))")
+        if let p = pending {
+            pending = nil
+            p.cont.resume(throwing: error)
+        }
+        try? stdin?.close()
+        stdin = nil
+        if let p = process, p.isRunning { p.terminate() }
+        process = nil
+    }
+
     func stop() {
+        watchdog?.invalidate(); watchdog = nil
         if let p = pending {
             pending = nil
             p.cont.resume(throwing: CancellationError())
@@ -138,7 +193,8 @@ final class ClaudeCodeBrain: Brain {
         outPipe.fileHandleForReading.readabilityHandler = { [weak self] h in
             let data = h.availableData
             if data.isEmpty { h.readabilityHandler = nil; return }
-            DispatchQueue.main.async { MainActor.assumeIsolated { self?.ingest(data) } }
+            // (A process that was restarted can still flush output: it must not answer the next question.)
+            DispatchQueue.main.async { MainActor.assumeIsolated { guard let self, self.process === p else { return }; self.ingest(data) } }
         }
         errPipe.fileHandleForReading.readabilityHandler = { [weak self] h in
             let data = h.availableData
@@ -174,6 +230,7 @@ final class ClaudeCodeBrain: Brain {
     }
 
     private func ingest(_ data: Data) {
+        lastOutputAt = ProcessInfo.processInfo.systemUptime
         buffer.append(data)
         while let nl = buffer.firstIndex(of: 0x0A) {
             let lineData = buffer[buffer.startIndex..<nl]
@@ -211,7 +268,9 @@ final class ClaudeCodeBrain: Brain {
         case "result":
             guard let pend = pending else { return }
             pending = nil
-            if obj["is_error"] as? Bool == true {
+            if pend.id == cancelledID {
+                pend.cont.resume(throwing: CancellationError())
+            } else if obj["is_error"] as? Bool == true {
                 let msg = (obj["result"] as? String) ?? "Claude Code returned an error."
                 pend.cont.resume(throwing: BrainError(msg))
             } else {

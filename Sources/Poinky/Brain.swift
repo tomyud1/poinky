@@ -11,6 +11,13 @@ protocol Brain: AnyObject {
     func ask(_ question: BrainQuestion, onText: @escaping (String) -> Void) async throws -> String
     /// Ends the session (called when the call ends).
     func stop()
+    /// Nobody wants the reply being written now (you interrupted or asked something else):
+    /// end it soon so the next question doesn't wait behind it. Keeps the session.
+    func cancelCurrent()
+}
+
+extension Brain {
+    func cancelCurrent() {}
 }
 
 struct BrainQuestion {

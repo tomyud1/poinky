@@ -550,6 +550,7 @@ final class CallController: NSObject, NSMenuDelegate {
             state = restingState
         case .thinking:
             turn += 1
+            talker?.cancelCurrent()
             speaker.stop()
             clearMarksOnInterrupt()
             stopLesson()
@@ -582,6 +583,7 @@ final class CallController: NSObject, NSMenuDelegate {
         case .thinking:
             // Claude hasn't answered yet: what you say now is the rest of that question.
             turn += 1
+            talker?.cancelCurrent()
             speaker.stop()
             mergeNext = true
             state = .listening
@@ -833,6 +835,7 @@ final class CallController: NSObject, NSMenuDelegate {
     /// You started talking while Claude was speaking: stop and listen.
     private func interrupt(maybeMore: Bool = true) {
         turn += 1
+        talker?.cancelCurrent()   // it may still be writing the rest: don't make the next question wait for it
         speaker.stop()
         // Talking again within a few seconds of asking usually means you weren't done:
         // treat what you say next as the rest of the same question.
@@ -890,6 +893,7 @@ final class CallController: NSObject, NSMenuDelegate {
     private func ask(_ question: String, proactive: Bool = false) {
         guard let talker, let screen = overlay.screen else { return }
         releaseReports()   // a new question cut a report short
+        talker.cancelCurrent()   // an older reply still being written is dropped anyway; don't queue behind it
         turn += 1
         let myTurn = turn
         lastActivity = ProcessInfo.processInfo.systemUptime
@@ -1524,6 +1528,7 @@ final class CallController: NSObject, NSMenuDelegate {
         handsWatch?.invalidate(); handsWatch = nil
         guard guide != nil || clickMonitor != nil else { return }
         Computer.token += 1          // stop any click or typing in progress
+        if guideBusy { guideBrain?.cancelCurrent(); doerBrain?.cancelCurrent() }   // its step ends soon, so a new walkthrough can start
         guide = nil
         guideRerun = nil
         guideClickWork?.cancel()
