@@ -373,6 +373,8 @@ private struct ClaudeTab: View {
                     model: cc ? $model.config.artistModel : $model.config.apiArtistModel, effort: $model.config.artistEffort)
                     .disabled(!model.config.artistEnabled)
                 Toggle("Teacher sketches explanations and 3D models", isOn: $model.config.artistEnabled)
+                Toggle("Quick web search (the talker looks things up itself, with web tools only)", isOn: $model.config.webSearch)
+                    .disabled(!cc)
                 row("Guide", "walks you through, step by step",
                     model: cc ? $model.config.guideModel : $model.config.apiGuideModel, effort: $model.config.guideEffort,
                     sameAs: "Same as the talker")
@@ -562,6 +564,20 @@ private struct MemoryTab: View {
                     Button("Forget Everything", role: .destructive) { Memory.clear(); model.reload() }
                     Spacer()
                     Button("Show File") { NSWorkspace.shared.activateFileViewerSelecting([Memory.url]) }
+                }
+            }
+            Section("Conversation history") {
+                Toggle("Keep what we said, so Poinky can look it up later", isOn: $model.config.conversationLog)
+                Text("Lets you ask \"what did you tell me yesterday about the router?\" or \"what was I doing in Claude Code this morning?\". Poinky keeps what you said and what it answered (no screenshots), one file per day, only on this Mac. When you ask, it also looks through your earlier helpers and the titles and last prompts of your own Claude Code sessions.")
+                    .font(.caption).foregroundStyle(.secondary)
+                HStack {
+                    Button("Forget Today") { ConversationLog.clearToday() }
+                    Button("Forget All Conversations", role: .destructive) { ConversationLog.clear() }
+                    Spacer()
+                    Button("Show Folder") {
+                        try? FileManager.default.createDirectory(at: ConversationLog.dir, withIntermediateDirectories: true)
+                        NSWorkspace.shared.activateFileViewerSelecting([ConversationLog.dir])
+                    }
                 }
             }
         }

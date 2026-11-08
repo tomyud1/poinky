@@ -33,13 +33,21 @@ final class ClaudeCodeBrain: Brain {
     }
 
     private let effort: String
+    /// Claude Code tools it may use (none for the talker, teacher, guide and doer; WebSearch and WebFetch
+    /// for the web searcher). Each one is also pre-approved, since nobody is there to say yes.
+    private let tools: [String]
+    /// Where it runs (default: the settings folder). The web searcher gets an empty folder of its own.
+    private let workDir: URL?
 
     /// `effort` "" keeps it fast (no thinking step); a level lets it think that much.
-    init(model: String, effort: String = "", claudePath: String, systemPrompt: String) {
+    init(model: String, effort: String = "", claudePath: String, systemPrompt: String,
+         tools: [String] = [], workDir: URL? = nil) {
         self.model = model
         self.effort = AppConfig.efforts.contains(effort) ? effort : ""
         self.explicitPath = claudePath
         self.systemPrompt = systemPrompt
+        self.tools = tools
+        self.workDir = workDir
     }
 
     func warmUp() async throws { try launchIfNeeded() }
@@ -99,13 +107,14 @@ final class ClaudeCodeBrain: Brain {
             "--verbose",
             "--include-partial-messages",   // stream words as they're written
             "--model", model,
-            "--tools", "",                  // no file/bash tools: it only looks and talks
+            "--tools", tools.joined(separator: ","),   // "": no file/bash tools, it only looks and talks
             "--strict-mcp-config",          // skip loading MCP servers (faster startup)
             "--disable-slash-commands",
             "--setting-sources", "",        // ignore project/user hooks & settings
             "--no-session-persistence",
             "--system-prompt", systemPrompt,
         ]
+        if !tools.isEmpty { p.arguments! += ["--allowedTools"] + tools }
         if effort.isEmpty {
             p.arguments! += ["--settings", #"{"alwaysThinkingEnabled":false}"#]
         } else {
@@ -117,8 +126,9 @@ final class ClaudeCodeBrain: Brain {
             .joined(separator: ":")
         if effort.isEmpty { env["MAX_THINKING_TOKENS"] = "0" }   // skip the thinking step: faster replies
         p.environment = env
-        try? FileManager.default.createDirectory(at: AppConfig.dir, withIntermediateDirectories: true)
-        p.currentDirectoryURL = AppConfig.dir
+        let dir = workDir ?? AppConfig.dir
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        p.currentDirectoryURL = dir
 
         let inPipe = Pipe(), outPipe = Pipe(), errPipe = Pipe()
         p.standardInput = inPipe

@@ -15,10 +15,12 @@ protocol Brain: AnyObject {
 
 struct BrainQuestion {
     let text: String
-    let snapshot: Snapshot
+    /// Nil: text only (a follow-up with what a lookup found, or a web search: the screen was already sent).
+    let snapshot: Snapshot?
 
     /// The screenshot, plus the close-up of what you marked (if any).
     var imageBlocks: [[String: Any]] {
+        guard let snapshot else { return [] }
         var blocks: [[String: Any]] = [["type": "image",
                                         "source": ["type": "base64", "media_type": "image/jpeg", "data": snapshot.jpegBase64]]]
         if let f = snapshot.focus {
@@ -54,6 +56,7 @@ enum BrainFactory {
             prompt += "\n\n" + manual
         }
         if role == .talker || role == .guide || role == .doer { prompt += Memory.promptSection(enabled: config.memoryEnabled) }
+        if role == .talker { prompt += LookUp.promptSection(config) }
         switch config.brain {
         case .claudeCode:
             return ClaudeCodeBrain(model: config.model(for: role), effort: config.effort(for: role),
@@ -91,6 +94,24 @@ struct TalkEvents {
     var tells: [(name: String, text: String)] = []   // a follow-up for a working helper, by name
     var stops: [String] = []                          // helpers to stop, by name
     var undos: [String] = []                          // helpers whose last changes to undo, by name or key
+    var recall: String?            // look up earlier conversations, helpers and Claude Code sessions
+    var search: String?            // look this up on the web (a separate session with only web tools)
+
+    /// A reply that answers from what a lookup found: web pages and old transcripts are data, so only
+    /// speaking, marking the screen and asking the teacher for a sketch count. Nothing that acts
+    /// (clicks, helpers, settings, memory, ending the session) and no second lookup.
+    func onlySpeech() -> TalkEvents {
+        var e = TalkEvents()
+        e.sentences = sentences
+        e.draws = draws
+        e.visual = visual
+        return e
+    }
+    /// Has anything that would act (for logging what a lookup reply tried to do).
+    var wouldAct: Bool {
+        guide != nil || doTask != nil || !settings.isEmpty || !remember.isEmpty || !forget.isEmpty || !agents.isEmpty
+            || !tells.isEmpty || !stops.isEmpty || !undos.isEmpty || end || video != nil || recall != nil || search != nil
+    }
     var video: (title: String, brief: String)?        // make a video explainer about this
     var videoCancel = false                           // stop the video being made
     var videoClose = false                            // close the video on screen
@@ -116,6 +137,9 @@ struct AgentRequest: Equatable {
     var earlier: String? = nil
     /// Continuing a helper that worked in its own git worktree: that folder (made again there).
     var worktreePath: String? = nil
+    /// Continuing one of the user's own Claude Code sessions: resume a copy of it (`--fork-session`), so
+    /// the original stays as it was in their terminal.
+    var fork = false
 
     /// "opus", "Sonnet 5.5", "claude-haiku-5-5" → a full model name Claude Code knows. Nil if it isn't one.
     static func modelName(_ s: String?) -> String? {
@@ -176,7 +200,7 @@ struct TalkParser {
             ev.sentences = takeSentences(final: true)
         } else if sayEmitted == 0 {
             var s = text
-            for tag in ["<draw>", "<visual>", "<guide>", "<do>", "<act", "<ask>", "<done>", "<end", "<set>", "<remember>", "<forget>", "<agent", "<tell", "<stop", "<undo", "<video"] {
+            for tag in ["<draw>", "<visual>", "<guide>", "<do>", "<act", "<ask>", "<done>", "<end", "<set>", "<remember>", "<forget>", "<agent", "<tell", "<stop", "<undo", "<video", "<recall", "<search"] {
                 if let r = s.range(of: tag) { s = String(s[..<r.lowerBound]) }
             }
             s = s.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -226,6 +250,8 @@ struct TalkParser {
         if let b = Self.blocks(text, "video").first, !b.body.isEmpty {
             ev.video = (Self.attr("title", in: b.attrs).flatMap { $0.isEmpty ? nil : $0 } ?? String(b.body.prefix(60)), b.body)
         }
+        ev.recall = Self.blocks(text, "recall").first.map(\.body).flatMap { $0.isEmpty ? nil : $0 }
+        ev.search = Self.blocks(text, "search").first.map(\.body).flatMap { $0.isEmpty ? nil : $0 }
         if let re = try? NSRegularExpression(pattern: #"<undo\s+agent\s*=\s*"([^"]+)"\s*/?>"#) {
             let ns = text as NSString
             ev.undos = re.matches(in: text, range: NSRange(location: 0, length: ns.length)).map { ns.substring(with: $0.range(at: 1)) }
