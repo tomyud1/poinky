@@ -20,6 +20,33 @@ extension Brain {
     func cancelCurrent() {}
 }
 
+/// Runs `op`, but gives up after `seconds` (for system calls that can hang, like ScreenCaptureKit
+/// when its service crashed). The work itself may keep running; its late result is dropped.
+enum Deadline {
+    struct Expired: LocalizedError {
+        let what: String
+        var errorDescription: String? { "\(what) didn't respond." }
+    }
+
+    private final class Once<T>: @unchecked Sendable {
+        let lock = NSLock()
+        var cont: CheckedContinuation<T, Error>?
+        init(_ c: CheckedContinuation<T, Error>) { cont = c }
+        func finish(_ r: Result<T, Error>) {
+            lock.lock(); let c = cont; cont = nil; lock.unlock()
+            c?.resume(with: r)
+        }
+    }
+
+    static func run<T>(_ seconds: Double, _ what: String, _ op: @escaping () async throws -> T) async throws -> T {
+        try await withCheckedThrowingContinuation { (c: CheckedContinuation<T, Error>) in
+            let once = Once<T>(c)
+            Task { do { once.finish(.success(try await op())) } catch { once.finish(.failure(error)) } }
+            Task { try? await Task.sleep(nanoseconds: UInt64(seconds * 1e9)); once.finish(.failure(Expired(what: what))) }
+        }
+    }
+}
+
 struct BrainQuestion {
     let text: String
     /// Nil: text only (a follow-up with what a lookup found, or a web search: the screen was already sent).
