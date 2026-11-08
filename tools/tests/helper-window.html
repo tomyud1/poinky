@@ -11,7 +11,12 @@
 const results = [], fail = [];
 const check = (ok, what) => { results.push((ok ? 'ok   ' : 'FAIL ') + what); if (!ok) fail.push(what); };
 const done = () => { document.title = fail.length ? 'FAIL' : 'PASS'; window.testResults = { pass: !fail.length, lines: results }; };
-document.getElementById('f').onload = () => {
+// The frame can finish loading before this script runs (it depends on the machine), so run on
+// load, or right away if it already loaded, but only once.
+let started = false;
+const run = () => {
+  if (started) return;
+  started = true;
   try {
     const w = document.getElementById('f').contentWindow, d = w.document, HW = w.HW;
     const q = s => d.querySelector(s), qa = s => [...d.querySelectorAll(s)];
@@ -92,5 +97,8 @@ document.getElementById('f').onload = () => {
   } catch (e) { check(false, 'error: ' + e.message + ' ' + (e.stack || '').split('\n')[1]); }
   done();
 };
+const frame = document.getElementById('f');
+frame.addEventListener('load', run);
+if (frame.contentDocument?.readyState === 'complete' && frame.contentWindow?.HW) run();
 </script>
 </body>

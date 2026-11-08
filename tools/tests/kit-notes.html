@@ -35,7 +35,8 @@
     await wait(80);
     check(tag('Fan').classList.contains('flash'), 'the part label step 1 added flashes');
     check(!tag('Body').classList.contains('flash'), "step 2's part label doesn't");
-    await wait(2200);
+    // Wait for the camera to get there (CI has no GPU, so frames are slow), up to 8 s.
+    for (let t = 0; t < 8000 && !near(azimuth(), 0); t += 200) await wait(200);
     check(near(azimuth(), 0), `clicking step 1's note brings its view back (${azimuth()}°, was ${az0}°)`);
     check(shown('Air rushes in') && !tags().includes('Squeeze'), `and its moment note, not step 2's (${tags()})`);
     check(shown('Fan') && shown('Body'), 'part names stay');
