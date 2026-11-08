@@ -1108,7 +1108,9 @@ final class CallController: NSObject, NSMenuDelegate {
         lastActivity = ProcessInfo.processInfo.systemUptime
         if buddyHidden { setBuddyHidden(false) }
         if !proactive { lastQuestion = question }
-        lookupReply = false
+        // A background update (a helper's report) is built from helper output, which can contain text from
+        // web pages or files: like a lookup reply, it may only speak and mark, never act.
+        lookupReply = proactive
         lastAskAt = ProcessInfo.processInfo.systemUptime
         markFade?.cancel()
         // Each question starts with a clean screen: the previous answer's marks go away.
@@ -1164,7 +1166,7 @@ final class CallController: NSObject, NSMenuDelegate {
                 var said = self.parser.sayPreview
                 var note = Self.logNote(ev)
                 // `<recall>` / `<search>`: look it up, then the talker answers from what was found.
-                if ev.recall != nil || ev.search != nil {
+                if !proactive, ev.recall != nil || ev.search != nil {
                     if ev.search != nil, said.isEmpty { self.speaker.enqueue("One sec, let me check."); self.state = .speaking }
                     let found = await self.lookUp(recall: ev.recall, search: ev.search, question: question, turn: myTurn)
                     guard myTurn == self.turn else { return }
