@@ -986,7 +986,7 @@ final class CallController: NSObject, NSMenuDelegate {
             } catch {
                 guard myTurn == self.turn, !(error is CancellationError) else { return }
                 self.overlay.setClaudeCaption("⚠️ \(error.localizedDescription)")
-                self.speaker.enqueue("Sorry, something went wrong.")
+                self.speaker.enqueue(SpokenError.line(for: error))
             }
             guard myTurn == self.turn else { return }
             self.overlay.clearMarks()   // your marks were for this question

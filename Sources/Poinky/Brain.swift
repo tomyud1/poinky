@@ -75,8 +75,40 @@ struct BrainQuestion {
 
 struct BrainError: LocalizedError {
     let message: String
+    /// Claude Code said the usage limit was hit; when it resets (if it said).
+    var limitResetsAt: Date?
+    var limitHit = false
     init(_ message: String) { self.message = message }
     var errorDescription: String? { message }
+}
+
+/// What to say out loud when a question fails: one short sentence that says what to do,
+/// instead of "something went wrong". The exact error still goes in the caption.
+enum SpokenError {
+    static func line(for error: Error, now: Date = Date()) -> String {
+        if let b = error as? BrainError, b.limitHit { return limitLine(b.limitResetsAt, now: now) }
+        if error is Deadline.Expired { return "The screen capture got stuck. Ask again, and if it keeps happening, restart Poinky from the notch." }
+        let m = error.localizedDescription.lowercased()
+        func has(_ words: String...) -> Bool { words.contains { m.contains($0) } }
+        if has("usage limit", "hit your limit", "limit reached", "rate limit", "rate_limit", "api error: 429") { return limitLine(nil, now: now) }
+        if has("/login", "not logged in", "invalid api key", "authentication", "api error: 401", "oauth") {
+            return "Claude Code isn't signed in. Run claude in Terminal and sign in, then ask me again."
+        }
+        if has("isn't installed") { return "I can't find Claude Code. Install it, or switch to an API key in Settings." }
+        if has("overloaded", "api error: 5") { return "Claude's servers are busy right now. Try again in a moment." }
+        if has("connection", "network", "offline", "timed out", "could not resolve", "internet") {
+            return "I can't reach Claude. Check your internet connection and ask again."
+        }
+        if has("stopped answering", "stopped unexpectedly") { return "Claude Code got stuck, so I restarted it. Ask me again." }
+        return "Sorry, that didn't work. The details are on screen."
+    }
+
+    static func limitLine(_ resets: Date?, now: Date = Date()) -> String {
+        guard let r = resets, r > now else { return "You've hit your Claude usage limit. I'll work again once it resets." }
+        let f = DateFormatter()
+        f.dateFormat = Calendar.current.isDate(r, inSameDayAs: now) ? "h:mm a" : "EEEE h:mm a"
+        return "You've hit your Claude usage limit. It resets at \(f.string(from: r))."
+    }
 }
 
 @MainActor

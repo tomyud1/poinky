@@ -25,6 +25,7 @@ final class ClaudeCodeBrain: Brain {
     private var nextID = 0
     private var lastOutputAt: TimeInterval = 0
     private var watchdog: Timer?
+    private var limit: (rejected: Bool, resetsAt: Date?) = (false, nil)   // from the last rate_limit_event
     private var cancelledID: Int?   // its result (an "error_during_execution") is a cancellation, not an error
     /// No output at all for this long while answering: Claude Code is stuck, so it's restarted.
     /// (Any line counts, thinking included, so long answers never trip it.)
@@ -272,11 +273,17 @@ final class ClaudeCodeBrain: Brain {
                 pend.cont.resume(throwing: CancellationError())
             } else if obj["is_error"] as? Bool == true {
                 let msg = (obj["result"] as? String) ?? "Claude Code returned an error."
-                pend.cont.resume(throwing: BrainError(msg))
+                var err = BrainError(msg)
+                if limit.rejected { err.limitHit = true; err.limitResetsAt = limit.resetsAt }
+                pend.cont.resume(throwing: err)
             } else {
                 let final = pend.text.isEmpty ? ((obj["result"] as? String) ?? "") : pend.text
                 pend.cont.resume(returning: final)
             }
+
+        case "rate_limit_event":
+            guard let info = obj["rate_limit_info"] as? [String: Any], let status = info["status"] as? String else { return }
+            limit = (status == "rejected", (info["resetsAt"] as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue) })
 
         default:
             break
