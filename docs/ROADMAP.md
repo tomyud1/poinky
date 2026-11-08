@@ -6,6 +6,7 @@ what "done" means. When you start an item, set its status to `in progress (branc
 lands, set `done (commit or PR)` and add anything the next agent needs under it.
 
 Rules for all items (see CLAUDE.md for the details):
+- **Poinky is for everyone**, not only developers: students reading lecture PDFs and doing homework, writers, office work. Pick examples and test cases from Preview, Notes, Pages/Docs, slides and the browser as well as code, and word prompts and UI without developer jargon.
 - Build with `./build.sh`; run `tools/test-helpers.sh` before pushing. Ask before restarting the app.
 - One commit per area, so each can be reverted alone. Branch first; the repo is public (no personal paths or emails).
 - The user has limited usage: keep live `claude -p` tests small, prefer fakes (`tools/fake-helper.py`) and `swiftc` harnesses.
@@ -61,11 +62,11 @@ What was built (2026-11-08):
 - Poinky changes both files over time, only in their "## Learned over time" part (the user's own text is never touched): the talker's `<remember about="user">` / `<remember about="poinky">` (and `<forget about=…>`) → `Identity.learn` / `unlearn` (near-duplicates replaced; caps 25 / 12 lines, the oldest go to the archive), and the end-of-session note writer adds up to 2 `ABOUT:` facts to user.md. Lookup replies can't (`onlySpeech`), and the prompt allows identity changes only when the user asks in their own words. Real Haiku check: "stop being polite, be blunt; I build strategy games in Godot in ~/Games" → about="poinky" for the style, about="user" for the projects.
 Still open: a review step (a weekly look at what was learned, spoken or in Settings), and a guard in code (not only the prompt) against identity changes suggested by on-screen text.
 
-## 4. Context beyond pixels (status: proposed)
-Why: power users want "select the error, hold ⌃⌥, say fix this" and helpers that start in the right project with no explaining.
-- Send the selected text (AX `kAXSelectedTextAttribute` via `AppReader`), the browser tab's URL, the editor's open file path, the terminal's working folder.
-- Use them to pick a helper's `dir` automatically.
-Done: "fix this" with a selected stack trace starts a helper in the right repo.
+## 4. Context beyond pixels (status: done on `poinky-reliability`; terminal folder open)
+Why: "select a paragraph, hold ⌃⌥, say explain this" (or "fix this" on an error), and helpers that start in the right folder with no explaining.
+What was built (2026-11-08): `AppContext.swift`. With each question, while the screenshot is taken (no extra wait; 0.5 s limit, 0.25 s per Accessibility call), `AppContextReader.read` gets the front app, its window title, the open document (`AXDocument`: Preview PDFs, TextEdit, Pages, editors), the web page (Safari's `AXDocument`, else a web area's `AXURL`: Chrome/Arc/Edge), and the selected text (`AXSelectedText`, up to 2,000 characters, never from secure fields or excluded apps). `AppContext.lines` go into the talker's message; the document's git repo (`projectFolder`) is named for helpers. URLs: http(s) only, secret-looking query parts removed, the meaningful ones kept (`v=`, `title=`). Setting `frontAppContext` (Settings → Privacy). The talker prompt has "What's in front of them" and non-coding helper examples.
+Checked: `--read-context out.txt` (as the signed app) in Preview (lecture PDF + selection, 34 ms), TextEdit (essay + selection, 38 ms), Chrome and Safari (Wikipedia URLs, 53 / 114 ms). The app with the fake: the selection reaches Claude, capture still 69 ms. Real Haiku: "explain this like I'm 15" → a lesson about the selected sentences, marked on screen; "make me flashcards from this whole lecture" → a helper in the PDF's folder that saves Markdown + Anki CSV next to it.
+Still open: Terminal/iTerm's working folder (not in Accessibility; maybe from the window title or the shell's process), Google Docs' document title in Chrome (the window title already has it), giving the teacher the selection too.
 
 ## 5. Speaking up first, safely (status: proposed)
 - Scheduled and recurring tasks ("every morning, summarize my PRs").

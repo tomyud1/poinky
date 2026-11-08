@@ -8,6 +8,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Developer check: `open -n -g Poinky.app --args --read-app <out.txt> ["Menu > Item"]`
         // writes what the doer would read about the front app, then quits.
         let args = CommandLine.arguments
+        // `Poinky --read-context out.txt`: what AppContextReader sees in the front app (as the signed app).
+        if let i = args.firstIndex(of: "--read-context"), i + 1 < args.count {
+            let out = args[i + 1]
+            DispatchQueue.global().asyncAfter(deadline: .now() + 0.5) {
+                let t = Date()
+                let c = AppContextReader.read(app: NSWorkspace.shared.frontmostApplication, excluded: [])
+                let text = "trusted: \(AXIsProcessTrusted()), took \(Int(Date().timeIntervalSince(t) * 1000)) ms\n" + c.lines.joined(separator: "\n") + "\n"
+                try? text.write(toFile: out, atomically: true, encoding: .utf8)
+                DispatchQueue.main.async { NSApp.terminate(nil) }
+            }
+            return
+        }
         if let i = args.firstIndex(of: "--read-app"), i + 1 < args.count {
             let out = args[i + 1], menu = i + 2 < args.count ? args[i + 2] : nil
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {

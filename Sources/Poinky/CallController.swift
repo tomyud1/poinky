@@ -72,7 +72,8 @@ final class CallController: NSObject, NSMenuDelegate {
     // conversation, and nothing removes it. After `talkerRotateAfter` questions a fresh talker is started
     // in the background (so it's warm), and the next question switches to it with a short recap.
     private var quitting = false   // the app is quitting: no time for a model to write the daily note
-    private var sessionExchanges: [(user: String, assistant: String)] = []   // all of this session, for its daily note
+    private var sessionExchanges: [(user: String, assistant: String)] = []
+    private var frontContext = AppContext()   // the front app when the question was asked (selection, document, page)   // all of this session, for its daily note
     private var talkerTurns = 0
     private var freshTalker: Brain?
     private var freshTalkerSince: TimeInterval = 0
@@ -1071,7 +1072,13 @@ final class CallController: NSObject, NSMenuDelegate {
         talkTask = Task { @MainActor in
             do {
                 let capStart = ProcessInfo.processInfo.systemUptime
+                // The front app's selection, document and page, read while the screenshot is taken (no extra wait).
+                let front = NSWorkspace.shared.frontmostApplication, excluded = ScreenCapture.excludedBundleIDs
+                let reading = Task.detached(priority: .userInitiated) { () -> AppContext in
+                    (try? await Deadline.run(0.5, "Reading the front app") { AppContextReader.read(app: front, excluded: excluded) }) ?? AppContext()
+                }
                 let snap = try await ScreenCapture.capture(screen: screen, marks: marks, cursor: cursor, focus: focusCrop)
+                self.frontContext = self.config.frontAppContext ? await reading.value : AppContext()
                 Timeline.log("capture", ["ms": Int((ProcessInfo.processInfo.systemUptime - capStart) * 1000), "turn": myTurn])
                 guard myTurn == self.turn else { return }
                 self.lastSnapshot = snap
@@ -1134,6 +1141,7 @@ final class CallController: NSObject, NSMenuDelegate {
                                : "User said: \"\(question)\"",
                      Self.nowLine(),
                      "Screenshot size: \(snap.width)x\(snap.height) px (coordinates use this size)."]
+        if !proactive { lines.append(contentsOf: frontContext.lines) }
         lines.append(contentsOf: snap.notes)
         lines.append(contentsOf: BrainQuestion.focusNotes(snap))
         lines.append(overlay.sceneDescription(scale: snap.scale))

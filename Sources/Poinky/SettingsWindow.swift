@@ -509,6 +509,11 @@ private struct PrivacyTab: View {
     var body: some View {
         Form {
             Section {
+                Toggle("Also send the text I selected, the open document's name and the web page's address", isOn: $model.config.frontAppContext)
+                Text("So \"explain this paragraph\" or \"summarize this lecture\" works on exactly what you selected, and helpers start in the right folder. Read through Accessibility, never from password fields or the apps below.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Section {
                 Text("Poinky never sees these apps: they're left out of every screenshot it sends to Claude.")
                     .font(.callout).foregroundStyle(.secondary)
                 ForEach(model.config.excludedApps, id: \.self) { id in
