@@ -995,9 +995,20 @@ final class CallController: NSObject, NSMenuDelegate {
         }
     }
 
+    /// "Now: Sunday, 8 November 2026, 6:42 PM (Asia/Jerusalem)", so "what time is it?", "is it late?",
+    /// "what did I do this morning?" get real answers. A few tokens per question.
+    static func nowLine(_ date: Date = Date(), zone: TimeZone = .current) -> String {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = zone
+        f.dateFormat = "EEEE, d MMMM yyyy, h:mm a"
+        return "Now: \(f.string(from: date)) (\(zone.identifier))."
+    }
+
     private func talkerText(_ question: String, _ snap: Snapshot, proactive: Bool = false) -> String {
         var lines = [proactive ? "(Nobody asked anything: this is a background update for you to pass on.) \(question)"
                                : "User said: \"\(question)\"",
+                     Self.nowLine(),
                      "Screenshot size: \(snap.width)x\(snap.height) px (coordinates use this size)."]
         lines.append(contentsOf: snap.notes)
         lines.append(contentsOf: BrainQuestion.focusNotes(snap))
