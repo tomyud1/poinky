@@ -248,6 +248,7 @@ final class CallController: NSObject, NSMenuDelegate {
         m.onTeacher = { [weak self] in self?.toggleArtist() }
         m.onBuddy = { [weak self] in self?.toggleBuddy() }
         m.onSettings = { [weak self] in self?.home.collapse(); self?.openSettings() }
+        m.onReset = { [weak self] in self?.home.collapse(); self?.resetEverything() }
         m.onQuit = { NSApp.terminate(nil) }
         m.onOpenReport = { [weak self] r in
             self?.home.collapse()
@@ -2363,6 +2364,27 @@ final class CallController: NSObject, NSMenuDelegate {
         config.save()
         home.model.teacherOn = config.artistEnabled
         if state != .idle { overlay.setClaudeCaption("Artist \(config.artistEnabled ? "on" : "off") from your next call.") }
+    }
+
+    /// "Poinky isn't responding": start everything over without quitting. Ends the session, restarts the
+    /// local voice, the mic and every Claude session (made fresh on the next question), clears the screen,
+    /// and forgets anything half-done. Helpers keep working, since they're real work.
+    @objc func resetEverything() {
+        NSLog("Poinky: reset")
+        endCall(quietly: true)
+        phonon.stop()
+        audio.stop()
+        finishingPush = false
+        pushCommitted = false
+        reportCheckPending = false
+        askCheckPending = false
+        reportAfterStart = false
+        guideBusy = false
+        guideRerun = nil
+        overlay.clearAll()
+        overlay.clearMarks()
+        let volume = Float(config.soundVolume)
+        if config.sounds { DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { Earcons.playStandalone(.start, volume: volume) } }
     }
 
     @objc private func clearAll() {
