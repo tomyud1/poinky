@@ -29,13 +29,23 @@ Notes for the next agent:
 - Measured with the fake: Poinky's own overhead from question to first sound is ~0.1 s (capture 45–75 ms), so real waits are almost all Claude's time to first token. That's item 2.
 - Results 2026-11-08: hang → watchdog restart at ~10 s (8 s + 5 s timer tick), error spoken, back to ready. deaf (ignores interrupts) → stuck detector at 12 s, reset, apology, ready.
 
-## 2. Speed that stays fast in long sessions (status: proposed)
+## 2. Speed that stays fast in long sessions (status: talker done on `poinky-reliability`; teacher and guide open)
 Why: every question sends a full screenshot into one persistent `claude -p` session and nothing trims it, so after 15–20 questions each answer carries tens of thousands of old image tokens.
 - Measure first (harness: 20 turns, time to first token and input tokens per turn).
 - After N turns or a token threshold, swap to a warmed-up fresh talker seeded with a short summary (recent exchanges verbatim, older ones summarized by a background Haiku call). Never carry old screenshots.
 - Send the commands list / earlier helpers in `talkerText` only when they changed or are asked about. Same check for guide/doer.
 - Make "keys released → first word" the headline number (from 1a). Target under 1 s.
 Done: flat first-token time and input tokens across 20 turns; follow-ups still work after a swap.
+Measured 2026-11-08 (Haiku, real talker prompt, a 1568×1078 screenshot per question):
+- Tokens read per answer grow ~2,500 per question: 11.4k at question 1, 39.5k at question 12.
+- Time to first word stays ~0.8 s thanks to prompt caching, so the gain is mostly usage, not speed, until sessions get very long.
+- A fresh `claude -p` answers its first question in ~3–3.7 s if the process starts with the question, but 0.83 s if it was started a few seconds earlier (the system prompt cache is shared across processes). So the fresh talker must be started ahead of time.
+What was built:
+- `CallController.prepareFreshTalker` (after `talkerRotateAfter` = 10 questions, warmed in the background) and `swapTalkerIfReady` (at the next question, once it has had 2.5 s): the new talker gets a recap of the last 8 exchanges from `history` (`needsRecap`), never old screenshots. Over 30 questions this roughly halves the tokens read (≈1.4M → ≈0.7M) and keeps the context far from its limit.
+- `sendOnce`: the earlier-helpers list and the commands list go to the talker only when they change (or the question is about helpers): 2,141 → 341 characters per question when nothing changed.
+- `ClaudeCodeBrain` logs `usage` (tokens read, cached, written) for every answer in the timeline.
+- Test: `POINKY_ROTATE_AFTER=2` with several `--ask`s and `FAKE_CLAUDE_LOG` (the fake logs its pid and each message).
+Still open: the teacher (`artist`) also keeps every screenshot it was sent (it continues papers, so it needs a recap of what's on the paper); the guide keeps one session per walkthrough (fine for now).
 
 ## 3. Identity and long-term memory (status: proposed)
 Why: `Memory.swift` keeps one list capped at 80 facts and silently drops the oldest.

@@ -68,6 +68,15 @@ final class CallController: NSObject, NSMenuDelegate {
     private var lastAskAt: TimeInterval = 0
     private var spokenCaption = ""
     private var history: [(user: String, assistant: String)] = []
+    // Keeping long sessions light: every question adds a screenshot (~2,500 tokens) to the talker's
+    // conversation, and nothing removes it. After `talkerRotateAfter` questions a fresh talker is started
+    // in the background (so it's warm), and the next question switches to it with a short recap.
+    private var talkerTurns = 0
+    private var freshTalker: Brain?
+    private var freshTalkerSince: TimeInterval = 0
+    private var needsRecap = false
+    private var sentOnce: [String: String] = [:]   // context that rarely changes: sent again only when it does
+    static let talkerRotateAfter: Int = ProcessInfo.processInfo.environment["POINKY_ROTATE_AFTER"].flatMap(Int.init) ?? 10
 
     private struct ArtistJob { let text: String; let snapshot: Snapshot }
     private var artistBusy = false
@@ -458,6 +467,11 @@ final class CallController: NSObject, NSMenuDelegate {
         artist?.stop()
         talker = nil
         artist = nil
+        freshTalker?.stop()
+        freshTalker = nil
+        talkerTurns = 0
+        needsRecap = false
+        sentOnce.removeAll()
         artistBusy = false
         artistWaiting = nil
         artistRetries.removeAll()
@@ -866,6 +880,34 @@ final class CallController: NSObject, NSMenuDelegate {
     }
 
     /// What you typed: the same as saying it (a session starts if none is running).
+    /// Start the next talker now, so it's running when the switch happens (a cold start costs ~3 s).
+    private func prepareFreshTalker() {
+        guard freshTalker == nil, state != .idle, let b = try? BrainFactory.make(config: config, role: .talker) else { return }
+        freshTalker = b
+        freshTalkerSince = ProcessInfo.processInfo.systemUptime
+        Task { @MainActor in try? await b.warmUp() }
+        Timeline.log("talker.prepare", ["after": talkerTurns])
+    }
+
+    /// A new question: switch to the fresh talker if it has had a moment to start.
+    private func swapTalkerIfReady() {
+        guard let fresh = freshTalker, ProcessInfo.processInfo.systemUptime - freshTalkerSince > 2.5 else { return }
+        talker?.stop()
+        talker = fresh
+        freshTalker = nil
+        Timeline.log("talker.swap", ["after": talkerTurns])
+        talkerTurns = 0
+        needsRecap = true
+        sentOnce.removeAll()
+    }
+
+    /// True when `text` is new to this talker (or changed since it last saw it under `key`).
+    private func sendOnce(_ key: String, _ text: String) -> Bool {
+        guard sentOnce[key] != text else { return false }
+        sentOnce[key] = text
+        return true
+    }
+
     /// A typed question, as if from the type box (`--ask` tests).
     func askTyped(_ text: String) { typed(text, helper: nil) }
 
@@ -948,6 +990,7 @@ final class CallController: NSObject, NSMenuDelegate {
 
     /// `proactive`: nobody asked; Poinky has something to tell the user (an agent finished).
     private func ask(_ question: String, proactive: Bool = false) {
+        swapTalkerIfReady()
         guard let talker, let screen = overlay.screen else { return }
         releaseReports()   // a new question cut a report short
         talker.cancelCurrent()   // an older reply still being written is dropped anyway; don't queue behind it
@@ -1021,6 +1064,8 @@ final class CallController: NSObject, NSMenuDelegate {
                     note = [note, Self.logNote(ev2.onlySpeech())].compactMap { $0 }.joined(separator: "; ")
                 }
                 self.logExchange(proactive ? "" : question, said, note: note?.isEmpty == true ? nil : note, history: !proactive)
+                self.talkerTurns += 1
+                if self.talkerTurns >= Self.talkerRotateAfter { self.prepareFreshTalker() }
             } catch {
                 guard myTurn == self.turn, !(error is CancellationError) else { return }
                 Timeline.log("error", ["what": error.localizedDescription, "turn": myTurn])
@@ -1053,6 +1098,13 @@ final class CallController: NSObject, NSMenuDelegate {
         lines.append(contentsOf: BrainQuestion.focusNotes(snap))
         lines.append(overlay.sceneDescription(scale: snap.scale))
         // The first question of a session: how the last one ended, if it was recent ("and the other one?").
+        if needsRecap {
+            needsRecap = false
+            if !history.isEmpty {
+                lines.append("(This session's earlier messages were cleared to keep you fast; old screenshots are gone. What was said, oldest first, so follow-ups still make sense:)")
+                for h in history { lines.append("- User: \(Recall.clip(h.user, 200)) / You: \(Recall.clip(h.assistant, 300))") }
+            }
+        }
         if !carriedOver, !proactive {
             carriedOver = true
             if config.conversationLog, history.isEmpty {
@@ -1074,12 +1126,14 @@ final class CallController: NSObject, NSMenuDelegate {
         let earlier = pastHelpers(limit: 6, fromThisRun: false).map { p in
             "- \(p.name) \"\(p.title)\" in \(p.dir.path), \(p.status) \(Self.ago(p.started)) (key \(p.key)): \(HelperStream.clip(p.summary, 220))"
         }
-        if !earlier.isEmpty {
+        // (Rarely changes: sent when it does, or when the question is about helpers. The talker remembers it.)
+        let aboutHelpers = ["agent", "helper", "continue", "earlier", "last time", "resume", "undo"].contains { q.contains($0) }
+        if !earlier.isEmpty, sendOnce("earlier", earlier.joined()) || aboutHelpers {
             lines.append("Earlier agents (to continue one, `<agent resume=\"KEY\">what to do now</agent>`; it remembers its work):\n" + earlier.joined(separator: "\n"))
         }
         lines.append("If you start an agent now, it will be called \(agents.nextName).")
         let commands = AgentManager.commands
-        if !commands.isEmpty {
+        if !commands.isEmpty, sendOnce("commands", commands.joined(separator: ",")) || aboutHelpers {
             lines.append("The user's commands and skills an agent can run (start one whose task begins with it, like `/review`): " + commands.prefix(40).map { "/" + $0 }.joined(separator: ", "))
         }
         if ["usage", "used", "cost", "spent", "limit", "tokens", "how much", "plan"].contains(where: { q.contains($0) }), !agents.agents.isEmpty || !pastHelpers(limit: 1).isEmpty {
@@ -1156,7 +1210,7 @@ final class CallController: NSObject, NSMenuDelegate {
     private func logExchange(_ you: String, _ poinky: String, note: String? = nil, history keep: Bool = true) {
         if keep {
             history.append((you, poinky))
-            if history.count > 6 { history.removeFirst() }
+            if history.count > 8 { history.removeFirst() }
         }
         guard config.conversationLog else { return }
         let app = NSWorkspace.shared.frontmostApplication.flatMap { $0.bundleIdentifier == Bundle.main.bundleIdentifier ? nil : $0.localizedName }

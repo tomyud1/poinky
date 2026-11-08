@@ -59,11 +59,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Developer checks for video explainers (see CallController+Video.swift).
         if let i = args.firstIndex(of: "--video"), i + 1 < args.count { c.devVideo(topic: args[i + 1]) }
         if let i = args.firstIndex(of: "--play-video"), i + 1 < args.count { c.devPlayVideo(dir: args[i + 1]) }
-        // `Poinky --ask "question" [--quit-after secs]`: asks a typed question in a real session (tests of the
+        // `Poinky --ask "question" [--ask …] [--quit-after secs]`: asks a typed question in a real session (tests of the
         // call loop without a mic; with POINKY_CLAUDE_CMD=tools/fake-claude.py no tokens are used).
-        if let i = args.firstIndex(of: "--ask"), i + 1 < args.count {
-            let q = args[i + 1]
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { c.askTyped(q) }
+        // Several `--ask`s are asked one after another, `POINKY_ASK_GAP` seconds apart (default 5).
+        let gap = ProcessInfo.processInfo.environment["POINKY_ASK_GAP"].flatMap(Double.init) ?? 5
+        let asks = args.indices.filter { args[$0] == "--ask" && $0 + 1 < args.count }.map { args[$0 + 1] }
+        for (n, q) in asks.enumerated() {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1 + Double(n) * gap) { c.askTyped(q) }
         }
         if let i = args.firstIndex(of: "--quit-after"), i + 1 < args.count, let secs = Double(args[i + 1]) {
             DispatchQueue.main.asyncAfter(deadline: .now() + secs) { NSApp.terminate(nil) }

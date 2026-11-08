@@ -34,7 +34,8 @@ for line in sys.stdin:
             out({"type": "result", "subtype": "error_during_execution", "is_error": True, "result": ""})
         continue
     if t != "user": continue
-    note("question")
+    text = " ".join(c.get("text", "") for c in msg["message"]["content"] if c.get("type") == "text")
+    note(f"pid {os.getpid()} question: " + json.dumps(text))
     if mode == "crash": sys.exit(3)
     if mode in ("hang", "deaf"): busy = True; continue
     for piece in ["<say>Fake ", "answer.</say>"]:

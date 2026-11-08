@@ -26,6 +26,8 @@ final class ClaudeCodeBrain: Brain {
     private var lastOutputAt: TimeInterval = 0
     private var watchdog: Timer?
     private var limit: (rejected: Bool, resetsAt: Date?) = (false, nil)   // from the last rate_limit_event
+    /// How much the last answer had to read (the whole conversation so far): grows with every screenshot.
+    private(set) var lastInputTokens = 0
     private var cancelledID: Int?   // its result (an "error_during_execution") is a cancellation, not an error
     /// No output at all for this long while answering: Claude Code is stuck, so it's restarted.
     /// (Any line counts, thinking included, so long answers never trip it.)
@@ -269,6 +271,13 @@ final class ClaudeCodeBrain: Brain {
             pend.onText(t)
 
         case "result":
+            if let u = obj["usage"] as? [String: Any] {
+                func n(_ k: String) -> Int { (u[k] as? NSNumber)?.intValue ?? 0 }
+                let fresh = n("input_tokens"), cached = n("cache_read_input_tokens"), written = n("cache_creation_input_tokens")
+                lastInputTokens = fresh + cached + written
+                Timeline.log("usage", ["model": model, "in": lastInputTokens, "cached": cached, "out": n("output_tokens"),
+                                       "ms": (obj["duration_ms"] as? NSNumber)?.intValue ?? 0])
+            }
             guard let pend = pending else { return }
             pending = nil
             if pend.id == cancelledID {
