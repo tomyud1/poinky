@@ -145,6 +145,7 @@ final class CallController: NSObject, NSMenuDelegate {
         listener.onPartial = { [weak self] text in self?.heard(partial: text) }
         listener.onUtterance = { [weak self] text in self?.heard(utterance: text) }
         listener.onStatus = { [weak self] msg in self?.overlay.setClaudeCaption(msg) }
+        listener.onDied = { [weak self] in self?.restartListener() }
         speaker.onTurnFinished = { [weak self] in self?.finishedSpeaking() }
         // Captions follow the voice: each sentence appears as it's spoken.
         speaker.onSentenceStarted = { [weak self] sentence, tag in
@@ -470,6 +471,26 @@ final class CallController: NSObject, NSMenuDelegate {
             o.hide()
         }
         state = .idle
+    }
+
+    /// The speech engine died mid-session (audio device change, system hiccup): start a new one,
+    /// instead of staying deaf until the app is restarted.
+    private func restartListener(attempt: Int = 1) {
+        guard state != .idle else { return }
+        let myCall = callID
+        NSLog("Poinky: speech engine stopped; restarting (try \(attempt))")
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: UInt64(attempt) * 600_000_000)
+            guard myCall == self.callID, self.state != .idle, !self.listener.running else { return }
+            do {
+                try await self.listener.start(audio: self.audio, language: self.config.language)
+                self.listener.autoEnd = self.mode == .handsFree
+            } catch {
+                if attempt < 3 { self.restartListener(attempt: attempt + 1); return }
+                self.overlay.setClaudeCaption("⚠️ Speech engine stopped: \(error.localizedDescription)")
+                self.endCall()   // the next ⌃⌥ starts a fresh session
+            }
+        }
     }
 
     /// ⌃⌥Space during a hold-to-talk session: keep everything on screen, turn the mic on for good.

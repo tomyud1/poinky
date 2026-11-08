@@ -11,6 +11,8 @@ final class SpeechListener {
     var onPartial: ((String) -> Void)?     // live text of what you're saying
     var onUtterance: ((String) -> Void)?   // you finished talking
     var onStatus: ((String) -> Void)?
+    /// The speech engine stopped by itself (an audio device change, a system hiccup): nothing would be heard again.
+    var onDied: (() -> Void)?
     var silenceSeconds = 1.0
     /// Hands-free: end the question after a pause. Hold-to-talk turns this off and calls
     /// `finishUtterance()` when you let go.
@@ -84,13 +86,15 @@ final class SpeechListener {
             MainActor.assumeIsolated { self?.checkForEnd() }
         }
 
+        let myAnalyzer = analyzer
         if let t = module as? SpeechTranscriber {
             resultsTask = Task { [weak self] in
                 do {
                     for try await r in t.results {
                         self?.handle(text: String(r.text.characters), range: r.range, isFinal: r.isFinal)
                     }
-                } catch { self?.onStatus?("Speech engine stopped: \(error.localizedDescription)") }
+                } catch { NSLog("Poinky: speech engine stopped: \(error.localizedDescription)") }
+                self?.died(myAnalyzer)
             }
         } else if let d = module as? DictationTranscriber {
             resultsTask = Task { [weak self] in
@@ -98,9 +102,17 @@ final class SpeechListener {
                     for try await r in d.results {
                         self?.handle(text: String(r.text.characters), range: r.range, isFinal: r.isFinal)
                     }
-                } catch { self?.onStatus?("Speech engine stopped: \(error.localizedDescription)") }
+                } catch { NSLog("Poinky: speech engine stopped: \(error.localizedDescription)") }
+                self?.died(myAnalyzer)
             }
         }
+    }
+
+    /// The results ended while still listening (not by `stop()`): tell the call so it can start over.
+    private func died(_ which: SpeechAnalyzer?) {
+        guard running, which === analyzer, !Task.isCancelled else { return }
+        stop()
+        onDied?()
     }
 
     func stop() {
