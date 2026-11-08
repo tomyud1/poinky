@@ -69,7 +69,7 @@ enum Memory {
 
     static func clear() { write([]); try? FileManager.default.removeItem(at: archiveURL) }
 
-    private static func archive(_ lines: [String]) {
+    static func archive(_ lines: [String]) {
         guard !lines.isEmpty else { return }
         var text = (try? String(contentsOf: archiveURL, encoding: .utf8)) ?? "# Older things Poinky remembered (found when you ask)\n\n"
         text += lines.joined(separator: "\n") + "\n"

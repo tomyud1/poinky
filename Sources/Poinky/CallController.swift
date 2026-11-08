@@ -904,8 +904,15 @@ final class CallController: NSObject, NSMenuDelegate {
         Task { @MainActor in
             var note = DailyNotes.plainNote(exchanges)
             if let reply = try? await Deadline.run(45, "Daily note", { try await brain.ask(BrainQuestion(text: text, snapshot: nil)) { _ in } }) {
-                let lines = reply.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }.filter { $0.hasPrefix("- ") }
+                let all = reply.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }
+                let lines = all.filter { $0.hasPrefix("- ") }
                 if !lines.isEmpty { note = lines.prefix(4).joined(separator: "\n") }
+                // Lasting facts about the user that came up: "About me" learns them over time.
+                if config.memoryEnabled {
+                    for a in all.filter({ $0.hasPrefix("ABOUT:") }).prefix(2) {
+                        Identity.learn(String(a.dropFirst(6)).trimmingCharacters(in: .whitespaces), into: Identity.userURL)
+                    }
+                }
             }
             brain.stop()
             DailyNotes.append(note)
@@ -1305,6 +1312,12 @@ final class CallController: NSObject, NSMenuDelegate {
         if config.memoryEnabled {
             for f in ev.remember { Memory.remember(f) }
             for f in ev.forget { Memory.forget(f) }
+            // The two files that shape every session: changed only by tags in the talker's own reply
+            // (lookup replies can't, see `onlySpeech`), and only their "Learned over time" part.
+            for f in ev.aboutUser { Identity.learn(f, into: Identity.userURL) }
+            for f in ev.aboutSelf { Identity.learn(f, into: Identity.identityURL) }
+            for f in ev.unlearnUser { Identity.unlearn(f, from: Identity.userURL) }
+            for f in ev.unlearnSelf { Identity.unlearn(f, from: Identity.identityURL) }
         }
         for (name, text) in ev.tells {
             if let a = helper(named: name), a.status == .running || a.status == .queued, agents.send(id: a.id, text: text) {

@@ -163,6 +163,10 @@ struct TalkEvents {
     var settings: [String] = []    // JSON objects of settings to change
     var remember: [String] = []    // things to remember about the user
     var forget: [String] = []      // things to forget
+    var aboutUser: [String] = []   // <remember about="user">: a core fact for user.md (role, projects, how they like answers)
+    var aboutSelf: [String] = []   // <remember about="poinky">: the user asked Poinky to change how it is (identity.md)
+    var unlearnUser: [String] = [] // <forget about="user">
+    var unlearnSelf: [String] = [] // <forget about="poinky">
     var agents: [AgentRequest] = []
     var tells: [(name: String, text: String)] = []   // a follow-up for a working helper, by name
     var stops: [String] = []                          // helpers to stop, by name
@@ -183,6 +187,7 @@ struct TalkEvents {
     /// Has anything that would act (for logging what a lookup reply tried to do).
     var wouldAct: Bool {
         guide != nil || doTask != nil || !settings.isEmpty || !remember.isEmpty || !forget.isEmpty || !agents.isEmpty
+            || !aboutUser.isEmpty || !aboutSelf.isEmpty || !unlearnUser.isEmpty || !unlearnSelf.isEmpty
             || !tells.isEmpty || !stops.isEmpty || !undos.isEmpty || end || video != nil || recall != nil || search != nil
     }
     var video: (title: String, brief: String)?        // make a video explainer about this
@@ -273,7 +278,7 @@ struct TalkParser {
             ev.sentences = takeSentences(final: true)
         } else if sayEmitted == 0 {
             var s = text
-            for tag in ["<draw>", "<visual>", "<guide>", "<do>", "<act", "<ask>", "<done>", "<end", "<set>", "<remember>", "<forget>", "<agent", "<tell", "<stop", "<undo", "<video", "<recall", "<search"] {
+            for tag in ["<draw>", "<visual>", "<guide>", "<do>", "<act", "<ask>", "<done>", "<end", "<set>", "<remember", "<forget", "<agent", "<tell", "<stop", "<undo", "<video", "<recall", "<search"] {
                 if let r = s.range(of: tag) { s = String(s[..<r.lowerBound]) }
             }
             s = s.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -299,8 +304,21 @@ struct TalkParser {
         ev.ask = Self.blocks(text, "ask").first.map(\.body).flatMap { $0.isEmpty ? nil : $0 }
         if !doDone, let g = Self.blocks(text, "do").first?.body, !g.isEmpty { doDone = true; ev.doTask = g }
         ev.settings = Self.blocks(text, "set").compactMap { JSONRepair.clean($0.body) }
-        ev.remember = Self.blocks(text, "remember").map(\.body).filter { !$0.isEmpty }
-        ev.forget = Self.blocks(text, "forget").map(\.body).filter { !$0.isEmpty }
+        // `about="user"` / `about="poinky"` go to user.md / identity.md; plain ones to memory.md.
+        for b in Self.blocks(text, "remember") where !b.body.isEmpty {
+            switch Self.attr("about", in: b.attrs)?.lowercased() {
+            case "user", "me": ev.aboutUser.append(b.body)
+            case "poinky", "self", "you": ev.aboutSelf.append(b.body)
+            default: ev.remember.append(b.body)
+            }
+        }
+        for b in Self.blocks(text, "forget") where !b.body.isEmpty {
+            switch Self.attr("about", in: b.attrs)?.lowercased() {
+            case "user", "me": ev.unlearnUser.append(b.body); ev.forget.append(b.body)
+            case "poinky", "self", "you": ev.unlearnSelf.append(b.body)
+            default: ev.forget.append(b.body)
+            }
+        }
         ev.agents = Self.blocks(text, "agent").compactMap { b in
             guard !b.body.isEmpty else { return nil }
             let dir = Self.attr("dir", in: b.attrs).flatMap { $0.isEmpty ? nil : $0 }

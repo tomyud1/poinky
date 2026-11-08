@@ -2,7 +2,8 @@
 """A stand-in for `claude -p --input-format stream-json` in tests of Poinky's call loop (no tokens).
 
 FAKE_CLAUDE_MODE:
-  answer  (default) streams "<say>Fake answer.</say>" and a result for each message
+  answer  (default) streams FAKE_CLAUDE_REPLY (default "<say>Fake answer.</say>") and a result for each message;
+          a note-writer session answers with a note (plus "ABOUT: $FAKE_NOTE_ABOUT" if set)
   hang    reads messages and never answers (the stall watchdog / stuck detector must recover)
   deaf    never answers and ignores interrupts too
   crash   exits as soon as a message arrives
@@ -43,9 +44,11 @@ for line in sys.stdin:
     if mode == "crash": sys.exit(3)
     if mode in ("hang", "deaf"): busy = True; continue
     if writes_notes:
-        out({"type": "result", "subtype": "success", "is_error": False, "result": "- The user tested Poinky with fake questions."})
+        extra = ("\nABOUT: " + os.environ["FAKE_NOTE_ABOUT"]) if os.environ.get("FAKE_NOTE_ABOUT") else ""
+        out({"type": "result", "subtype": "success", "is_error": False, "result": "- The user tested Poinky with fake questions." + extra})
         continue
-    for piece in ["<say>Fake ", "answer.</say>"]:
+    reply = os.environ.get("FAKE_CLAUDE_REPLY", "<say>Fake answer.</say>")
+    for piece in [reply[:len(reply)//2], reply[len(reply)//2:]]:
         out({"type": "stream_event", "event": {"type": "content_block_delta", "delta": {"type": "text_delta", "text": piece}}})
         time.sleep(0.05)
-    out({"type": "result", "subtype": "success", "is_error": False, "result": "<say>Fake answer.</say>"})
+    out({"type": "result", "subtype": "success", "is_error": False, "result": reply})

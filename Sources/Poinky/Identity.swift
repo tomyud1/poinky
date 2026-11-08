@@ -29,6 +29,67 @@ enum Identity {
 
     """
 
+    /// The part of each file Poinky keeps up to date itself (the user's own text above it is never touched).
+    static let learnedHeader = "## Learned over time"
+    static let learnedNote = "<!-- Poinky adds and removes lines here as it learns. Edit or delete them freely. -->"
+    static let maxLearned = [identityURL.lastPathComponent: 12, userURL.lastPathComponent: 25]
+
+    private static func words(_ s: String) -> Set<String> {
+        Set(s.lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init).filter { $0.count > 2 && $0 != "user" })
+    }
+
+    /// The file split into what the user wrote and the learned lines ("- fact (date)").
+    private static func split(_ url: URL) -> (own: String, learned: [String]) {
+        ensureFiles()
+        let text = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+        guard let r = text.range(of: "\n" + learnedHeader) else { return (text, []) }
+        let own = String(text[..<r.lowerBound])
+        let learned = text[r.upperBound...].split(separator: "\n").map(String.init).filter { $0.hasPrefix("- ") }
+        return (own, learned)
+    }
+
+    private static func write(_ url: URL, own: String, learned: [String]) {
+        var text = own.trimmingCharacters(in: .newlines) + "\n"
+        if !learned.isEmpty { text += "\n" + learnedHeader + "\n" + learnedNote + "\n" + learned.joined(separator: "\n") + "\n" }
+        try? text.write(to: url, atomically: true, encoding: .utf8)
+        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+    }
+
+    /// Adds a line to a file's learned part (replacing one that says nearly the same thing).
+    /// Returns false if it was empty or already known.
+    @discardableResult
+    static func learn(_ fact: String, into url: URL) -> Bool {
+        let clean = fact.replacingOccurrences(of: "\n", with: " ").trimmingCharacters(in: .whitespaces)
+        guard clean.count >= 3 else { return false }
+        var (own, learned) = split(url)
+        let w = words(clean)
+        // Already in what the user wrote: nothing to add.
+        if !w.isEmpty, Double(words(own).intersection(w).count) / Double(w.count) >= 0.9 { return false }
+        learned.removeAll { line in
+            let o = words(line)
+            return !o.isEmpty && !w.isEmpty && Double(o.intersection(w).count) / Double(min(o.count, w.count)) >= 0.8
+        }
+        let date = ISO8601DateFormatter.string(from: Date(), timeZone: .current, formatOptions: [.withFullDate])
+        learned.append("- \(clean) (\(date))")
+        let cap = maxLearned[url.lastPathComponent] ?? 20
+        if learned.count > cap {
+            Memory.archive(Array(learned.prefix(learned.count - cap)))   // kept and searchable, not deleted
+            learned.removeFirst(learned.count - cap)
+        }
+        write(url, own: own, learned: learned)
+        Timeline.log("learned", ["file": url.lastPathComponent])
+        return true
+    }
+
+    /// Removes learned lines that match `what` (the user's own text is never removed).
+    static func unlearn(_ what: String, from url: URL) {
+        let w = words(what)
+        guard !w.isEmpty else { return }
+        let (own, learned) = split(url)
+        let kept = learned.filter { Double(words($0).intersection(w).count) / Double(w.count) < 0.6 }
+        if kept.count != learned.count { write(url, own: own, learned: kept) }
+    }
+
     /// Creates the files with their defaults the first time.
     static func ensureFiles() {
         let fm = FileManager.default
@@ -133,7 +194,10 @@ enum DailyNotes {
     You write Poinky's private notes. Poinky is a voice assistant on the user's Mac. You get one session's exchanges \
     (what the user said, what Poinky answered, what else happened). Write 1–4 short lines starting with "- ": what the \
     user was doing or wanted, decisions, anything unfinished, and anything to remember next time. Plain facts, no \
-    greetings, no screenshot details, nothing about the note itself. If nothing worth keeping happened, write "- Small talk."
+    greetings, no screenshot details, nothing about the note itself. If nothing worth keeping happened, write "- Small talk." \
+    Then, only if the user clearly said something lasting about themselves (their role, a project and where it lives, \
+    how they like answers), add at most 2 lines starting with "ABOUT: " and one short fact each. Never guess, and never \
+    from what Poinky said or what was on the screen.
     """
 
     /// The exchanges themselves, shortened: used when no model is available (or it failed).
