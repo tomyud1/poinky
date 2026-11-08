@@ -128,7 +128,24 @@ final class CallController: NSObject, NSMenuDelegate {
     private var mouseTimer: Timer?
     private var scrollMonitor: Any?
 
-    private var state: State = .idle { didSet { updateUI() } }
+    private var state: State = .idle {
+        didSet {
+            if oldValue != state {
+                stateSince = ProcessInfo.processInfo.systemUptime
+                Timeline.log("state", ["to": "\(state)", "turn": turn])
+            }
+            updateUI()
+        }
+    }
+    private var stateSince: TimeInterval = 0
+    private var askedAt: TimeInterval?        // you finished asking (keys released, or the pause ended): for the wait time
+    private var firstTokenTurn = -1
+    /// Longer than this in one state means Poinky is stuck (nothing legitimate takes this long:
+    /// replies have their own 75 s watchdog, captures 6 s, web searches 30 s).
+    static let stuckAfter: [State: TimeInterval] = {
+        if let s = ProcessInfo.processInfo.environment["POINKY_STUCK_SECS"].flatMap(Double.init) { return [.thinking: s, .starting: s] }   // tests
+        return [.thinking: 150, .starting: 300]
+    }()
 
     // Video explainers (CallController+Video.swift).
     let video = VideoState()
@@ -150,6 +167,10 @@ final class CallController: NSObject, NSMenuDelegate {
         // Captions follow the voice: each sentence appears as it's spoken.
         speaker.onSentenceStarted = { [weak self] sentence, tag in
             guard let self, self.state != .idle else { return }
+            if let at = self.askedAt {
+                self.askedAt = nil
+                Timeline.latency(ProcessInfo.processInfo.systemUptime - at, turn: self.turn)
+            }
             self.spokenCaption = self.spokenCaption.isEmpty ? sentence : self.spokenCaption + " " + sentence
             self.home.model.lastLine = sentence
             self.overlay.setClaudeCaption(self.spokenCaption)
@@ -310,6 +331,7 @@ final class CallController: NSObject, NSMenuDelegate {
     func startSession(_ newMode: Mode) {
         guard state == .idle else { return }
         mode = newMode
+        Timeline.log("session.start", ["mode": "\(newMode)"])
         state = .starting
         callID += 1
         lastActivity = ProcessInfo.processInfo.systemUptime
@@ -413,6 +435,8 @@ final class CallController: NSObject, NSMenuDelegate {
 
     func endCall(quietly: Bool = false) {
         guard state != .idle else { return }
+        Timeline.log("session.end", ["quietly": quietly])
+        askedAt = nil
         callID += 1
         turn += 1
         talkTask?.cancel()
@@ -480,6 +504,7 @@ final class CallController: NSObject, NSMenuDelegate {
         guard state != .idle else { return }
         let myCall = callID
         NSLog("Poinky: speech engine stopped; restarting (try \(attempt))")
+        Timeline.log("speech.restart", ["try": attempt])
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: UInt64(attempt) * 600_000_000)
             guard myCall == self.callID, self.state != .idle, !self.listener.running else { return }
@@ -595,6 +620,7 @@ final class CallController: NSObject, NSMenuDelegate {
         let here = screenWithMouse()
         if here != overlay.screen, overlay.occupiedRects.isEmpty { overlay.show(on: here) }
         pushCommitted = true
+        Timeline.log("keys.down", ["state": "\(state)"])
         captionFade?.cancel()
         if buddyHidden { setBuddyHidden(false) }
         playSound(.open)
@@ -643,6 +669,8 @@ final class CallController: NSObject, NSMenuDelegate {
             return
         }
         finishingPush = true
+        askedAt = ProcessInfo.processInfo.systemUptime
+        Timeline.log("keys.up")
         Task { @MainActor in
             defer { self.finishingPush = false }
             // Keep the mic a moment longer so the end of your last word isn't clipped.
@@ -658,6 +686,8 @@ final class CallController: NSObject, NSMenuDelegate {
             guard self.state != .idle, self.mode == .push else { return }
             if self.state == .listening, !self.pushCommitted { self.state = self.restingState }
             if text.trimmingCharacters(in: .whitespaces).isEmpty {
+                self.askedAt = nil
+                Timeline.log("heard.nothing")
                 self.playSound(.cancel)
                 self.overlay.setYouCaption(nil)
                 self.mergeNext = false   // nothing was said: don't glue the next question to the last one
@@ -697,6 +727,7 @@ final class CallController: NSObject, NSMenuDelegate {
 
     private func heard(utterance text: String) {
         guard state != .idle, state != .starting else { return }
+        if askedAt == nil { askedAt = ProcessInfo.processInfo.systemUptime }
         if state == .speaking {
             if isEcho(text) { return }
             interrupt()
@@ -835,6 +866,9 @@ final class CallController: NSObject, NSMenuDelegate {
     }
 
     /// What you typed: the same as saying it (a session starts if none is running).
+    /// A typed question, as if from the type box (`--ask` tests).
+    func askTyped(_ text: String) { typed(text, helper: nil) }
+
     private func typed(_ text: String, helper: Int?) {
         lastActivity = ProcessInfo.processInfo.systemUptime
         switch state {
@@ -858,6 +892,7 @@ final class CallController: NSObject, NSMenuDelegate {
     private func interrupt(maybeMore: Bool = true) {
         turn += 1
         talker?.cancelCurrent()   // it may still be writing the rest: don't make the next question wait for it
+        Timeline.log("interrupt", ["turn": turn])
         speaker.stop()
         // Talking again within a few seconds of asking usually means you weren't done:
         // treat what you say next as the rest of the same question.
@@ -952,7 +987,9 @@ final class CallController: NSObject, NSMenuDelegate {
         let sketchNow = !proactive && artist != nil && Self.wantsSketch(question, marked: !marks.isEmpty || focusCrop != nil)
         talkTask = Task { @MainActor in
             do {
+                let capStart = ProcessInfo.processInfo.systemUptime
                 let snap = try await ScreenCapture.capture(screen: screen, marks: marks, cursor: cursor, focus: focusCrop)
+                Timeline.log("capture", ["ms": Int((ProcessInfo.processInfo.systemUptime - capStart) * 1000), "turn": myTurn])
                 guard myTurn == self.turn else { return }
                 self.lastSnapshot = snap
                 self.replyScale = snap.scale
@@ -986,6 +1023,8 @@ final class CallController: NSObject, NSMenuDelegate {
                 self.logExchange(proactive ? "" : question, said, note: note?.isEmpty == true ? nil : note, history: !proactive)
             } catch {
                 guard myTurn == self.turn, !(error is CancellationError) else { return }
+                Timeline.log("error", ["what": error.localizedDescription, "turn": myTurn])
+                self.askedAt = nil   // an error line isn't an answer: keep it out of the wait times
                 self.overlay.setClaudeCaption("⚠️ \(error.localizedDescription)")
                 self.speaker.enqueue(SpokenError.line(for: error))
             }
@@ -1139,6 +1178,10 @@ final class CallController: NSObject, NSMenuDelegate {
 
     private func received(_ delta: String, turn myTurn: Int) {
         guard myTurn == turn, state != .idle else { return }
+        if firstTokenTurn != myTurn {
+            firstTokenTurn = myTurn
+            Timeline.log("firstToken", ["turn": myTurn, "after": askedAt.map { ((ProcessInfo.processInfo.systemUptime - $0) * 1000).rounded() / 1000 } ?? -1])
+        }
         handle(parser.feed(delta))
         // A search is coming: start its session now, while the talker finishes the reply.
         if !lookupReply, searcher == nil, WebSearcher.available(config), parser.text.contains("<search") {
@@ -1907,7 +1950,7 @@ final class CallController: NSObject, NSMenuDelegate {
                 }
                 self.anchorTick += 1
                 if self.anchorTick % 6 == 0 { self.followAnchor() }
-                if self.anchorTick % 60 == 0 { self.checkIdle() }
+                if self.anchorTick % 60 == 0 { self.checkIdle(); self.checkStuck() }
                 // Auto-hide: idle time counts from when Poinky finished (not from your question),
                 // and never while it's listening, talking, guiding you or acting for you.
                 if self.state != self.restingState || self.guide != nil || self.speaker.isSpeaking {
@@ -2253,6 +2296,21 @@ final class CallController: NSObject, NSMenuDelegate {
         home.model.agentsRunning = agents.running.count
     }
 
+    /// Stuck in one state far longer than anything legitimate takes: write down why, start over, and say so.
+    private func checkStuck() {
+        guard let limit = Self.stuckAfter[state],
+              ProcessInfo.processInfo.systemUptime - stateSince > limit else { return }
+        Timeline.log("stuck", ["state": "\(state)", "secs": Int(ProcessInfo.processInfo.systemUptime - stateSince), "turn": turn,
+                               "finishingPush": finishingPush, "pushCommitted": pushCommitted, "guideBusy": guideBusy,
+                               "guide": guide != nil, "artistBusy": artistBusy, "asking": askingNow != nil,
+                               "lookupReply": lookupReply, "speaking": speaker.isSpeaking, "mode": "\(mode)"])
+        NSLog("Poinky: stuck in \(state); resetting")
+        resetEverything()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+            self?.sayWhenFree("Sorry, I got stuck, so I restarted myself. Ask me again.")
+        }
+    }
+
     /// A hold-to-talk session that hasn't been used for a while ends by itself (frees the Claude sessions).
     private func checkIdle() {
         guard mode == .push, state == .ready, guide == nil, !artistBusy, !ptt.isDown, agentReports.isEmpty, reportingIDs.isEmpty,
@@ -2382,6 +2440,7 @@ final class CallController: NSObject, NSMenuDelegate {
     /// and forgets anything half-done. Helpers keep working, since they're real work.
     @objc func resetEverything() {
         NSLog("Poinky: reset")
+        Timeline.log("reset")
         endCall(quietly: true)
         phonon.stop()
         audio.stop()

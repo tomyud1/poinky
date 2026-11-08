@@ -59,6 +59,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Developer checks for video explainers (see CallController+Video.swift).
         if let i = args.firstIndex(of: "--video"), i + 1 < args.count { c.devVideo(topic: args[i + 1]) }
         if let i = args.firstIndex(of: "--play-video"), i + 1 < args.count { c.devPlayVideo(dir: args[i + 1]) }
+        // `Poinky --ask "question" [--quit-after secs]`: asks a typed question in a real session (tests of the
+        // call loop without a mic; with POINKY_CLAUDE_CMD=tools/fake-claude.py no tokens are used).
+        if let i = args.firstIndex(of: "--ask"), i + 1 < args.count {
+            let q = args[i + 1]
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { c.askTyped(q) }
+        }
+        if let i = args.firstIndex(of: "--quit-after"), i + 1 < args.count, let secs = Double(args[i + 1]) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + secs) { NSApp.terminate(nil) }
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {

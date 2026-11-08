@@ -29,7 +29,7 @@ final class ClaudeCodeBrain: Brain {
     private var cancelledID: Int?   // its result (an "error_during_execution") is a cancellation, not an error
     /// No output at all for this long while answering: Claude Code is stuck, so it's restarted.
     /// (Any line counts, thinking included, so long answers never trip it.)
-    static let stallSeconds: TimeInterval = 75
+    static let stallSeconds: TimeInterval = ProcessInfo.processInfo.environment["POINKY_STALL_SECS"].flatMap(Double.init) ?? 75
     private var pending: Pending? {
         didSet { if pending == nil { wakeWaiters() } }
     }
@@ -94,6 +94,7 @@ final class ClaudeCodeBrain: Brain {
     func cancelCurrent() {
         guard let id = pending?.id, cancelledID != id, let stdin else { return }
         cancelledID = id
+        Timeline.log("brain.cancel", ["model": model])
         let req: [String: Any] = ["type": "control_request", "request_id": "cancel-\(id)", "request": ["subtype": "interrupt"]]
         if var line = try? JSONSerialization.data(withJSONObject: req) {
             line.append(0x0A)
@@ -122,6 +123,7 @@ final class ClaudeCodeBrain: Brain {
 
     /// Kill a stuck process: the waiting question fails with `reason`, the next one starts a fresh process.
     private func restart(_ error: Error) {
+        Timeline.log("brain.restart", ["model": model, "why": error is CancellationError ? "didn't stop when interrupted" : error.localizedDescription])
         NSLog("Poinky: restarting claude (\(error is CancellationError ? "didn't stop when interrupted" : error.localizedDescription))")
         if let p = pending {
             pending = nil
@@ -293,6 +295,8 @@ final class ClaudeCodeBrain: Brain {
     // MARK: - Finding `claude`
 
     static func findClaude(explicit: String) -> String? {
+        // Tests: a fake `claude` (tools/fake-claude.py) that answers, hangs or crashes without tokens.
+        if let fake = ProcessInfo.processInfo.environment["POINKY_CLAUDE_CMD"], !fake.isEmpty { return fake }
         let fm = FileManager.default
         let home = fm.homeDirectoryForCurrentUser.path
         let candidates = [explicit,

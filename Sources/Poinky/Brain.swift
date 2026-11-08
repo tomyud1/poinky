@@ -42,7 +42,11 @@ enum Deadline {
         try await withCheckedThrowingContinuation { (c: CheckedContinuation<T, Error>) in
             let once = Once<T>(c)
             Task { do { once.finish(.success(try await op())) } catch { once.finish(.failure(error)) } }
-            Task { try? await Task.sleep(nanoseconds: UInt64(seconds * 1e9)); once.finish(.failure(Expired(what: what))) }
+            Task {
+                try? await Task.sleep(nanoseconds: UInt64(seconds * 1e9))
+                if once.cont != nil { Timeline.log("timeout", ["what": what, "secs": seconds]) }
+                once.finish(.failure(Expired(what: what)))
+            }
         }
     }
 }

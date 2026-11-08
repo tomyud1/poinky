@@ -604,6 +604,25 @@ private struct AdvancedTab: View {
                     TextField("auto-detect", text: $model.config.claudePath).frame(width: 260)
                 }
             }
+            Section("Diagnostics") {
+                LabeledContent("Typical wait for an answer") {
+                    Text(Timeline.medianLatency().map { String(format: "%.1f s (last 20 questions)", $0) } ?? "no questions yet")
+                        .foregroundStyle(.secondary)
+                }
+                HStack {
+                    Button("Copy Diagnostics") {
+                        // What Poinky did lately (states, timings, errors, restarts), never what was said.
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(Timeline.recent(200).joined(separator: "\n"), forType: .string)
+                    }
+                    Button("Open Timeline Folder") {
+                        try? FileManager.default.createDirectory(at: Timeline.dir, withIntermediateDirectories: true)
+                        NSWorkspace.shared.open(Timeline.dir)
+                    }
+                }
+                Text("If Poinky gets stuck it restarts itself and writes down why. Paste the diagnostics into a bug report or a Claude chat.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
         }
         .formStyle(.grouped)
     }

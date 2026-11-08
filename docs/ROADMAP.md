@@ -16,7 +16,7 @@ Rules for all items (see CLAUDE.md for the details):
 - SpeechAnalyzer died on device changes → `SpeechListener.onDied` → `CallController.restartListener`.
 - Spoken errors that say what to do (`SpokenError`), a ↻ reset in the notch (`resetEverything`), the time in every question (`nowLine`).
 
-## 1. Never stuck, and visible when something goes wrong (status: in progress, branch `poinky-reliability`)
+## 1. Never stuck, and visible when something goes wrong (status: 1a–1c done on `poinky-reliability`; 1d, 1e open)
 Why: `CallController.swift` (~2,450 lines, dozens of flags) is where freezes come from, and there was no record of what happened.
 - 1a. `Timeline` (`Sources/Poinky/Timeline.swift`): one JSON line per event in `Poinky/timeline/YYYY-MM-DD.jsonl` (0600, 7 days): state changes, keys, capture ms, first token, first sound, cancels, watchdog restarts, timeouts, speech/audio restarts, resets. No words you said unless `conversationLog` is on.
 - 1b. Stuck detector: `.thinking` / `.starting` for over 90 s → log the flags, `resetEverything()`, say so.
@@ -24,6 +24,10 @@ Why: `CallController.swift` (~2,450 lines, dozens of flags) is where freezes com
 - 1d. (Later, bigger) Replace the flags with one state enum with associated data, so impossible combinations can't exist. Do it in small steps behind the timeline, so regressions show up.
 - 1e. (Later) A real `swift test` target for the pure logic (TalkParser, MarkSnapper, HelperTalk, HelperAsk, SpokenError, Recall), run in CI.
 Done: a fake stall recovers by itself and the timeline shows why.
+Notes for the next agent:
+- Test the call loop with no mic and no tokens: `open -n -g --env POINKY_CLAUDE_CMD=$PWD/tools/fake-claude.py --env FAKE_CLAUDE_MODE=hang|deaf|crash|answer --env POINKY_TIMELINE_DIR=/tmp/tl build/Poinky.app --args --ask "question" --quit-after 25`, then read `/tmp/tl/*.jsonl`. `POINKY_STALL_SECS` shortens the watchdog, `POINKY_STUCK_SECS` the stuck detector.
+- Measured with the fake: Poinky's own overhead from question to first sound is ~0.1 s (capture 45–75 ms), so real waits are almost all Claude's time to first token. That's item 2.
+- Results 2026-11-08: hang → watchdog restart at ~10 s (8 s + 5 s timer tick), error spoken, back to ready. deaf (ignores interrupts) → stuck detector at 12 s, reset, apology, ready.
 
 ## 2. Speed that stays fast in long sessions (status: proposed)
 Why: every question sends a full screenshot into one persistent `claude -p` session and nothing trims it, so after 15–20 questions each answer carries tens of thousands of old image tokens.
