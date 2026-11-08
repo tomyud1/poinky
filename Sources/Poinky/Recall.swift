@@ -226,6 +226,8 @@ enum Recall {
         var conversation: [ConversationLog.Entry] = []
         var helpers: [PastHelper] = []
         var sessions: [ClaudeSessions.Session] = []
+        var notes: [(date: Date, text: String)] = []   // daily notes (notes/YYYY-MM-DD.md)
+        var archived: [String] = []                    // facts that moved out of memory.md
     }
 
     /// Loads what there is to search (files only; call off the main thread).
@@ -234,6 +236,7 @@ enum Recall {
         if conversations { s.conversation = ConversationLog.days(limit: 60).flatMap { ConversationLog.read($0) } }
         s.helpers = PastHelper.list(in: helperDir, limit: 200)
         if sessions { s.sessions = ClaudeSessions.list() }
+        if conversations { s.notes = DailyNotes.all(); s.archived = Memory.archived() }
         return s
     }
 
@@ -256,6 +259,16 @@ enum Recall {
             if let a = e.app, !a.isEmpty { line += " (in \(a))" }
             if let n = e.note, !n.isEmpty { line += " [\(n)]" }
             consider(e.date, text, line)
+        }
+        for n in src.notes {
+            // Each session's note is its own hit ("## 9:14 PM" sections).
+            for part in n.text.components(separatedBy: "\n## ").dropFirst() {
+                let body = part.split(separator: "\n").dropFirst().joined(separator: " ")
+                consider(n.date, part, "- \(stamp(n.date, now: now)) (your note from \(part.prefix(while: { $0 != "\n" }))): \(clip(body, 300))")
+            }
+        }
+        for f in src.archived {
+            consider(Date.distantPast, f, "- Something you remembered long ago: \(clip(String(f.dropFirst(2)), 200))")
         }
         for p in src.helpers {
             let text = [p.name, p.title, p.task, p.summary, p.dir.lastPathComponent].joined(separator: " ")

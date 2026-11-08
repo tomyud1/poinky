@@ -47,12 +47,18 @@ What was built:
 - Test: `POINKY_ROTATE_AFTER=2` with several `--ask`s and `FAKE_CLAUDE_LOG` (the fake logs its pid and each message).
 Still open: the teacher (`artist`) also keeps every screenshot it was sent (it continues papers, so it needs a recap of what's on the paper); the guide keeps one session per walkthrough (fine for now).
 
-## 3. Identity and long-term memory (status: proposed)
+## 3. Identity and long-term memory (status: files, daily notes and archive done on `poinky-reliability`; the daily promotion pass is open)
 Why: `Memory.swift` keeps one list capped at 80 facts and silently drops the oldest.
 - `identity.md` (Poinky's personality and boundaries), `user.md` (who the user is), `memory.md` (curated facts), daily notes `notes/YYYY-MM-DD.md` written by a cheap call when a session ends (today's and yesterday's load at start).
 - A daily idle pass proposes promotions from notes into `memory.md` via `review.md`; merge instead of FIFO eviction.
 - Inspired by OpenClaw's SOUL/USER/MEMORY files and daily notes.
 Done: the talker uses identity and yesterday's note; nothing important is dropped silently.
+What was built (2026-11-08):
+- `Identity.swift`: `identity.md` (seeded with a short default personality) and `user.md` ("About me", empty until the user writes it), 0600, `<!-- -->` notes stripped, budgets 1,500 / 2,000 characters. `Identity.promptSection()` goes into the talker, guide and doer prompts before memory, and always counts (they're the user's own words). Settings → Memory: "Edit Poinky's Personality…", "Edit About Me…".
+- `DailyNotes`: when a session ends (`endCall`), `CallController.writeDailyNote` asks the talker's model (one call, no tools, 45 s limit) for 1–4 lines about `sessionExchanges` → `notes/YYYY-MM-DD.md` under the time. On quit there's no time, so the plain fallback (`plainNote`) is written. Yesterday's and today's notes go into the prompt (`DailyNotes.promptSection`, 1,200 characters a day); `<recall>` searches every day's notes and the archive.
+- `Memory`: when over 80 facts, the oldest move to `memory-archive.md` instead of being deleted.
+- Tests: a swiftc harness (budgets, stripping, notes, archive: 10 checks); the app with the fake (`--end-after`, `POINKY_NOTES_DIR`; the fake logs whether its system prompt has identity / about me / notes and answers note requests); one real Haiku check (it answered "what was I working on yesterday?" from the note, briefly as the profile asked).
+Still open: the daily promotion pass (an idle-time call that reads recent notes and proposes durable facts in `review.md` for the user to accept), and letting the talker update `user.md` when the user says "remember that I…" about themselves.
 
 ## 4. Context beyond pixels (status: proposed)
 Why: power users want "select the error, hold ⌃⌥, say fix this" and helpers that start in the right project with no explaining.

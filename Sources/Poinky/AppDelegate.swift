@@ -67,6 +67,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         for (n, q) in asks.enumerated() {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1 + Double(n) * gap) { c.askTyped(q) }
         }
+        if let i = args.firstIndex(of: "--end-after"), i + 1 < args.count, let secs = Double(args[i + 1]) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + secs) { c.endCall(quietly: true) }   // tests: the session ends (daily note)
+        }
         if let i = args.firstIndex(of: "--quit-after"), i + 1 < args.count, let secs = Double(args[i + 1]) {
             DispatchQueue.main.asyncAfter(deadline: .now() + secs) { NSApp.terminate(nil) }
         }

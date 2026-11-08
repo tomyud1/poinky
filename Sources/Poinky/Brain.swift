@@ -125,7 +125,10 @@ enum BrainFactory {
            let manual = try? String(contentsOf: url, encoding: .utf8) {
             prompt += "\n\n" + manual
         }
-        if role == .talker || role == .guide || role == .doer { prompt += Memory.promptSection(enabled: config.memoryEnabled) }
+        if role == .talker || role == .guide || role == .doer {
+            prompt += Identity.promptSection()
+            prompt += Memory.promptSection(enabled: config.memoryEnabled)
+        }
         if role == .talker { prompt += LookUp.promptSection(config) }
         switch config.brain {
         case .claudeCode:

@@ -21,6 +21,10 @@ def note(s):
     if log:
         with open(log, "a") as f: f.write(f"{time.time():.3f} {s}\n")
 
+argv = sys.argv
+prompt = argv[argv.index("--system-prompt") + 1] if "--system-prompt" in argv else ""
+writes_notes = "private notes" in prompt
+note(f"start pid {os.getpid()} identity={'## Who you are' in prompt} about_me={'## About the user' in prompt} notes={'## Recent sessions' in prompt} note_writer={writes_notes}")
 busy = False
 for line in sys.stdin:
     try: msg = json.loads(line)
@@ -38,6 +42,9 @@ for line in sys.stdin:
     note(f"pid {os.getpid()} question: " + json.dumps(text))
     if mode == "crash": sys.exit(3)
     if mode in ("hang", "deaf"): busy = True; continue
+    if writes_notes:
+        out({"type": "result", "subtype": "success", "is_error": False, "result": "- The user tested Poinky with fake questions."})
+        continue
     for piece in ["<say>Fake ", "answer.</say>"]:
         out({"type": "stream_event", "event": {"type": "content_block_delta", "delta": {"type": "text_delta", "text": piece}}})
         time.sleep(0.05)

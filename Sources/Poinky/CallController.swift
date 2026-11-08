@@ -71,6 +71,8 @@ final class CallController: NSObject, NSMenuDelegate {
     // Keeping long sessions light: every question adds a screenshot (~2,500 tokens) to the talker's
     // conversation, and nothing removes it. After `talkerRotateAfter` questions a fresh talker is started
     // in the background (so it's warm), and the next question switches to it with a short recap.
+    private var quitting = false   // the app is quitting: no time for a model to write the daily note
+    private var sessionExchanges: [(user: String, assistant: String)] = []   // all of this session, for its daily note
     private var talkerTurns = 0
     private var freshTalker: Brain?
     private var freshTalkerSince: TimeInterval = 0
@@ -333,6 +335,7 @@ final class CallController: NSObject, NSMenuDelegate {
 
     /// Quitting: stop background agents too (nothing would hear their results).
     func shutdown() {
+        quitting = true
         agents.stopAll()
         endCall(quietly: true)
     }
@@ -446,6 +449,11 @@ final class CallController: NSObject, NSMenuDelegate {
         guard state != .idle else { return }
         Timeline.log("session.end", ["quietly": quietly])
         askedAt = nil
+        if config.memoryEnabled, !sessionExchanges.isEmpty {
+            if quitting { DailyNotes.append(DailyNotes.plainNote(sessionExchanges)) }
+            else { Self.writeDailyNote(sessionExchanges, config: config) }
+        }
+        sessionExchanges.removeAll()
         callID += 1
         turn += 1
         talkTask?.cancel()
@@ -880,6 +888,31 @@ final class CallController: NSObject, NSMenuDelegate {
     }
 
     /// What you typed: the same as saying it (a session starts if none is running).
+    /// A session ended: a cheap model writes 1–4 lines about it into today's notes (in the background;
+    /// the exchanges themselves are the fallback). Read back at the start of the next sessions.
+    static func writeDailyNote(_ exchanges: [(user: String, assistant: String)], config: AppConfig) {
+        let text = exchanges.map { "User: \($0.user)\nPoinky: \($0.assistant)" }.joined(separator: "\n\n")
+        let brain: Brain
+        switch config.brain {
+        case .claudeCode:
+            brain = ClaudeCodeBrain(model: config.model(for: .talker), claudePath: config.claudePath, systemPrompt: DailyNotes.notePrompt)
+        case .api:
+            let key = config.apiKey.isEmpty ? (ProcessInfo.processInfo.environment["ANTHROPIC_API_KEY"] ?? "") : config.apiKey
+            guard !key.isEmpty else { DailyNotes.append(DailyNotes.plainNote(exchanges)); return }
+            brain = APIBrain(model: config.model(for: .talker), apiKey: key, systemPrompt: DailyNotes.notePrompt, maxTokens: 300)
+        }
+        Task { @MainActor in
+            var note = DailyNotes.plainNote(exchanges)
+            if let reply = try? await Deadline.run(45, "Daily note", { try await brain.ask(BrainQuestion(text: text, snapshot: nil)) { _ in } }) {
+                let lines = reply.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }.filter { $0.hasPrefix("- ") }
+                if !lines.isEmpty { note = lines.prefix(4).joined(separator: "\n") }
+            }
+            brain.stop()
+            DailyNotes.append(note)
+            Timeline.log("note.written", ["lines": note.split(separator: "\n").count])
+        }
+    }
+
     /// Start the next talker now, so it's running when the switch happens (a cold start costs ~3 s).
     private func prepareFreshTalker() {
         guard freshTalker == nil, state != .idle, let b = try? BrainFactory.make(config: config, role: .talker) else { return }
@@ -1211,6 +1244,8 @@ final class CallController: NSObject, NSMenuDelegate {
         if keep {
             history.append((you, poinky))
             if history.count > 8 { history.removeFirst() }
+            sessionExchanges.append((Recall.clip(you, 300), Recall.clip(poinky, 400)))
+            if sessionExchanges.count > 40 { sessionExchanges.removeFirst() }
         }
         guard config.conversationLog else { return }
         let app = NSWorkspace.shared.frontmostApplication.flatMap { $0.bundleIdentifier == Bundle.main.bundleIdentifier ? nil : $0.localizedName }

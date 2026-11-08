@@ -555,6 +555,14 @@ private struct MemoryTab: View {
                 Text("Your name, what you're working on, what interests you, how you like answers. Poinky uses it to feel personal. It's stored only on this Mac. You can also say \"forget that\" or \"what do you remember about me?\".")
                     .font(.caption).foregroundStyle(.secondary)
             }
+            Section("Who Poinky is, and who you are") {
+                HStack {
+                    Button("Edit Poinky's Personality…") { Identity.ensureFiles(); NSWorkspace.shared.open(Identity.identityURL) }
+                    Button("Edit About Me…") { Identity.ensureFiles(); NSWorkspace.shared.open(Identity.userURL) }
+                }
+                Text("Two short files read at the start of every session: Poinky's personality, and what it should always know about you (your role, your projects and where they live, how you like answers). They count even with memory turned off.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             Section("What Poinky remembers (you can edit this)") {
                 TextEditor(text: $model.memoryText)
                     .font(.system(size: 12))
@@ -565,6 +573,15 @@ private struct MemoryTab: View {
                     Spacer()
                     Button("Show File") { NSWorkspace.shared.activateFileViewerSelecting([Memory.url]) }
                 }
+                HStack {
+                    Button("Show Daily Notes") {
+                        try? FileManager.default.createDirectory(at: DailyNotes.dir, withIntermediateDirectories: true)
+                        NSWorkspace.shared.open(DailyNotes.dir)
+                    }
+                    Spacer()
+                }
+                Text("After each session Poinky writes a few lines about it (today's and yesterday's are read at the start of the next session; older ones are found when you ask). When the list above is full, the oldest facts move to an archive instead of being deleted.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
             Section("Conversation history") {
                 Toggle("Keep what we said, so Poinky can look it up later", isOn: $model.config.conversationLog)
