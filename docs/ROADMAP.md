@@ -68,14 +68,21 @@ What was built (2026-11-08): `AppContext.swift`. With each question, while the s
 Checked: `--read-context out.txt` (as the signed app) in Preview (lecture PDF + selection, 34 ms), TextEdit (essay + selection, 38 ms), Chrome and Safari (Wikipedia URLs, 53 / 114 ms). The app with the fake: the selection reaches Claude, capture still 69 ms. Real Haiku: "explain this like I'm 15" → a lesson about the selected sentences, marked on screen; "make me flashcards from this whole lecture" → a helper in the PDF's folder that saves Markdown + Anki CSV next to it.
 Still open: Terminal/iTerm's working folder (not in Accessibility; maybe from the window title or the shell's process), Google Docs' document title in Chrome (the window title already has it), giving the teacher the selection too.
 
-## 5. Speaking up first, safely (status: proposed)
+## 5. Speaking up first, safely (status: reminders + scheduled helpers done on `poinky-reliability`; triggers open)
 - Scheduled and recurring tasks ("every morning, summarize my PRs").
 - Triggers with opt-in: CI failed, tests broke in the terminal, a helper needs you.
 - Everything respects the report rules (not while typing, not while locked).
+What was built (2026-11-08): `Reminders.swift` + `CallController.checkReminders` / `deliverReminders`. The talker writes `<remind at="YYYY-MM-DD HH:MM" every="daily|weekdays|weekly|hourly" agent="title" dir="…">text</remind>` and `<remind-cancel>words|all</remind-cancel>`; `reminders.json` (0600, max 50). Checked every 20 s and on wake; due ones are said as a plain line (no model, `sayWhenFree`) when you're free (report rules), or their helper is started (`agent=`). Missed while asleep/off → "Earlier reminder: …". "Weekdays" follow the user's region (Israel: Sun–Thu). App Nap is held off when one is within 15 minutes. The talker sees the list when it changes or the question is about time (`sendOnce`).
+Safety: helper reports (`ask(proactive:)`) now may only speak and mark (`lookupReply = proactive`), like lookup replies, since they're built from helper output; found when a fake report re-scheduled reminders.
+Tests: swiftc harness (15 checks: times, repeats, due/late, cancel, region weekends), the app with the fake (`POINKY_REMINDER_TICK`, `POINKY_REMINDERS_FILE`; reminder said at 10.9 s for 11 s, scheduled helper started at 14.9 s), real Haiku (one-off, weekdays, daily helper with the folder).
+Still open: a list of reminders in the notch / Settings, triggers (CI failed, a test broke, a file changed, a calendar event soon), and asking before a scheduled helper does anything risky while you're away (it already raises its hand).
 
-## 6. Easy to install (status: proposed)
+## 6. Easy to install (status: signing deferred; tutorial open)
 - Signed + notarized `.dmg` with automatic updates (Sparkle), instead of building from source.
 - A 60-second first-run tutorial: hold to talk, tap to stop, point at a helper, ↻.
+Decision (2026-11-08): no paid Apple Developer ID ($99/year) for now; it's an open-source app with one user. Revisit when there are users or a sponsor. Without it, a downloaded app is blocked by Gatekeeper and an ad-hoc signed one loses its permissions on every update, so for now:
+- Keep `install.sh` (builds from source with the local signing certificate, so permissions survive updates) and make it friendlier: clearer progress, one-line fixes when something's missing, a "Poinky is ready, hold ⌃⌥" ending.
+- Do the free parts now: the first-run tutorial, and an in-app "Update" (git pull + build.sh, keeping the certificate).
 
 ## 7. Trust (status: proposed)
 - Show clearly what each question sends.

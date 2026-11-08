@@ -167,6 +167,9 @@ struct TalkEvents {
     var aboutSelf: [String] = []   // <remember about="poinky">: the user asked Poinky to change how it is (identity.md)
     var unlearnUser: [String] = [] // <forget about="user">
     var unlearnSelf: [String] = [] // <forget about="poinky">
+    /// `<remind at="2026-11-09 09:00" every="weekdays" agent="Title" dir="…">text</remind>`
+    var reminders: [(text: String, at: String, every: String?, agent: String?, dir: String?)] = []
+    var reminderCancels: [String] = []   // <remind-cancel>what</remind-cancel> ("all" for every one)
     var agents: [AgentRequest] = []
     var tells: [(name: String, text: String)] = []   // a follow-up for a working helper, by name
     var stops: [String] = []                          // helpers to stop, by name
@@ -188,6 +191,7 @@ struct TalkEvents {
     var wouldAct: Bool {
         guide != nil || doTask != nil || !settings.isEmpty || !remember.isEmpty || !forget.isEmpty || !agents.isEmpty
             || !aboutUser.isEmpty || !aboutSelf.isEmpty || !unlearnUser.isEmpty || !unlearnSelf.isEmpty
+            || !reminders.isEmpty || !reminderCancels.isEmpty
             || !tells.isEmpty || !stops.isEmpty || !undos.isEmpty || end || video != nil || recall != nil || search != nil
     }
     var video: (title: String, brief: String)?        // make a video explainer about this
@@ -278,7 +282,7 @@ struct TalkParser {
             ev.sentences = takeSentences(final: true)
         } else if sayEmitted == 0 {
             var s = text
-            for tag in ["<draw>", "<visual>", "<guide>", "<do>", "<act", "<ask>", "<done>", "<end", "<set>", "<remember", "<forget", "<agent", "<tell", "<stop", "<undo", "<video", "<recall", "<search"] {
+            for tag in ["<draw>", "<visual>", "<guide>", "<do>", "<act", "<ask>", "<done>", "<end", "<set>", "<remember", "<forget", "<agent", "<tell", "<stop", "<undo", "<video", "<recall", "<search", "<remind"] {
                 if let r = s.range(of: tag) { s = String(s[..<r.lowerBound]) }
             }
             s = s.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -312,6 +316,11 @@ struct TalkParser {
             default: ev.remember.append(b.body)
             }
         }
+        for b in Self.blocks(text, "remind") where !b.body.isEmpty {
+            guard let at = Self.attr("at", in: b.attrs) else { continue }
+            ev.reminders.append((b.body, at, Self.attr("every", in: b.attrs), Self.attr("agent", in: b.attrs), Self.attr("dir", in: b.attrs)))
+        }
+        ev.reminderCancels = Self.blocks(text, "remind-cancel").map(\.body).filter { !$0.isEmpty }
         for b in Self.blocks(text, "forget") where !b.body.isEmpty {
             switch Self.attr("about", in: b.attrs)?.lowercased() {
             case "user", "me": ev.unlearnUser.append(b.body); ev.forget.append(b.body)

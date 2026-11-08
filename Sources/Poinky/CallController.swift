@@ -73,7 +73,12 @@ final class CallController: NSObject, NSMenuDelegate {
     // in the background (so it's warm), and the next question switches to it with a short recap.
     private var quitting = false   // the app is quitting: no time for a model to write the daily note
     private var sessionExchanges: [(user: String, assistant: String)] = []
-    private var frontContext = AppContext()   // the front app when the question was asked (selection, document, page)   // all of this session, for its daily note
+    private var frontContext = AppContext()
+    private var reminderTimer: Timer?
+    private var dueLines: [String] = []          // reminders that came due, waiting for a moment you're free
+    private var reminderCheckPending = false
+    private var reminderActivity: NSObjectProtocol?   // keeps macOS from napping Poinky when one is minutes away
+    static let reminderTick: TimeInterval = ProcessInfo.processInfo.environment["POINKY_REMINDER_TICK"].flatMap(Double.init) ?? 20   // the front app when the question was asked (selection, document, page)   // all of this session, for its daily note
     private var talkerTurns = 0
     private var freshTalker: Brain?
     private var freshTalkerSince: TimeInterval = 0
@@ -171,6 +176,12 @@ final class CallController: NSObject, NSMenuDelegate {
     // MARK: - Setup
 
     func setup() {
+        reminderTimer = Timer.scheduledTimer(withTimeInterval: Self.reminderTick, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.checkReminders() }
+        }
+        NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.checkReminders() }
+        }
         listener.onPartial = { [weak self] text in self?.heard(partial: text) }
         listener.onUtterance = { [weak self] text in self?.heard(utterance: text) }
         listener.onStatus = { [weak self] msg in self?.overlay.setClaudeCaption(msg) }
@@ -889,6 +900,63 @@ final class CallController: NSObject, NSMenuDelegate {
     }
 
     /// What you typed: the same as saying it (a session starts if none is running).
+    // MARK: - Reminders and scheduled tasks
+
+    /// Every `reminderTick` seconds (and on wake): anything due is said, or its helper started.
+    private func checkReminders() {
+        let now = Date()
+        for r in Reminders.takeDue(now: now) {
+            let late = now.timeIntervalSince(r.at) > 120
+            Timeline.log("reminder.due", ["late": late, "agent": r.agentTitle != nil])
+            if let title = r.agentTitle {
+                if agents.start(AgentRequest(title: title, dir: r.agentDir, task: r.text), config: config) == nil {
+                    dueLines.append("I couldn't start the helper you scheduled, \(title): background helpers need Claude Code.")
+                    continue
+                }
+            }
+            dueLines.append(Reminders.spoken(r, late: late))
+        }
+        // One coming up soon: don't let App Nap make it late.
+        let soon = Reminders.all().first.map { $0.at.timeIntervalSince(now) < 15 * 60 } ?? false
+        if soon, reminderActivity == nil {
+            reminderActivity = ProcessInfo.processInfo.beginActivity(options: [.userInitiatedAllowingIdleSystemSleep], reason: "A reminder is due soon")
+        } else if !soon, let a = reminderActivity {
+            ProcessInfo.processInfo.endActivity(a)
+            reminderActivity = nil
+        }
+        deliverReminders()
+    }
+
+    /// Say due reminders when you're free (the same rules as helper reports: not while you talk,
+    /// type, or Claude speaks; not while the screen is locked). A plain line, no model.
+    private func deliverReminders() {
+        guard !dueLines.isEmpty, !reminderCheckPending else { return }
+        func later(_ secs: Double) {
+            reminderCheckPending = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + secs) { [weak self] in
+                self?.reminderCheckPending = false
+                self?.deliverReminders()
+            }
+        }
+        if Self.screenLocked() { later(5); return }
+        let free: Bool
+        switch state {
+        case .idle: free = Self.secondsSinceTyping() >= 2
+        case .ready: free = !ptt.isDown
+        case .listening: free = mode == .handsFree && listener.currentText.isEmpty && !ptt.isDown
+        default: free = false
+        }
+        guard free else {
+            if state == .idle || state == .ready || state == .listening { later(1) }   // otherwise finishedSpeaking calls back
+            return
+        }
+        let line = dueLines.joined(separator: " ")
+        Timeline.log("reminder.said", ["count": dueLines.count])
+        dueLines.removeAll()
+        playSound(.open)
+        sayWhenFree(line)
+    }
+
     /// A session ended: a cheap model writes 1–4 lines about it into today's notes (in the background;
     /// the exchanges themselves are the fallback). Read back at the start of the next sessions.
     static func writeDailyNote(_ exchanges: [(user: String, assistant: String)], config: AppConfig) {
@@ -1180,6 +1248,9 @@ final class CallController: NSObject, NSMenuDelegate {
             lines.append("Earlier agents (to continue one, `<agent resume=\"KEY\">what to do now</agent>`; it remembers its work):\n" + earlier.joined(separator: "\n"))
         }
         lines.append("If you start an agent now, it will be called \(agents.nextName).")
+        let scheduled = Reminders.summary()
+        let aboutTime = ["remind", "schedul", "alarm", "every ", "tomorrow", "later", "timer"].contains { q.contains($0) }
+        if !scheduled.isEmpty, sendOnce("reminders", scheduled) || aboutTime { lines.append(scheduled) }
         let commands = AgentManager.commands
         if !commands.isEmpty, sendOnce("commands", commands.joined(separator: ",")) || aboutHelpers {
             lines.append("The user's commands and skills an agent can run (start one whose task begins with it, like `/review`): " + commands.prefix(40).map { "/" + $0 }.joined(separator: ", "))
@@ -1327,6 +1398,17 @@ final class CallController: NSObject, NSMenuDelegate {
             for f in ev.unlearnUser { Identity.unlearn(f, from: Identity.userURL) }
             for f in ev.unlearnSelf { Identity.unlearn(f, from: Identity.identityURL) }
         }
+        for r in ev.reminders {
+            if Reminders.add(text: r.text, at: r.at, every: r.every, agentTitle: r.agent, agentDir: r.dir) == nil {
+                overlay.setClaudeCaption("⚠️ Couldn't schedule that (time “\(r.at)” is unclear or already passed)")
+            }
+            Timeline.log("reminder.add", ["every": r.every ?? "", "agent": r.agent != nil])
+        }
+        for what in ev.reminderCancels { Reminders.cancel(what) }
+        if !ev.reminders.isEmpty || !ev.reminderCancels.isEmpty {
+            sentOnce["reminders"] = nil   // the talker sees the new list with the next question
+            checkReminders()
+        }
         for (name, text) in ev.tells {
             if let a = helper(named: name), a.status == .running || a.status == .queued, agents.send(id: a.id, text: text) {
                 overlay.helperHeard(id: a.id, kind: "message")
@@ -1382,6 +1464,9 @@ final class CallController: NSObject, NSMenuDelegate {
         // A helper came to ask while Claude was talking: its question comes first.
         if askingNow != nil, askSpoken == nil {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in self?.deliverAsk() }
+        }
+        if !dueLines.isEmpty {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in self?.deliverReminders() }
         }
         // An agent finished while Claude was talking: now's the time to say so.
         if !agentReports.isEmpty {
