@@ -18,9 +18,20 @@ final class ClaudeCodeBrain: Brain {
     private struct Pending {
         let cont: CheckedContinuation<String, Error>
         let onText: (String) -> Void
+        let id: Int
         var text = ""
         var gotDeltas = false
     }
+    private var nextID = 0
+    private var lastOutputAt: TimeInterval = 0
+    private var watchdog: Timer?
+    private var limit: (rejected: Bool, resetsAt: Date?) = (false, nil)   // from the last rate_limit_event
+    /// How much the last answer had to read (the whole conversation so far): grows with every screenshot.
+    private(set) var lastInputTokens = 0
+    private var cancelledID: Int?   // its result (an "error_during_execution") is a cancellation, not an error
+    /// No output at all for this long while answering: Claude Code is stuck, so it's restarted.
+    /// (Any line counts, thinking included, so long answers never trip it.)
+    static let stallSeconds: TimeInterval = ProcessInfo.processInfo.environment["POINKY_STALL_SECS"].flatMap(Double.init) ?? 75
     private var pending: Pending? {
         didSet { if pending == nil { wakeWaiters() } }
     }
@@ -33,13 +44,21 @@ final class ClaudeCodeBrain: Brain {
     }
 
     private let effort: String
+    /// Claude Code tools it may use (none for the talker, teacher, guide and doer; WebSearch and WebFetch
+    /// for the web searcher). Each one is also pre-approved, since nobody is there to say yes.
+    private let tools: [String]
+    /// Where it runs (default: the settings folder). The web searcher gets an empty folder of its own.
+    private let workDir: URL?
 
     /// `effort` "" keeps it fast (no thinking step); a level lets it think that much.
-    init(model: String, effort: String = "", claudePath: String, systemPrompt: String) {
+    init(model: String, effort: String = "", claudePath: String, systemPrompt: String,
+         tools: [String] = [], workDir: URL? = nil) {
         self.model = model
         self.effort = AppConfig.efforts.contains(effort) ? effort : ""
         self.explicitPath = claudePath
         self.systemPrompt = systemPrompt
+        self.tools = tools
+        self.workDir = workDir
     }
 
     func warmUp() async throws { try launchIfNeeded() }
@@ -60,7 +79,10 @@ final class ClaudeCodeBrain: Brain {
         line.append(0x0A)
 
         return try await withCheckedThrowingContinuation { cont in
-            pending = Pending(cont: cont, onText: onText)
+            nextID += 1
+            pending = Pending(cont: cont, onText: onText, id: nextID)
+            lastOutputAt = ProcessInfo.processInfo.systemUptime
+            startWatchdog()
             do {
                 try stdin?.write(contentsOf: line)
             } catch {
@@ -70,7 +92,53 @@ final class ClaudeCodeBrain: Brain {
         }
     }
 
+    /// Interrupt the turn in progress (Claude Code ends it with a result); if it doesn't end soon, restart.
+    func cancelCurrent() {
+        guard let id = pending?.id, cancelledID != id, let stdin else { return }
+        cancelledID = id
+        Timeline.log("brain.cancel", ["model": model])
+        let req: [String: Any] = ["type": "control_request", "request_id": "cancel-\(id)", "request": ["subtype": "interrupt"]]
+        if var line = try? JSONSerialization.data(withJSONObject: req) {
+            line.append(0x0A)
+            try? stdin.write(contentsOf: line)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self, self.pending?.id == id else { return }
+                self.restart(CancellationError())
+            }
+        }
+    }
+
+    private func startWatchdog() {
+        guard watchdog == nil else { return }
+        watchdog = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                guard self.pending != nil else { self.watchdog?.invalidate(); self.watchdog = nil; return }
+                if ProcessInfo.processInfo.systemUptime - self.lastOutputAt > Self.stallSeconds {
+                    self.restart(BrainError("Claude Code stopped answering, so I restarted it. Ask again?"))
+                }
+            }
+        }
+    }
+
+    /// Kill a stuck process: the waiting question fails with `reason`, the next one starts a fresh process.
+    private func restart(_ error: Error) {
+        Timeline.log("brain.restart", ["model": model, "why": error is CancellationError ? "didn't stop when interrupted" : error.localizedDescription])
+        NSLog("Poinky: restarting claude (\(error is CancellationError ? "didn't stop when interrupted" : error.localizedDescription))")
+        if let p = pending {
+            pending = nil
+            p.cont.resume(throwing: error)
+        }
+        try? stdin?.close()
+        stdin = nil
+        if let p = process, p.isRunning { p.terminate() }
+        process = nil
+    }
+
     func stop() {
+        watchdog?.invalidate(); watchdog = nil
         if let p = pending {
             pending = nil
             p.cont.resume(throwing: CancellationError())
@@ -99,13 +167,14 @@ final class ClaudeCodeBrain: Brain {
             "--verbose",
             "--include-partial-messages",   // stream words as they're written
             "--model", model,
-            "--tools", "",                  // no file/bash tools: it only looks and talks
+            "--tools", tools.joined(separator: ","),   // "": no file/bash tools, it only looks and talks
             "--strict-mcp-config",          // skip loading MCP servers (faster startup)
             "--disable-slash-commands",
             "--setting-sources", "",        // ignore project/user hooks & settings
             "--no-session-persistence",
             "--system-prompt", systemPrompt,
         ]
+        if !tools.isEmpty { p.arguments! += ["--allowedTools"] + tools }
         if effort.isEmpty {
             p.arguments! += ["--settings", #"{"alwaysThinkingEnabled":false}"#]
         } else {
@@ -117,8 +186,9 @@ final class ClaudeCodeBrain: Brain {
             .joined(separator: ":")
         if effort.isEmpty { env["MAX_THINKING_TOKENS"] = "0" }   // skip the thinking step: faster replies
         p.environment = env
-        try? FileManager.default.createDirectory(at: AppConfig.dir, withIntermediateDirectories: true)
-        p.currentDirectoryURL = AppConfig.dir
+        let dir = workDir ?? AppConfig.dir
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        p.currentDirectoryURL = dir
 
         let inPipe = Pipe(), outPipe = Pipe(), errPipe = Pipe()
         p.standardInput = inPipe
@@ -128,7 +198,8 @@ final class ClaudeCodeBrain: Brain {
         outPipe.fileHandleForReading.readabilityHandler = { [weak self] h in
             let data = h.availableData
             if data.isEmpty { h.readabilityHandler = nil; return }
-            DispatchQueue.main.async { MainActor.assumeIsolated { self?.ingest(data) } }
+            // (A process that was restarted can still flush output: it must not answer the next question.)
+            DispatchQueue.main.async { MainActor.assumeIsolated { guard let self, self.process === p else { return }; self.ingest(data) } }
         }
         errPipe.fileHandleForReading.readabilityHandler = { [weak self] h in
             let data = h.availableData
@@ -164,6 +235,7 @@ final class ClaudeCodeBrain: Brain {
     }
 
     private func ingest(_ data: Data) {
+        lastOutputAt = ProcessInfo.processInfo.systemUptime
         buffer.append(data)
         while let nl = buffer.firstIndex(of: 0x0A) {
             let lineData = buffer[buffer.startIndex..<nl]
@@ -199,15 +271,30 @@ final class ClaudeCodeBrain: Brain {
             pend.onText(t)
 
         case "result":
+            if let u = obj["usage"] as? [String: Any] {
+                func n(_ k: String) -> Int { (u[k] as? NSNumber)?.intValue ?? 0 }
+                let fresh = n("input_tokens"), cached = n("cache_read_input_tokens"), written = n("cache_creation_input_tokens")
+                lastInputTokens = fresh + cached + written
+                Timeline.log("usage", ["model": model, "in": lastInputTokens, "cached": cached, "out": n("output_tokens"),
+                                       "ms": (obj["duration_ms"] as? NSNumber)?.intValue ?? 0])
+            }
             guard let pend = pending else { return }
             pending = nil
-            if obj["is_error"] as? Bool == true {
+            if pend.id == cancelledID {
+                pend.cont.resume(throwing: CancellationError())
+            } else if obj["is_error"] as? Bool == true {
                 let msg = (obj["result"] as? String) ?? "Claude Code returned an error."
-                pend.cont.resume(throwing: BrainError(msg))
+                var err = BrainError(msg)
+                if limit.rejected { err.limitHit = true; err.limitResetsAt = limit.resetsAt }
+                pend.cont.resume(throwing: err)
             } else {
                 let final = pend.text.isEmpty ? ((obj["result"] as? String) ?? "") : pend.text
                 pend.cont.resume(returning: final)
             }
+
+        case "rate_limit_event":
+            guard let info = obj["rate_limit_info"] as? [String: Any], let status = info["status"] as? String else { return }
+            limit = (status == "rejected", (info["resetsAt"] as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue) })
 
         default:
             break
@@ -217,6 +304,8 @@ final class ClaudeCodeBrain: Brain {
     // MARK: - Finding `claude`
 
     static func findClaude(explicit: String) -> String? {
+        // Tests: a fake `claude` (tools/fake-claude.py) that answers, hangs or crashes without tokens.
+        if let fake = ProcessInfo.processInfo.environment["POINKY_CLAUDE_CMD"], !fake.isEmpty { return fake }
         let fm = FileManager.default
         let home = fm.homeDirectoryForCurrentUser.path
         let candidates = [explicit,

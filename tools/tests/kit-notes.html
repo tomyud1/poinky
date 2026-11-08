@@ -19,6 +19,8 @@
     const azimuth = () => { const d = kit.camera.getWorldDirection(new THREE.Vector3()); return Math.round(Math.atan2(-d.x, -d.z) * 180 / Math.PI); };
     const near = (a, b, tol = 24) =>  // the camera sways gently (about ±18°) when idle
       Math.abs(((a - b + 540) % 360) - 180) <= tol;
+    // Wait for the camera to get to `az` degrees (CI has no GPU, so frames are slow), up to 8 s.
+    const settle = async az => { for (let t = 0; t < 8000 && !near(azimuth(), az); t += 200) await wait(200); };
 
     kit.run(`const body = kit.box({size:[4,1,1], name:'body'}); const fan = kit.box({size:[0.5,1.4,1.4], at:[2.3,0,0], name:'fan'});`);
     kit.run(`kit.view('side', {dur:0.3}); kit.label('Fan', {to: kit.get('fan'), color:'blue'}); kit.label('Air rushes in', {at:[2.6,1,0], temp:true});`, 0);
@@ -26,7 +28,7 @@
     const az0 = azimuth();
     check(near(az0, 0), `step 1 looks from the side (${az0}°)`);
     kit.run(`kit.view({az:120, el:30, dur:0.3}); kit.label('Body', {to: kit.get('body'), color:'green'}); kit.label('Squeeze', {at:[0,1,0], temp:true});`, 1);
-    await wait(1800);
+    await settle(120);
     const az1 = azimuth();
     check(near(az1, 120), `step 2 swings around (${az1}°)`);
     check(!tags().includes('Air rushes in') && shown('Squeeze'), `step 1's moment note went when step 2 ran (${tags()})`);
@@ -35,21 +37,21 @@
     await wait(80);
     check(tag('Fan').classList.contains('flash'), 'the part label step 1 added flashes');
     check(!tag('Body').classList.contains('flash'), "step 2's part label doesn't");
-    await wait(2200);
+    await settle(0);
     check(near(azimuth(), 0), `clicking step 1's note brings its view back (${azimuth()}°, was ${az0}°)`);
     check(shown('Air rushes in') && !tags().includes('Squeeze'), `and its moment note, not step 2's (${tags()})`);
     check(shown('Fan') && shown('Body'), 'part names stay');
 
     kit.revisit(1);
-    await wait(2200);
+    await settle(120);
     check(near(azimuth(), 120), `step 2's note brings the lesson's view back (${azimuth()}°)`);
     check(shown('Squeeze'), "step 2's moment note is back");
 
     kit.revisit(0);
-    await wait(1500);
+    await settle(0);
     // The lesson moves on while you look back: the camera first returns to where the lesson was.
     kit.run(`kit.label('Nozzle', {at:[-2,0,0], color:'pink'});`, 2);
-    await wait(2000);
+    await settle(120);
     check(near(azimuth(), 120), `the next step returns to the lesson's view first (${azimuth()}°)`);
     check(!tags().includes('Air rushes in'), 'and the replayed moment note goes');
 

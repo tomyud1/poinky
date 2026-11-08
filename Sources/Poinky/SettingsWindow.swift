@@ -373,6 +373,8 @@ private struct ClaudeTab: View {
                     model: cc ? $model.config.artistModel : $model.config.apiArtistModel, effort: $model.config.artistEffort)
                     .disabled(!model.config.artistEnabled)
                 Toggle("Teacher sketches explanations and 3D models", isOn: $model.config.artistEnabled)
+                Toggle("Quick web search (the talker looks things up itself, with web tools only)", isOn: $model.config.webSearch)
+                    .disabled(!cc)
                 row("Guide", "walks you through, step by step",
                     model: cc ? $model.config.guideModel : $model.config.apiGuideModel, effort: $model.config.guideEffort,
                     sameAs: "Same as the talker")
@@ -507,6 +509,11 @@ private struct PrivacyTab: View {
     var body: some View {
         Form {
             Section {
+                Toggle("Also send the text I selected, the open document's name and the web page's address", isOn: $model.config.frontAppContext)
+                Text("So \"explain this paragraph\" or \"summarize this lecture\" works on exactly what you selected, and helpers start in the right folder. Read through Accessibility, never from password fields or the apps below.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Section {
                 Text("Poinky never sees these apps: they're left out of every screenshot it sends to Claude.")
                     .font(.callout).foregroundStyle(.secondary)
                 ForEach(model.config.excludedApps, id: \.self) { id in
@@ -553,6 +560,14 @@ private struct MemoryTab: View {
                 Text("Your name, what you're working on, what interests you, how you like answers. Poinky uses it to feel personal. It's stored only on this Mac. You can also say \"forget that\" or \"what do you remember about me?\".")
                     .font(.caption).foregroundStyle(.secondary)
             }
+            Section("Who Poinky is, and who you are") {
+                HStack {
+                    Button("Edit Poinky's Personality…") { Identity.ensureFiles(); NSWorkspace.shared.open(Identity.identityURL) }
+                    Button("Edit About Me…") { Identity.ensureFiles(); NSWorkspace.shared.open(Identity.userURL) }
+                }
+                Text("Two short files read at the start of every session: Poinky's personality, and what it should always know about you (your role, your projects and where they live, how you like answers). They count even with memory turned off.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             Section("What Poinky remembers (you can edit this)") {
                 TextEditor(text: $model.memoryText)
                     .font(.system(size: 12))
@@ -562,6 +577,29 @@ private struct MemoryTab: View {
                     Button("Forget Everything", role: .destructive) { Memory.clear(); model.reload() }
                     Spacer()
                     Button("Show File") { NSWorkspace.shared.activateFileViewerSelecting([Memory.url]) }
+                }
+                HStack {
+                    Button("Show Daily Notes") {
+                        try? FileManager.default.createDirectory(at: DailyNotes.dir, withIntermediateDirectories: true)
+                        NSWorkspace.shared.open(DailyNotes.dir)
+                    }
+                    Spacer()
+                }
+                Text("After each session Poinky writes a few lines about it (today's and yesterday's are read at the start of the next session; older ones are found when you ask). When the list above is full, the oldest facts move to an archive instead of being deleted.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Section("Conversation history") {
+                Toggle("Keep what we said, so Poinky can look it up later", isOn: $model.config.conversationLog)
+                Text("Lets you ask \"what did you tell me yesterday about the router?\" or \"what was I doing in Claude Code this morning?\". Poinky keeps what you said and what it answered (no screenshots), one file per day, only on this Mac. When you ask, it also looks through your earlier helpers and the titles and last prompts of your own Claude Code sessions.")
+                    .font(.caption).foregroundStyle(.secondary)
+                HStack {
+                    Button("Forget Today") { ConversationLog.clearToday() }
+                    Button("Forget All Conversations", role: .destructive) { ConversationLog.clear() }
+                    Spacer()
+                    Button("Show Folder") {
+                        try? FileManager.default.createDirectory(at: ConversationLog.dir, withIntermediateDirectories: true)
+                        NSWorkspace.shared.activateFileViewerSelecting([ConversationLog.dir])
+                    }
                 }
             }
         }
@@ -587,6 +625,25 @@ private struct AdvancedTab: View {
                 LabeledContent("Claude Code path") {
                     TextField("auto-detect", text: $model.config.claudePath).frame(width: 260)
                 }
+            }
+            Section("Diagnostics") {
+                LabeledContent("Typical wait for an answer") {
+                    Text(Timeline.medianLatency().map { String(format: "%.1f s (last 20 questions)", $0) } ?? "no questions yet")
+                        .foregroundStyle(.secondary)
+                }
+                HStack {
+                    Button("Copy Diagnostics") {
+                        // What Poinky did lately (states, timings, errors, restarts), never what was said.
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(Timeline.recent(200).joined(separator: "\n"), forType: .string)
+                    }
+                    Button("Open Timeline Folder") {
+                        try? FileManager.default.createDirectory(at: Timeline.dir, withIntermediateDirectories: true)
+                        NSWorkspace.shared.open(Timeline.dir)
+                    }
+                }
+                Text("If Poinky gets stuck it restarts itself and writes down why. Paste the diagnostics into a bug report or a Claude chat.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)

@@ -23,16 +23,29 @@ for (let i = 0; i < 60 && !ws; i++) {
 if (!ws) { console.log('Chrome did not start'); chrome.kill(); process.exit(2); }
 await opened;
 let id = 0; const pending = new Map();
-ws.onmessage = e => { const m = JSON.parse(e.data); if (m.id && pending.has(m.id)) { pending.get(m.id)(m.result); pending.delete(m.id); } };
+// The page's uncaught errors, printed when it doesn't finish (so a bug isn't mistaken for slowness).
+let pageErrors = [];
+ws.onmessage = e => {
+  const m = JSON.parse(e.data);
+  if (m.method === 'Runtime.exceptionThrown') pageErrors.push(m.params.exceptionDetails?.exception?.description || m.params.exceptionDetails?.text || 'error');
+  if (m.id && pending.has(m.id)) { pending.get(m.id)(m.result); pending.delete(m.id); }
+};
 const send = (method, params = {}) => new Promise(r => { const i = ++id; pending.set(i, r); ws.send(JSON.stringify({ id: i, method, params })); });
 await send('Page.enable');
+await send('Runtime.enable');
 let failed = false;
 for (const f of readdirSync(here).filter(f => f.endsWith('.html')).sort()) {
+  pageErrors = [];
   await send('Page.navigate', { url: 'file://' + join(here, f) });
   let r = null;
-  for (let i = 0; i < 80 && !r; i++) { await sleep(250); r = (await send('Runtime.evaluate', { expression: 'window.testResults', returnByValue: true })).result?.value; }
+  // Up to 60 s a page: CI machines have no GPU, so WebGL and animations run several times slower.
+  for (let i = 0; i < 240 && !r; i++) { await sleep(250); r = (await send('Runtime.evaluate', { expression: 'window.testResults', returnByValue: true })).result?.value; }
   console.log(f);
-  if (!r) { console.log('  FAIL did not finish'); failed = true; continue; }
+  if (!r) {
+    console.log('  FAIL did not finish');
+    for (const e of pageErrors.slice(0, 5)) console.log('    ' + String(e).split('\n')[0]);
+    failed = true; continue;
+  }
   for (const l of r.lines) console.log('  ' + l);
   if (!r.pass) failed = true;
 }

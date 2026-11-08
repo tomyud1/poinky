@@ -8,6 +8,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Developer check: `open -n -g Poinky.app --args --read-app <out.txt> ["Menu > Item"]`
         // writes what the doer would read about the front app, then quits.
         let args = CommandLine.arguments
+        // `Poinky --read-context out.txt`: what AppContextReader sees in the front app (as the signed app).
+        if let i = args.firstIndex(of: "--read-context"), i + 1 < args.count {
+            let out = args[i + 1]
+            DispatchQueue.global().asyncAfter(deadline: .now() + 0.5) {
+                let t = Date()
+                let c = AppContextReader.read(app: NSWorkspace.shared.frontmostApplication, excluded: [])
+                let text = "trusted: \(AXIsProcessTrusted()), took \(Int(Date().timeIntervalSince(t) * 1000)) ms\n" + c.lines.joined(separator: "\n") + "\n"
+                try? text.write(toFile: out, atomically: true, encoding: .utf8)
+                DispatchQueue.main.async { NSApp.terminate(nil) }
+            }
+            return
+        }
         if let i = args.firstIndex(of: "--read-app"), i + 1 < args.count {
             let out = args[i + 1], menu = i + 2 < args.count ? args[i + 2] : nil
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
@@ -59,6 +71,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Developer checks for video explainers (see CallController+Video.swift).
         if let i = args.firstIndex(of: "--video"), i + 1 < args.count { c.devVideo(topic: args[i + 1]) }
         if let i = args.firstIndex(of: "--play-video"), i + 1 < args.count { c.devPlayVideo(dir: args[i + 1]) }
+        // `Poinky --ask "question" [--ask …] [--quit-after secs]`: asks a typed question in a real session (tests of the
+        // call loop without a mic; with POINKY_CLAUDE_CMD=tools/fake-claude.py no tokens are used).
+        // Several `--ask`s are asked one after another, `POINKY_ASK_GAP` seconds apart (default 5).
+        let gap = ProcessInfo.processInfo.environment["POINKY_ASK_GAP"].flatMap(Double.init) ?? 5
+        let asks = args.indices.filter { args[$0] == "--ask" && $0 + 1 < args.count }.map { args[$0 + 1] }
+        for (n, q) in asks.enumerated() {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1 + Double(n) * gap) { c.askTyped(q) }
+        }
+        if let i = args.firstIndex(of: "--end-after"), i + 1 < args.count, let secs = Double(args[i + 1]) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + secs) { c.endCall(quietly: true) }   // tests: the session ends (daily note)
+        }
+        if let i = args.firstIndex(of: "--quit-after"), i + 1 < args.count, let secs = Double(args[i + 1]) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + secs) { NSApp.terminate(nil) }
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {

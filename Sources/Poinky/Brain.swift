@@ -11,14 +11,54 @@ protocol Brain: AnyObject {
     func ask(_ question: BrainQuestion, onText: @escaping (String) -> Void) async throws -> String
     /// Ends the session (called when the call ends).
     func stop()
+    /// Nobody wants the reply being written now (you interrupted or asked something else):
+    /// end it soon so the next question doesn't wait behind it. Keeps the session.
+    func cancelCurrent()
+}
+
+extension Brain {
+    func cancelCurrent() {}
+}
+
+/// Runs `op`, but gives up after `seconds` (for system calls that can hang, like ScreenCaptureKit
+/// when its service crashed). The work itself may keep running; its late result is dropped.
+enum Deadline {
+    struct Expired: LocalizedError {
+        let what: String
+        var errorDescription: String? { "\(what) didn't respond." }
+    }
+
+    private final class Once<T>: @unchecked Sendable {
+        let lock = NSLock()
+        var cont: CheckedContinuation<T, Error>?
+        init(_ c: CheckedContinuation<T, Error>) { cont = c }
+        func finish(_ r: Result<T, Error>) {
+            lock.lock(); let c = cont; cont = nil; lock.unlock()
+            c?.resume(with: r)
+        }
+    }
+
+    static func run<T>(_ seconds: Double, _ what: String, _ op: @escaping () async throws -> T) async throws -> T {
+        try await withCheckedThrowingContinuation { (c: CheckedContinuation<T, Error>) in
+            let once = Once<T>(c)
+            Task { do { once.finish(.success(try await op())) } catch { once.finish(.failure(error)) } }
+            Task {
+                try? await Task.sleep(nanoseconds: UInt64(seconds * 1e9))
+                if once.cont != nil { Timeline.log("timeout", ["what": what, "secs": seconds]) }
+                once.finish(.failure(Expired(what: what)))
+            }
+        }
+    }
 }
 
 struct BrainQuestion {
     let text: String
-    let snapshot: Snapshot
+    /// Nil: text only (a follow-up with what a lookup found, or a web search: the screen was already sent).
+    let snapshot: Snapshot?
 
     /// The screenshot, plus the close-up of what you marked (if any).
     var imageBlocks: [[String: Any]] {
+        guard let snapshot else { return [] }
         var blocks: [[String: Any]] = [["type": "image",
                                         "source": ["type": "base64", "media_type": "image/jpeg", "data": snapshot.jpegBase64]]]
         if let f = snapshot.focus {
@@ -39,8 +79,40 @@ struct BrainQuestion {
 
 struct BrainError: LocalizedError {
     let message: String
+    /// Claude Code said the usage limit was hit; when it resets (if it said).
+    var limitResetsAt: Date?
+    var limitHit = false
     init(_ message: String) { self.message = message }
     var errorDescription: String? { message }
+}
+
+/// What to say out loud when a question fails: one short sentence that says what to do,
+/// instead of "something went wrong". The exact error still goes in the caption.
+enum SpokenError {
+    static func line(for error: Error, now: Date = Date()) -> String {
+        if let b = error as? BrainError, b.limitHit { return limitLine(b.limitResetsAt, now: now) }
+        if error is Deadline.Expired { return "The screen capture got stuck. Ask again, and if it keeps happening, restart Poinky from the notch." }
+        let m = error.localizedDescription.lowercased()
+        func has(_ words: String...) -> Bool { words.contains { m.contains($0) } }
+        if has("usage limit", "hit your limit", "limit reached", "rate limit", "rate_limit", "api error: 429") { return limitLine(nil, now: now) }
+        if has("/login", "not logged in", "invalid api key", "authentication", "api error: 401", "oauth") {
+            return "Claude Code isn't signed in. Run claude in Terminal and sign in, then ask me again."
+        }
+        if has("isn't installed") { return "I can't find Claude Code. Install it, or switch to an API key in Settings." }
+        if has("overloaded", "api error: 5") { return "Claude's servers are busy right now. Try again in a moment." }
+        if has("connection", "network", "offline", "timed out", "could not resolve", "internet") {
+            return "I can't reach Claude. Check your internet connection and ask again."
+        }
+        if has("stopped answering", "stopped unexpectedly") { return "Claude Code got stuck, so I restarted it. Ask me again." }
+        return "Sorry, that didn't work. The details are on screen."
+    }
+
+    static func limitLine(_ resets: Date?, now: Date = Date()) -> String {
+        guard let r = resets, r > now else { return "You've hit your Claude usage limit. I'll work again once it resets." }
+        let f = DateFormatter()
+        f.dateFormat = Calendar.current.isDate(r, inSameDayAs: now) ? "h:mm a" : "EEEE h:mm a"
+        return "You've hit your Claude usage limit. It resets at \(f.string(from: r))."
+    }
 }
 
 @MainActor
@@ -53,7 +125,11 @@ enum BrainFactory {
            let manual = try? String(contentsOf: url, encoding: .utf8) {
             prompt += "\n\n" + manual
         }
-        if role == .talker || role == .guide || role == .doer { prompt += Memory.promptSection(enabled: config.memoryEnabled) }
+        if role == .talker || role == .guide || role == .doer {
+            prompt += Identity.promptSection()
+            prompt += Memory.promptSection(enabled: config.memoryEnabled)
+        }
+        if role == .talker { prompt += LookUp.promptSection(config) }
         switch config.brain {
         case .claudeCode:
             return ClaudeCodeBrain(model: config.model(for: role), effort: config.effort(for: role),
@@ -87,10 +163,37 @@ struct TalkEvents {
     var settings: [String] = []    // JSON objects of settings to change
     var remember: [String] = []    // things to remember about the user
     var forget: [String] = []      // things to forget
+    var aboutUser: [String] = []   // <remember about="user">: a core fact for user.md (role, projects, how they like answers)
+    var aboutSelf: [String] = []   // <remember about="poinky">: the user asked Poinky to change how it is (identity.md)
+    var unlearnUser: [String] = [] // <forget about="user">
+    var unlearnSelf: [String] = [] // <forget about="poinky">
+    /// `<remind at="2026-11-09 09:00" every="weekdays" agent="Title" dir="…">text</remind>`
+    var reminders: [(text: String, at: String, every: String?, agent: String?, dir: String?)] = []
+    var reminderCancels: [String] = []   // <remind-cancel>what</remind-cancel> ("all" for every one)
     var agents: [AgentRequest] = []
     var tells: [(name: String, text: String)] = []   // a follow-up for a working helper, by name
     var stops: [String] = []                          // helpers to stop, by name
     var undos: [String] = []                          // helpers whose last changes to undo, by name or key
+    var recall: String?            // look up earlier conversations, helpers and Claude Code sessions
+    var search: String?            // look this up on the web (a separate session with only web tools)
+
+    /// A reply that answers from what a lookup found: web pages and old transcripts are data, so only
+    /// speaking, marking the screen and asking the teacher for a sketch count. Nothing that acts
+    /// (clicks, helpers, settings, memory, ending the session) and no second lookup.
+    func onlySpeech() -> TalkEvents {
+        var e = TalkEvents()
+        e.sentences = sentences
+        e.draws = draws
+        e.visual = visual
+        return e
+    }
+    /// Has anything that would act (for logging what a lookup reply tried to do).
+    var wouldAct: Bool {
+        guide != nil || doTask != nil || !settings.isEmpty || !remember.isEmpty || !forget.isEmpty || !agents.isEmpty
+            || !aboutUser.isEmpty || !aboutSelf.isEmpty || !unlearnUser.isEmpty || !unlearnSelf.isEmpty
+            || !reminders.isEmpty || !reminderCancels.isEmpty
+            || !tells.isEmpty || !stops.isEmpty || !undos.isEmpty || end || video != nil || recall != nil || search != nil
+    }
     var video: (title: String, brief: String)?        // make a video explainer about this
     var videoCancel = false                           // stop the video being made
     var videoClose = false                            // close the video on screen
@@ -116,6 +219,9 @@ struct AgentRequest: Equatable {
     var earlier: String? = nil
     /// Continuing a helper that worked in its own git worktree: that folder (made again there).
     var worktreePath: String? = nil
+    /// Continuing one of the user's own Claude Code sessions: resume a copy of it (`--fork-session`), so
+    /// the original stays as it was in their terminal.
+    var fork = false
 
     /// "opus", "Sonnet 5.5", "claude-haiku-5-5" → a full model name Claude Code knows. Nil if it isn't one.
     static func modelName(_ s: String?) -> String? {
@@ -176,7 +282,7 @@ struct TalkParser {
             ev.sentences = takeSentences(final: true)
         } else if sayEmitted == 0 {
             var s = text
-            for tag in ["<draw>", "<visual>", "<guide>", "<do>", "<act", "<ask>", "<done>", "<end", "<set>", "<remember>", "<forget>", "<agent", "<tell", "<stop", "<undo", "<video"] {
+            for tag in ["<draw>", "<visual>", "<guide>", "<do>", "<act", "<ask>", "<done>", "<end", "<set>", "<remember", "<forget", "<agent", "<tell", "<stop", "<undo", "<video", "<recall", "<search", "<remind"] {
                 if let r = s.range(of: tag) { s = String(s[..<r.lowerBound]) }
             }
             s = s.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -202,8 +308,26 @@ struct TalkParser {
         ev.ask = Self.blocks(text, "ask").first.map(\.body).flatMap { $0.isEmpty ? nil : $0 }
         if !doDone, let g = Self.blocks(text, "do").first?.body, !g.isEmpty { doDone = true; ev.doTask = g }
         ev.settings = Self.blocks(text, "set").compactMap { JSONRepair.clean($0.body) }
-        ev.remember = Self.blocks(text, "remember").map(\.body).filter { !$0.isEmpty }
-        ev.forget = Self.blocks(text, "forget").map(\.body).filter { !$0.isEmpty }
+        // `about="user"` / `about="poinky"` go to user.md / identity.md; plain ones to memory.md.
+        for b in Self.blocks(text, "remember") where !b.body.isEmpty {
+            switch Self.attr("about", in: b.attrs)?.lowercased() {
+            case "user", "me": ev.aboutUser.append(b.body)
+            case "poinky", "self", "you": ev.aboutSelf.append(b.body)
+            default: ev.remember.append(b.body)
+            }
+        }
+        for b in Self.blocks(text, "remind") where !b.body.isEmpty {
+            guard let at = Self.attr("at", in: b.attrs) else { continue }
+            ev.reminders.append((b.body, at, Self.attr("every", in: b.attrs), Self.attr("agent", in: b.attrs), Self.attr("dir", in: b.attrs)))
+        }
+        ev.reminderCancels = Self.blocks(text, "remind-cancel").map(\.body).filter { !$0.isEmpty }
+        for b in Self.blocks(text, "forget") where !b.body.isEmpty {
+            switch Self.attr("about", in: b.attrs)?.lowercased() {
+            case "user", "me": ev.unlearnUser.append(b.body); ev.forget.append(b.body)
+            case "poinky", "self", "you": ev.unlearnSelf.append(b.body)
+            default: ev.forget.append(b.body)
+            }
+        }
         ev.agents = Self.blocks(text, "agent").compactMap { b in
             guard !b.body.isEmpty else { return nil }
             let dir = Self.attr("dir", in: b.attrs).flatMap { $0.isEmpty ? nil : $0 }
@@ -226,6 +350,8 @@ struct TalkParser {
         if let b = Self.blocks(text, "video").first, !b.body.isEmpty {
             ev.video = (Self.attr("title", in: b.attrs).flatMap { $0.isEmpty ? nil : $0 } ?? String(b.body.prefix(60)), b.body)
         }
+        ev.recall = Self.blocks(text, "recall").first.map(\.body).flatMap { $0.isEmpty ? nil : $0 }
+        ev.search = Self.blocks(text, "search").first.map(\.body).flatMap { $0.isEmpty ? nil : $0 }
         if let re = try? NSRegularExpression(pattern: #"<undo\s+agent\s*=\s*"([^"]+)"\s*/?>"#) {
             let ns = text as NSString
             ev.undos = re.matches(in: text, range: NSRange(location: 0, length: ns.length)).map { ns.substring(with: $0.range(at: 1)) }

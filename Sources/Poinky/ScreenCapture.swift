@@ -43,13 +43,29 @@ enum ScreenCapture {
     static func hasPermission() async -> Bool {
         if CGPreflightScreenCaptureAccess() { return true }
         do {
-            _ = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+            _ = try await shareable()
             return true
+        } catch is Deadline.Expired {
+            return true   // the capture service is stuck, not switched off: start anyway (questions will say so)
         } catch {
             return false
         }
     }
     static func requestPermission() { CGRequestScreenCaptureAccess() }
+
+    /// ScreenCaptureKit's service (replayd) sometimes crashes or hangs, and then these calls never
+    /// return: a question would stay "thinking" forever. Give up after a few seconds instead.
+    static let timeout: Double = 6
+    private static func shareable() async throws -> SCShareableContent {
+        try await Deadline.run(timeout, "Screen capture") {
+            try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+        }
+    }
+    private static func shot(_ filter: SCContentFilter, _ cfg: SCStreamConfiguration) async throws -> CGImage {
+        try await Deadline.run(timeout, "Screen capture") {
+            try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: cfg)
+        }
+    }
 
     /// Claude shrinks bigger images before looking at them, which would make its
     /// coordinates come back too small. Staying under both limits keeps them 1:1.
@@ -69,7 +85,7 @@ enum ScreenCapture {
     /// The whole screen, minus our own overlay and any excluded apps.
     private static func filter(for screen: NSScreen) async throws -> SCContentFilter {
         let displayID = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID
-        let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+        let content = try await shareable()
         guard let display = content.displays.first(where: { $0.displayID == displayID }) ?? content.displays.first else {
             throw CaptureError.noDisplay
         }
@@ -93,7 +109,7 @@ enum ScreenCapture {
         cfg.width = Int(r.width * k)
         cfg.height = Int(r.height * k)
         cfg.showsCursor = false
-        guard let img = try? await SCScreenshotManager.captureImage(contentFilter: filter, configuration: cfg),
+        guard let img = try? await shot(filter, cfg),
               let jpeg = NSBitmapImageRep(cgImage: img).representation(using: .jpeg, properties: [.compressionFactor: 0.8]) else { return nil }
         let scale = imageScale(for: size)
         let text = await Task.detached { TextIndex.readLines(img) }.value
@@ -113,7 +129,7 @@ enum ScreenCapture {
         cfg.width = w
         cfg.height = h
         cfg.showsCursor = true
-        let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: cfg)
+        let image = try await shot(filter, cfg)
 
         guard let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
                                   space: CGColorSpaceCreateDeviceRGB(),

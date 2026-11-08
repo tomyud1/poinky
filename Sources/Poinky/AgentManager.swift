@@ -495,7 +495,8 @@ final class AgentManager {
         var newWorktree = false
         // Another helper works in the same repo: this one gets its own copy (a git worktree). Continuing one
         // that had a worktree: made again at the same folder (Claude Code finds its session by folder).
-        if worktrees[id] == nil, req.dir != nil {
+        // (Not for one of the user's own sessions: Claude Code finds it only in its own folder.)
+        if worktrees[id] == nil, req.dir != nil, !req.fork {
             let top = repos[id] ?? HelperWorktree.top(of: dir)
             repos[id] = top
             let shared = top != nil && repos.contains { other in other.key != id && other.value == top && agents.contains { $0.id == other.key && $0.status == .running } }
@@ -511,7 +512,10 @@ final class AgentManager {
         } ?? ""
         let system = "You were started by Poinky, the user's voice assistant, to do a task in the background. On screen you're the helper called \(agent.name).\n\n\(notes)\(worktreeNote)"
         let prompt: String
-        if resuming {
+        if resuming, req.fork {
+            // The user's own session keeps its own system prompt, so the helper notes go in the message.
+            prompt = "(The user asked Poinky, their voice assistant, to have a helper continue this session in the background. On screen you're the helper called \(agent.name).)\n\n\(notes)\n\nNow the user wants: \(req.task)"
+        } else if resuming {
             prompt = req.name == agent.name ? req.task : "(On screen you're the helper called \(agent.name) now.)\n\n\(req.task)"
         } else if let earlier = req.earlier {
             prompt = "\(earlier)\n\nNow the user wants: \(req.task)"
@@ -540,7 +544,11 @@ final class AgentManager {
            let json = String(data: data, encoding: .utf8) { args += ["--settings", json] }
         if !resuming { args += ["--append-system-prompt", system] }   // a resumed session keeps its own
         if let m = req.model ?? (config.agentModel.isEmpty ? nil : config.agentModel) { args += ["--model", m] }
-        if resuming, let session = req.resume { args += ["--resume", session] }
+        if resuming, let session = req.resume {
+            args += ["--resume", session]
+            // One of the user's own sessions: work on a copy, so theirs stays as it was (it may still be open).
+            if req.fork { args += ["--fork-session"] }
+        }
         if AppConfig.efforts.contains(config.agentEffort) { args += ["--effort", config.agentEffort] }
 
         let p = Process()

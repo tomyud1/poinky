@@ -8,6 +8,8 @@ import Foundation
 /// in Settings → Memory.
 enum Memory {
     static var url: URL { AppConfig.dir.appendingPathComponent("memory.md") }
+    /// Facts that no longer fit: kept (and found by <recall>), not deleted.
+    static var archiveURL: URL { AppConfig.dir.appendingPathComponent("memory-archive.md") }
     private static let maxFacts = 80
 
     /// The remembered facts, one per line ("- fact (date)").
@@ -46,7 +48,11 @@ enum Memory {
             return Double(o.intersection(w).count) / Double(min(o.count, w.count)) >= 0.8
         }
         list.append("- \(clean) (\(date))")
-        if list.count > maxFacts { list.removeFirst(list.count - maxFacts) }
+        if list.count > maxFacts {
+            // Full: the oldest facts move to the archive instead of disappearing.
+            archive(Array(list.prefix(list.count - maxFacts)))
+            list.removeFirst(list.count - maxFacts)
+        }
         write(list)
     }
 
@@ -61,7 +67,21 @@ enum Memory {
         write(list)
     }
 
-    static func clear() { write([]) }
+    static func clear() { write([]); try? FileManager.default.removeItem(at: archiveURL) }
+
+    static func archive(_ lines: [String]) {
+        guard !lines.isEmpty else { return }
+        var text = (try? String(contentsOf: archiveURL, encoding: .utf8)) ?? "# Older things Poinky remembered (found when you ask)\n\n"
+        text += lines.joined(separator: "\n") + "\n"
+        try? text.write(to: archiveURL, atomically: true, encoding: .utf8)
+        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: archiveURL.path)
+    }
+
+    /// Archived facts, for <recall>.
+    static func archived() -> [String] {
+        guard let text = try? String(contentsOf: archiveURL, encoding: .utf8) else { return [] }
+        return text.split(separator: "\n").map(String.init).filter { $0.hasPrefix("- ") }
+    }
 
     /// The part of the system prompt that makes the conversation personal.
     static func promptSection(enabled: Bool) -> String {
@@ -73,6 +93,6 @@ enum Memory {
         if !first.isEmpty { s += "- Their Mac account name is \(NSFullUserName()); call them \(first) unless they say otherwise.\n" }
         let list = facts()
         s += list.isEmpty ? "- Nothing else yet: this may be one of your first conversations.\n" : list.joined(separator: "\n") + "\n"
-        return s
+        return s + DailyNotes.promptSection()
     }
 }

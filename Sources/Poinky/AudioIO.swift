@@ -219,6 +219,7 @@ extension AudioIO {
         running = false
         do {
             try start(mic: mic)
+            Timeline.log("audio.restart")
             onRestart?()
         } catch {
             // The new device isn't ready yet (Bluetooth still connecting): try again shortly.

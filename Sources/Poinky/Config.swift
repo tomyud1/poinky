@@ -42,6 +42,9 @@ struct AppConfig: Codable {
     var typeHotkey = "ctrl+option+t"   // opens a box to type to Poinky (or to the helper under the mouse)
     var buddyAutoHide = 0.0            // hide the buddy after this many idle seconds (0 = never); it's back when you ask something
     var memoryEnabled = true           // remember things about you between sessions (stored only on this Mac)
+    var conversationLog = true         // keep what you and Poinky said (conversations/*.jsonl, only on this Mac) so it can look it up later
+    var webSearch = true               // the main buddy may do a quick web search itself (Claude Code brain only)
+    var frontAppContext = true         // send the front app's selected text, open document and web address with each question
     var computerControl = true         // Poinky may click and type for you when you ask it to do something
     var webPhotos = true               // pin a photo of the real thing (from Wikipedia) next to 3D models and lessons
     var agentPermission = "auto"        // background agents: "auto" (Claude Code's auto mode; falls back to acceptEdits if it can't start), "acceptEdits" (edit the project + run tests, ask for the rest), "plan"
@@ -102,6 +105,9 @@ struct AppConfig: Codable {
         typeHotkey = try c.decodeIfPresent(String.self, forKey: .typeHotkey) ?? d.typeHotkey
         buddyAutoHide = try c.decodeIfPresent(Double.self, forKey: .buddyAutoHide) ?? d.buddyAutoHide
         memoryEnabled = try c.decodeIfPresent(Bool.self, forKey: .memoryEnabled) ?? d.memoryEnabled
+        conversationLog = try c.decodeIfPresent(Bool.self, forKey: .conversationLog) ?? d.conversationLog
+        webSearch = try c.decodeIfPresent(Bool.self, forKey: .webSearch) ?? d.webSearch
+        frontAppContext = try c.decodeIfPresent(Bool.self, forKey: .frontAppContext) ?? d.frontAppContext
         computerControl = try c.decodeIfPresent(Bool.self, forKey: .computerControl) ?? d.computerControl
         webPhotos = try c.decodeIfPresent(Bool.self, forKey: .webPhotos) ?? d.webPhotos
         agentPermission = try c.decodeIfPresent(String.self, forKey: .agentPermission) ?? d.agentPermission
