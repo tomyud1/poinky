@@ -48,6 +48,16 @@
     await waitFor(() => pumpMat.emissive.getHex() === e0 && !pumpMat.userData.hl, 5000);
     check(pumpMat.emissive.getHex() === e0 && !pumpMat.userData.hl, `a part clicked twice stops glowing (${pumpMat.emissive.getHexString()})`);
 
+    // Resting on a part shows its name in a tip; a part whose label is showing doesn't need one.
+    const tipEl = document.querySelector('.hover-name');
+    const at = screenOf([-2, 0.8, 0]); kit.hover(kit.partAt(...at), ...at);
+    check(await waitFor(() => tipEl.classList.contains('on'), 2000) && tipEl.textContent === 'Left ventricle', `resting on a part shows its name (${tipEl.textContent})`);
+    kit.hover(null);
+    check(!tipEl.classList.contains('on'), 'moving off hides it');
+    const at2 = screenOf([2, 0.8, 0]); kit.hover(kit.partAt(...at2), ...at2); await wait(600);
+    check(!tipEl.classList.contains('on'), 'a labeled part shows no tip (its label is there)');
+    kit.hover(null);
+
     const b = click([2, 0.8, 0]);
     check(b === 'Fan', `a labeled part answers with its label (${b})`);
     check(tag('Fan').classList.contains('flash'), 'and its label flashes');

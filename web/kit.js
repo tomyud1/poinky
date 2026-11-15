@@ -2272,18 +2272,34 @@
       return w.text;
     }
     kit.pick = pick;   // for tests: kit.pick(x, y) clicks there
+    // Resting the pointer on a part shows its name in a small tip (unless its label is already showing).
+    const tip = document.createElement('div'); tip.className = 'hover-name'; document.body.appendChild(tip);
+    let tipPart = null, tipTimer = 0;
+    function hover(m, x, y) {
+      const w = m ? whatIs(m) : null;
+      const text = w && w.text && !(w.label && !w.label.gone) ? w.text : null;
+      if (text && tipPart === w.obj) { tip.style.transform = `translate(${x + 14}px, ${y - 30}px)`; return; }
+      clearTimeout(tipTimer); tip.classList.remove('on'); tipPart = text ? w.obj : null;
+      if (!text) return;
+      tipTimer = setTimeout(() => { tip.textContent = text; tip.style.transform = `translate(${x + 14}px, ${y - 30}px)`; tip.classList.add('on'); }, 300);
+    }
+    kit.hover = hover;   // for tests: kit.hover(kit.partAt(x, y), x, y)
+    kit.partAt = partAt;
+    renderer.domElement.addEventListener('pointerleave', () => hover(null));
 
     // ---------- drag to rotate, scroll to zoom ----------
     let drag = null, press = null, hoverAt = 0;
-    renderer.domElement.addEventListener('pointerdown', e => { renderer.domElement.style.cursor = ''; press = { x: e.clientX, y: e.clientY, t: performance.now() }; camTween = null; drag = { x: e.clientX, y: e.clientY, az: cam.baseAz, el: cam.el }; lastInteract = (performance.now() - t0) / 1000; cam.spin = 0; });
+    renderer.domElement.addEventListener('pointerdown', e => { renderer.domElement.style.cursor = ''; hover(null); press = { x: e.clientX, y: e.clientY, t: performance.now() }; camTween = null; drag = { x: e.clientX, y: e.clientY, az: cam.baseAz, el: cam.el }; lastInteract = (performance.now() - t0) / 1000; cam.spin = 0; });
     addEventListener('pointermove', e => {
       if (!drag) {
         // A hand over parts you can click (a few times a second: raycasting every frame isn't needed).
         const now = performance.now();
-        if (e.target === renderer.domElement && now - hoverAt > 120) {
+        if (e.target !== renderer.domElement) { hover(null); return; }
+        if (now - hoverAt > 120) {
           hoverAt = now;
           const m = partAt(e.clientX, e.clientY);
           renderer.domElement.style.cursor = m ? 'pointer' : '';
+          hover(m, e.clientX, e.clientY);
         }
         return;
       }
