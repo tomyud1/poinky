@@ -23,6 +23,28 @@ enum SpokenText {
         return tidy(s)
     }
 
+    /// For Phonon only, after `normalize`: a sentence that ends in a number has it in words.
+    /// Phonon reads digits right before the end of the text as the start of something more:
+    /// "We need 7." came out as "we need 7 point", "the sum is 58." as "58 dawn" (26 of 120
+    /// such sentences over 3 voices; 0 of 120 spelled out). Only short numbers (up to 3 digits,
+    /// and a run of them like "3 point 1 4" or "4 8 1 5"): years, ports and times were fine.
+    static func phononEnding(_ s: String) -> String {
+        replace(s, #"(?<![\d.,:/$€£#-])\b(\d{1,3}(?: (?:\d{1,3}|point))*)([.!?,;:…"'”’)\]]*\s*)$"#) { g in
+            let spoken = g[1].split(separator: " ").map { t in Int(t).map(spell) ?? String(t) }
+            return spoken.joined(separator: " ") + g[2]
+        }
+    }
+
+    /// 0–999 in words: 58 → "fifty-eight", 250 → "two hundred fifty".
+    static func spell(_ n: Int) -> String {
+        let ones = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven",
+                    "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen"]
+        let tens = ["", "", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety"]
+        if n < 20 { return ones[max(0, n)] }
+        if n < 100 { return tens[n / 10] + (n % 10 == 0 ? "" : "-" + ones[n % 10]) }
+        return ones[n / 100] + " hundred" + (n % 100 == 0 ? "" : " " + spell(n % 100))
+    }
+
     // MARK: Markdown leftovers
 
     private static func markdown(_ s: String) -> String {
@@ -307,6 +329,34 @@ enum SpokenText {
             last = m.range.location + m.range.length
         }
         return out + ns.substring(from: last)
+    }
+}
+
+/// How much longer to wait after a sentence than after any other, as a person would: after a
+/// heading or a line that ends in a colon ("There are three steps:"), and after each item of a
+/// list ("First, …", "2. …", "- …"), so the items don't run together. The usual gap is ~0.27 s.
+enum SentencePause {
+    static let afterHeading = 0.3
+    static let afterItem = 0.22
+    private static let ordinals = ["first", "second", "third", "fourth", "fifth", "sixth", "seventh", "eighth",
+                                   "ninth", "tenth", "finally", "lastly", "firstly", "secondly", "thirdly"]
+
+    static func after(_ sentence: String) -> Double {
+        let s = sentence.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let last = s.last else { return 0 }
+        if last == ":" || s.hasPrefix("#") { return afterHeading }
+        if [",", ";", "—", "-"].contains(last) { return 0 }         // an early first piece: the sentence goes on
+        if isItem(s) { return afterItem }
+        return 0
+    }
+
+    /// "1. Open Settings.", "2) …", "- …", "• …", "Step 3: …", "First, …", "Second …", "Finally, …"
+    static func isItem(_ s: String) -> Bool {
+        if SpokenText.replace(s, #"^(?:\d{1,2}[.)]\s|[-•*–]\s|(?i:step)\s+\d{1,2}\b)"#, { _ in "\u{1}" }).hasPrefix("\u{1}") { return true }
+        let word = s.prefix { $0.isLetter }.lowercased()
+        guard ordinals.contains(word) else { return false }
+        let rest = s.dropFirst(word.count)
+        return rest.first == "," || (rest.first == " " && word != "first" && word != "second")   // "Second, …", "Finally …"; not "First time …"
     }
 }
 

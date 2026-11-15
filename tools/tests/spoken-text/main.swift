@@ -205,4 +205,48 @@ checkRuns("In Japanese it's 日本語です.", ["In Japanese it's ", "[ja] 日�
 checkRuns("The angle θ is small.", ["The angle θ is small."])
 checkRuns("Привет means hi.", ["[ru] Привет ", "means hi."])
 
+// Phonon: a number right at the end is said in words (digits there came out as "7 point", "58 dawn")
+func checkEnd(_ input: String, _ want: String, line: UInt = #line) {
+    let got = SpokenText.phononEnding(SpokenText.normalize(input))
+    if got != want { failed += 1; print("FAIL phonon ending (line \(line))\n   in:   \(input)\n   want: \(want)\n   got:  \(got)") }
+}
+checkEnd("We need 7.", "We need seven.")
+checkEnd("The limit is 100.", "The limit is one hundred.")
+checkEnd("If you add them, the sum is 58!", "If you add them, the sum is fifty-eight!")
+checkEnd("In total that's 250.", "In total that's two hundred fifty.")
+checkEnd("If you have 3,", "If you have three,")
+checkEnd("Is it 19?", "Is it nineteen?")
+checkEnd("That's on (page 12).", "That's on (page twelve).")
+checkEnd("The value of pi is about 3.14.", "The value of pi is about three point one four.")
+checkEnd("The code is 4 8 1 5.", "The code is four eight one five.")
+checkEnd("Line 7 has the bug.", "Line 7 has the bug.")
+checkEnd("It was built in 1998.", "It was built in 1998.")
+checkEnd("The port is 8080.", "The port is 8080.")
+checkEnd("Your train leaves at 9:45.", "Your train leaves at 9:45.")
+checkEnd("That costs $19.99.", "That costs $19.99.")
+checkEnd("You get 1,024.", "You get 1,024.")
+checkEnd("The battery is at 85%.", "The battery is at 85%.")
+checkEnd("Use x-3.", "Use x-3.")
+
+// A longer pause after headings and list items
+func checkPause(_ s: String, _ want: Double, line: UInt = #line) {
+    let got = SentencePause.after(s)
+    if got != want { failed += 1; print("FAIL pause (line \(line)): \(s) want \(want) got \(got)") }
+}
+checkPause("There are three steps:", SentencePause.afterHeading)
+checkPause("## Ingredients", SentencePause.afterHeading)
+checkPause("First, open Settings.", SentencePause.afterItem)
+checkPause("Second, click Privacy.", SentencePause.afterItem)
+checkPause("Finally, restart it.", SentencePause.afterItem)
+checkPause("1. Open the file.", SentencePause.afterItem)
+checkPause("2) Save it.", SentencePause.afterItem)
+checkPause("- Flour and sugar.", SentencePause.afterItem)
+checkPause("• Two eggs.", SentencePause.afterItem)
+checkPause("Step 3: add the eggs.", SentencePause.afterItem)
+checkPause("First, open Settings,", 0)
+checkPause("First time I saw it, I laughed.", 0)
+checkPause("Sure, that's the save button.", 0)
+checkPause("It's 2.5 times bigger.", 0)
+checkPause("Then click Save.", 0)
+
 if failed == 0 { print("ok   spoken text: all cases") } else { print("\(failed) failed"); exit(1) }

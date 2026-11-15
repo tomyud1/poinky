@@ -69,7 +69,9 @@ final class Speaker {
         generation += 1                 // callbacks from the old engine and the voice are ignored
         phonon?.cancelPending()
         synth.stopSpeaking(at: .immediate)
+        warming.removeAll()
         appleCaption = nil
+        appleSilence.removeAll()
         waitingCaptions.removeAll()
         buffersPlaying = 0
         synthesizing = false
@@ -157,6 +159,7 @@ final class Speaker {
         spokenText += " " + s
         let said = SpokenText.normalize(s, language: usingPhonon ? "en" : (voice?.language ?? language))
         if said != s { spokenText += " " + said }    // the echo check hears the spoken words
+        prepareVoices(for: s)
         queue.append((s, tag))
         pump()
     }
@@ -187,6 +190,8 @@ final class Speaker {
         replaying.removeAll()
         deviceLost = false
         synth.stopSpeaking(at: .immediate)
+        warming.removeAll()             // a warm-up cut short says nothing more; the next sighting tries again
+        appleSilence.removeAll()
         phonon?.cancelPending()
         audio?.player.stop()
     }
@@ -241,7 +246,8 @@ final class Speaker {
         // What's heard is said the way a person would say it ("x squared", not "x caret 2");
         // the caption (and the step it starts) keeps the text as written.
         let normalized = SpokenText.normalize(part, language: usingPhonon ? "en" : (voice?.language ?? language))
-        let spoken = normalized.contains(where: { $0.isLetter || $0.isNumber }) ? normalized : part
+        var spoken = normalized.contains(where: { $0.isLetter || $0.isNumber }) ? normalized : part
+        if usingPhonon { spoken = SpokenText.phononEnding(spoken) }
         Self.logSpeech(caption?.0 ?? "+", spoken)
         if let p = phonon, p.isRunning {
             speakWithPhonon(p, caption: caption, spoken: spoken, gen: gen)
@@ -270,10 +276,12 @@ final class Speaker {
                 return
             }
             // A few milliseconds of silence close the sentence: it flushes the resampler's tail and
-            // marks where the sentence ends, for the captions.
-            if let tail = AVAudioPCMBuffer(pcmFormat: self.format24k, frameCapacity: 240), let d = tail.floatChannelData?[0] {
-                d.initialize(repeating: 0, count: 240)
-                tail.frameLength = 240
+            // marks where the sentence ends, for the captions. After a heading or a list item it's
+            // longer (the next caption still shows when the voice goes on).
+            let n = 240 + Int(self.pauseAfterSentence() * PhononVoice.sampleRate)
+            if let tail = AVAudioPCMBuffer(pcmFormat: self.format24k, frameCapacity: AVAudioFrameCount(n)), let d = tail.floatChannelData?[0] {
+                d.initialize(repeating: 0, count: n)
+                tail.frameLength = AVAudioFrameCount(n)
                 self.schedule(tail, gen: gen, wholeSentence: true, endsCaption: self.segments.isEmpty)
             }
             self.synthesizing = false
@@ -285,7 +293,9 @@ final class Speaker {
             waiting.removeAll()
             if ended { finish() }
         }
-        p.speak(spoken, voice: phononVoice, speed: voiceSpeed, onChunk: { [weak self] buf in
+        // Another voice goes on with this sentence: only a short silence before it.
+        let tail = segments.isEmpty ? nil : Self.joinTail(spoken)
+        p.speak(spoken, voice: phononVoice, speed: voiceSpeed, tail: tail, onChunk: { [weak self] buf in
             guard let self, gen == self.generation else { return }
             if started { play(buf); return }
             waiting.append(buf)
@@ -397,6 +407,8 @@ final class Speaker {
 
     private func speakWithApple(_ caption: (String, Int?)?, spoken: String, gen: Int, voice other: AVSpeechSynthesisVoice? = nil) {
         appleCaption = caption
+        appleSpoken = spoken
+        appleSilence.removeAll()
         let u = AVSpeechUtterance(string: spoken)
         u.voice = other ?? voice
         u.rate = rate
@@ -410,10 +422,22 @@ final class Speaker {
 
     private func received(_ pcm: AVAudioPCMBuffer, gen: Int) {
         guard gen == generation, let audio, audio.running else { return }
+        // Silence after the first sound is held back until more speech comes: at the end of a part
+        // another voice goes on from, Apple's 200 ms of trailing silence was a pause mid-sentence.
+        if pcm.frameLength > 0, appleCaption == nil, Self.peak(pcm) < 0.003 { appleSilence.append(pcm); return }
+        let held = appleSilence
+        appleSilence.removeAll()
+        var keep = pcm.frameLength == 0 && !segments.isEmpty
+            ? Int(Self.joinTail(appleSpoken) * pcm.format.sampleRate) : Int.max
+        for b in held where keep > 0 {
+            b.frameLength = AVAudioFrameCount(min(Int(b.frameLength), keep))
+            keep -= Int(b.frameLength)
+            schedule(b, gen: gen, wholeSentence: false)
+        }
         if pcm.frameLength == 0 {   // end of this sentence (or part of one)
             // A few silent milliseconds close it, like Phonon's: they flush the resampler and mark
             // where it ends, so the next caption shows when it's heard, not when it was made.
-            let n = AVAudioFrameCount(pcm.format.sampleRate / 100)
+            let n = AVAudioFrameCount(pcm.format.sampleRate * (0.01 + pauseAfterSentence()))
             if let tail = AVAudioPCMBuffer(pcmFormat: pcm.format, frameCapacity: n) {
                 tail.frameLength = n
                 for b in UnsafeMutableAudioBufferListPointer(tail.mutableAudioBufferList) { if let d = b.mData { memset(d, 0, Int(b.mDataByteSize)) } }
@@ -429,6 +453,75 @@ final class Speaker {
     }
     private var appleCaption: (String, Int?)?
 
+    /// The extra pause once the sentence being made ends (none between two parts of one sentence).
+    private func pauseAfterSentence() -> Double {
+        guard segments.isEmpty, let m = making else { return 0 }
+        return SentencePause.after(m.0)
+    }
+    private var appleSpoken = ""                       // the part Apple's voice is saying
+    private var appleSilence: [AVAudioPCMBuffer] = []  // its silence since the last sound
+
+    /// Silence kept after a part when another voice goes on with the same sentence: a breath at a
+    /// comma, almost none between words ("that's | שלום"). Measured: 230 ms into the other voice
+    /// and 280 ms back with the full tails, 55–75 / 115 ms with these.
+    static func joinTail(_ part: String) -> Double {
+        guard let last = part.trimmingCharacters(in: .whitespaces).last else { return 0.04 }
+        return last.isLetter || last.isNumber ? 0.04 : 0.12
+    }
+
+    private static func peak(_ pcm: AVAudioPCMBuffer) -> Float {
+        let n = Int(pcm.frameLength)
+        if let d = pcm.floatChannelData?[0] { return (0..<n).reduce(0) { max($0, abs(d[$1])) } }
+        if let d = pcm.int16ChannelData?[0] { return Float((0..<n).reduce(0) { max($0, abs(Int(d[$1]))) }) / 32768 }
+        return 1
+    }
+
+    // MARK: Other-language voices, warmed up
+    // Apple's voice for a language takes ~0.85 s (Hebrew; Arabic ~0.25 s) to say its first word,
+    // then ~15 ms. Inside an English sentence ("So, שלום means hello") that was a hole before
+    // the word. As soon as such text is seen (streaming in, or queued), the voice says nothing
+    // once, on the same synthesizer (warming another one only half works), so it's ready.
+
+    private var warmed: [String: Date] = [:]
+    private var warming: Set<String> = []
+
+    /// Warms Apple's voice for each other script in `text` (cheap to call with every delta).
+    func prepareVoices(for text: String) {
+        let own = String((usingPhonon ? "en" : (voice?.language ?? language)).prefix(2)).lowercased()
+        var langs = Set<String>()
+        for u in text.unicodeScalars where u.value >= 0x0400 {
+            if let l = SpokenLanguage.scriptLanguage(u), l != own { langs.insert(l) }
+        }
+        langs.forEach(warmVoice)
+    }
+
+    /// Also for the languages you use besides English (macOS's preferred languages).
+    func prepareVoices(languages: [String]) {
+        let own = String((usingPhonon ? "en" : (voice?.language ?? language)).prefix(2)).lowercased()
+        for l in languages.map({ String($0.prefix(2)).lowercased() }) where l != own
+            && ["he", "ar", "ru", "ja", "ko", "zh", "th", "hi"].contains(l) { warmVoice(l) }
+    }
+
+    private func warmVoice(_ lang: String) {
+        if warming.contains(lang) { return }
+        if let at = warmed[lang], Date().timeIntervalSince(at) < 300 { return }
+        guard let v = otherVoice(lang) else { return }
+        warming.insert(lang)
+        let u = AVSpeechUtterance(string: " ")
+        u.voice = v
+        let started = Date()
+        synth.write(u) { [weak self] buffer in
+            guard (buffer as? AVAudioPCMBuffer)?.frameLength == 0 else { return }
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    self?.warming.remove(lang)
+                    self?.warmed[lang] = Date()
+                    Timeline.log("voiceWarmed", ["lang": lang, "ms": Int(Date().timeIntervalSince(started) * 1000)])
+                }
+            }
+        }
+    }
+
     /// `wholeSentence`: the last buffer of what one voice made (flushes the resampler). `endsCaption`:
     /// the next sentence's caption may show once it's played (not between two parts of one sentence).
     private func schedule(_ pcm: AVAudioPCMBuffer, gen: Int, wholeSentence: Bool, endsCaption: Bool? = nil, text: String? = nil, tag: Int? = nil) {
@@ -443,6 +536,7 @@ final class Speaker {
                 waitingCaptions.append((text, tag))
             }
         }
+        if Self.speechWav != nil { record(out) }
         audioEndsAt = max(Date(), audioEndsAt).addingTimeInterval(Double(out.frameLength) / out.format.sampleRate)
         let endsSentence = endsCaption ?? wholeSentence
         buffersPlaying += 1
@@ -470,6 +564,23 @@ final class Speaker {
         guard let path = speechLog, let data = "\(caption)\t\(spoken)\n".data(using: .utf8) else { return }
         if let h = FileHandle(forWritingAtPath: path) { h.seekToEndOfFile(); h.write(data); try? h.close() }
         else { FileManager.default.createFile(atPath: path, contents: data) }
+    }
+
+    /// Tests: `POINKY_SPEECH_WAV=file.f32` appends what's played (float32 mono at the rate in
+    /// file.f32.rate), with the silence of any wait for audio (the player ran dry), so pauses can be
+    /// measured and the words transcribed.
+    private static let speechWav = ProcessInfo.processInfo.environment["POINKY_SPEECH_WAV"]
+    private func record(_ pcm: AVAudioPCMBuffer) {
+        guard let path = Self.speechWav, let d = pcm.floatChannelData?[0] else { return }
+        let rate = pcm.format.sampleRate
+        var samples: [Float] = []
+        let dry = -audioEndsAt.timeIntervalSinceNow
+        if audioEndsAt != .distantPast, dry > 0.005 { samples = Array(repeating: 0, count: Int(dry * rate)) }
+        samples += UnsafeBufferPointer(start: d, count: Int(pcm.frameLength))
+        let data = samples.withUnsafeBufferPointer { Data(buffer: $0) }
+        if let h = FileHandle(forWritingAtPath: path) { h.seekToEndOfFile(); h.write(data); try? h.close() }
+        else { FileManager.default.createFile(atPath: path, contents: data) }
+        try? "\(Int(rate))".write(toFile: path + ".rate", atomically: true, encoding: .utf8)
     }
 
     private func checkDone() {
