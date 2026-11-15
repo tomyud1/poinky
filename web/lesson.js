@@ -36,6 +36,9 @@
     .lpaper .lsvg{display:block;width:100%;overflow:hidden}
     .lpaper .lsvg text{font-family:${FONT};white-space:pre;paint-order:stroke;stroke:var(--halo,${PAPER});stroke-width:5px;stroke-linejoin:round}
     .lpaper .lsvg text.nohalo{stroke:none}
+    .lpaper .lsvg > g[data-step]{transition:opacity .45s cubic-bezier(.3,.7,.3,1);cursor:pointer}
+    .lpaper .lsvg > g.past{opacity:.55}
+    @media (prefers-reduced-motion: reduce){.lpaper .lsvg > g[data-step]{transition:none}}
     .lpaper .save{position:absolute;right:40px;top:5px;height:28px;border-radius:14px;border:0;padding:0 11px;cursor:pointer;z-index:3;
       background:rgba(30,32,38,.08);color:#5d584c;font:600 12.5px -apple-system,system-ui;transition:background .15s,color .15s,opacity .2s}
     .lpaper .save:hover{background:rgba(30,32,38,.72);color:#fff}
@@ -243,6 +246,11 @@
     // Once you drag it somewhere, it stays there (it still grows and shrinks).
     c.querySelector('.bar').addEventListener('mousedown', () => { c.dataset.moved = '1'; c.style.transition = ''; });
     paper = c;
+    stepNo = 0; curStep = 0;
+    svg.addEventListener('click', e => {
+      const g = e.target.closest && e.target.closest('svg.lsvg > g[data-step]');
+      if (g && !running) replayStep(+g.dataset.step);
+    });
     setHeight(f.h0 || 240);
     X.cards.appendChild(c);
     for (const k in items) delete items[k];
@@ -261,8 +269,12 @@
     for (const g of s.querySelectorAll(':scope > g')) { try { const b = g.getBBox(); if (b.width || b.height) bottom = Math.max(bottom, b.y + b.height); } catch (e) {} }
     const h = Math.ceil(Math.max(200, bottom + 36)), title = c.dataset.title || '';
     // Fills fade in with animations; write where they ended into the elements so the copy has them.
-    for (const a of document.getAnimations()) { const t = a.effect && a.effect.target; if (t && s.contains(t)) { try { a.commitStyles(); } catch (e) {} } }
+    for (const a of document.getAnimations()) {
+      const t = a.effect && a.effect.target;
+      if (t && s.contains(t) && !(window.CSSTransition && a instanceof CSSTransition)) { try { a.commitStyles(); } catch (e) {} }
+    }
     const copy = s.cloneNode(true);
+    copy.querySelectorAll('g.past').forEach(g => g.classList.remove('past'));   // the picture shows every step in focus
     copy.querySelectorAll('[clip-path]').forEach(n => n.removeAttribute('clip-path'));   // anything still being written
     copy.querySelectorAll('text[opacity="0"]').forEach(n => n.remove());
     copy.removeAttribute('style'); copy.removeAttribute('class');
@@ -337,7 +349,7 @@
 
   // ---------- drawing operations ----------
   function group(o, parent) {
-    const g = el('g', { 'data-id': o.id }, parent || svg);
+    const g = el('g', { 'data-id': o.id, 'data-step': (!parent || parent === svg) ? curStep : undefined }, parent || svg);
     if (o.id) items[o.id] = g;
     return g;
   }
@@ -1030,13 +1042,60 @@
     }
   }
 
+  // ---------- following the voice: the step being spoken is in focus; click a past step to see it again ----------
+  let stepNo = 0, curStep = 0, unfocusTimer = null, replaying = 0;
+  /** Dims everything but step n and what it refers to (marks, rows, curves on earlier drawings). n = 0: all in focus. */
+  function focusStep(n, refs) {
+    if (!svg) return;
+    clearTimeout(unfocusTimer);
+    for (const g of svg.querySelectorAll(':scope > g[data-step]')) {
+      const on = !n || +g.dataset.step === n || (refs && refs.has(g.dataset.id));
+      g.classList.toggle('past', !on);
+    }
+  }
+  const refsOf = ops => new Set(ops.flatMap(o => [o.target, o.table, o.graph]).filter(Boolean));
+  /** Draws a past step again (its strokes and words, in order), with the rest dimmed. */
+  async function replayStep(n) {
+    if (running || !svg) return;
+    const my = ++replaying, groups = [...svg.querySelectorAll(`:scope > g[data-step="${n}"]`)];
+    if (!groups.length) return;
+    focusStep(n);
+    X.post({ kind: 'lessonReplay', step: n });
+    const pieces = [];
+    for (const g of groups) {
+      (function walk(node) {
+        for (const ch of node.children) {
+          if (ch.tagName === 'path') pieces.push(ch);
+          else if (ch.tagName === 'text' || (ch.tagName === 'g' && ch.classList.contains('math'))) pieces.push(ch);
+          else if (ch.tagName === 'g') walk(ch);
+        }
+      })(g);
+    }
+    // Hide what's coming, then ink it back in.
+    for (const p of pieces) p.style.opacity = 0;
+    for (const p of pieces) {
+      if (running || my !== replaying) { p.style.opacity = ''; continue; }
+      p.style.opacity = '';
+      if (p.tagName === 'path') await drawPath(p, onScreen, 1500);
+      else {
+        const bb = p.getBBox(), size = +(p.getAttribute('font-size') || (p.querySelector('text') || p).getAttribute('font-size') || 22);
+        await reveal(p, bb, size, bb.y + bb.height * .7);
+      }
+    }
+    for (const p of pieces) p.style.opacity = '';
+    if (my === replaying && !running) { unfocusTimer = setTimeout(() => focusStep(0), 1800); penHide = setTimeout(() => { pen.style.opacity = 0; }, 1500); }
+  }
+
   async function run() {
     if (running) return;
     running = true;
+    replaying++;   // a new step stops a replay
     const my = token;
     while (queue.length && my === token) {
       const { ops, k } = queue.shift();
       pace = 1 + .7 * queue.length;
+      curStep = ++stepNo;
+      if (stepNo > 1) focusStep(curStep, refsOf(ops));
       for (const o of ops) {
         if (my !== token) break;
         try { await doOp(o, k); } catch (e) {}
@@ -1045,6 +1104,8 @@
     if (my === token) {
       running = false;
       penHide = setTimeout(() => { pen.style.opacity = 0; }, 2500);
+      // Everything comes back into focus when the drawing has been still for a while (the lesson is over).
+      unfocusTimer = setTimeout(() => focusStep(0), 4500);
       X.report();
     }
   }
@@ -1066,7 +1127,7 @@
   };
   /** Still drawing (for tests and tools). */
   SB.lessonBusy = () => running || queue.length > 0;
-  SB._lessonTest = { compileFn, parseTex, items, tables };
+  SB._lessonTest = { compileFn, parseTex, items, tables, replayStep, focusStep };
   SB.lessonStop = () => {
     token++;
     queue = [];
