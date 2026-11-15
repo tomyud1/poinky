@@ -326,6 +326,32 @@ final class ClaudeCodeBrain: Brain {
         p.waitUntilExit()
         let path = String(decoding: out.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        return fm.isExecutableFile(atPath: path) ? path : nil
+        return fm.isExecutableFile(atPath: path) ? path : bundledClaude(home: home)
+    }
+
+    /// No `claude` on the PATH: the copy that comes with the Claude desktop app, or with the Claude Code
+    /// extension in Cursor / VS Code (newest version first). Same CLI, same sign-in (~/.claude).
+    nonisolated static func bundledClaude(home: String) -> String? {
+        let fm = FileManager.default
+        func newestFirst(_ names: [String], version: (String) -> String) -> [String] {
+            names.sorted { a, b in
+                let x = version(a).split(separator: ".").compactMap { Int($0) }, y = version(b).split(separator: ".").compactMap { Int($0) }
+                return y.lexicographicallyPrecedes(x)
+            }
+        }
+        var found: [String] = []
+        let desktop = "\(home)/Library/Application Support/Claude/claude-code"
+        for v in newestFirst((try? fm.contentsOfDirectory(atPath: desktop)) ?? [], version: { $0 }) {
+            for h in (try? fm.contentsOfDirectory(atPath: "\(desktop)/\(v)")) ?? [] {
+                found.append("\(desktop)/\(v)/\(h)/claude.app/Contents/MacOS/claude")
+            }
+        }
+        for editor in [".cursor", ".vscode", ".windsurf"] {
+            let dir = "\(home)/\(editor)/extensions"
+            let exts = ((try? fm.contentsOfDirectory(atPath: dir)) ?? []).filter { $0.hasPrefix("anthropic.claude-code-") }
+            let version: (String) -> String = { String($0.dropFirst("anthropic.claude-code-".count).split(separator: "-").first ?? "") }
+            for e in newestFirst(exts, version: version) { found.append("\(dir)/\(e)/resources/native-binary/claude") }
+        }
+        return found.first { fm.isExecutableFile(atPath: $0) }
     }
 }

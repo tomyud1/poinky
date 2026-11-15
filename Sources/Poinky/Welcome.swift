@@ -121,9 +121,20 @@ final class WelcomeModel: ObservableObject {
         guard let path else { return .missing }
         let version = run(path, ["--version"], timeout: 10)?.split(separator: " ").first.map(String.init) ?? ""
         guard let status = run(path, ["auth", "status"], timeout: 10) else { return .unsure(version) }
-        let s = status.lowercased().replacingOccurrences(of: " ", with: "")
-        if s.contains("\"loggedin\":true") { return .ready(version) }
-        if s.contains("\"loggedin\":false") || s.contains("notloggedin") || s.contains("notsignedin") { return .signedOut }
+        return authState(status, version: version)
+    }
+
+    /// Reads `claude auth status` (JSON with "loggedIn" in Claude Code 2.x; its output is never logged: it
+    /// has the account's email). Only a clear "no" counts as signed out: anything unreadable is `.unsure`,
+    /// so a signed-in user is never told to sign in.
+    nonisolated static func authState(_ status: String, version: String) -> ClaudeState {
+        if let start = status.firstIndex(of: "{"), let end = status.lastIndex(of: "}"),
+           let obj = try? JSONSerialization.jsonObject(with: Data(status[start...end].utf8)) as? [String: Any],
+           let loggedIn = obj["loggedIn"] as? Bool {
+            return loggedIn ? .ready(version) : .signedOut
+        }
+        let s = status.lowercased()
+        if s.contains("not logged in") || s.contains("not signed in") { return .signedOut }
         return .unsure(version)
     }
 
@@ -721,3 +732,4 @@ private struct Tip: View {
         .animation(.spring(duration: 0.35), value: done)
     }
 }
+
