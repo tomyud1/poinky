@@ -38,6 +38,12 @@ struct HelperStream {
     private var lastStep = ""
     /// The helper's window: everything it wrote and did, in full (`HelperEntry`). Taken with `takeEntries`.
     private(set) var entries: [HelperEntry] = []
+    /// Tokens so far, from each reply's `usage` (Claude Code repeats a reply's usage on every part of it,
+    /// so it's kept per message id): what it wrote (`outputTokens`, its own sub-agents too) and how big
+    /// its conversation is now (`contextTokens`: the last reply's input, cached or not).
+    private var usage: [String: Int] = [:]
+    private(set) var outputTokens = 0
+    private(set) var contextTokens = 0
 
     mutating func takeEntries() -> [HelperEntry] {
         defer { entries.removeAll() }
@@ -70,6 +76,13 @@ struct HelperStream {
         case "assistant":
             // Work done by its own sub-agents counts as progress, but their chatter doesn't.
             let nested = !(obj["parent_tool_use_id"] is NSNull) && obj["parent_tool_use_id"] != nil
+            if let msg = obj["message"] as? [String: Any], let u = msg["usage"] as? [String: Any] {
+                let n = { (k: String) in (u[k] as? NSNumber)?.intValue ?? 0 }
+                let key = (msg["id"] as? String) ?? "m\(usage.count)"
+                usage[key] = max(usage[key] ?? 0, n("output_tokens"))
+                outputTokens = usage.values.reduce(0, +)
+                if !nested { contextTokens = n("input_tokens") + n("cache_read_input_tokens") + n("cache_creation_input_tokens") }
+            }
             let content = ((obj["message"] as? [String: Any])?["content"] as? [[String: Any]]) ?? []
             var out: [HelperEvent] = []
             for c in content {

@@ -82,7 +82,7 @@ enum HelperTest {
             }
         }
         m.onFinished = { a in
-            log("#\(a.id) \(a.name) FINISHED \(a.status.rawValue) turns=\(a.turns) steps=\(a.steps.count) checklist=\(a.checklist.count) blocked=\(a.blocked.count) followUps=\(a.followUps.count): \(a.summary.prefix(160))")
+            log("#\(a.id) \(a.name) FINISHED \(a.status.rawValue) turns=\(a.turns) steps=\(a.steps.count) checklist=\(a.checklist.count) blocked=\(a.blocked.count) followUps=\(a.followUps.count) tokens=\(a.outputTokens)/\(a.contextTokens): \(a.summary.prefix(160))")
             finishIfDone()
         }
         // Answers, by helper: "1=yes,2=No, use a pad helper,3=ignore" (said to it, a second after it asks).
@@ -603,6 +603,13 @@ extension HelperTest {
         let n2 = AgentManager.pickName(used: AgentManager.names.map { ($0, false) })
         let n3 = AgentManager.pickName(used: AgentManager.names.map { ($0, false) } + [("Mint 2", true)], reserved: ["Coral 2"])
         check(n1 == "Coral" && n2 == "Mint 2" && n3 == "Violet 2", "names: a finished Mint isn't reused (\(n1)); after all six: \(n2), then \(n3)")
+        // Tokens from the stream: a reply's usage repeats on each of its parts, so it counts once.
+        var ts = HelperStream()
+        let reply = { (id: String, out: Int, ctx: Int, nested: Bool) in
+            #"{"type":"assistant","parent_tool_use_id":"# + (nested ? #""t1""# : "null") + #","message":{"id":""# + id + #"","content":[],"usage":{"input_tokens":3,"cache_read_input_tokens":"# + "\(ctx)" + #","cache_creation_input_tokens":0,"output_tokens":"# + "\(out)" + "}}}\n"
+        }
+        _ = ts.feed(Data((reply("a", 50, 1000, false) + reply("a", 50, 1000, false) + reply("b", 200, 4000, false) + reply("c", 30, 9999, true)).utf8))
+        check(ts.outputTokens == 280 && ts.contextTokens == 4003, "tokens: \(ts.outputTokens) written (each reply once, sub-agents too), conversation \(ts.contextTokens) (not a sub-agent's)")
         changesChecks(check)
         // A new helper from the Helpers window (⌘N).
         check(HelperWindows.title(for: "fix the failing login test and add one for expired passwords") == "Fix the failing login test", "new helper: a title from the task (\(HelperWindows.title(for: "fix the failing login test and add one for expired passwords")))")

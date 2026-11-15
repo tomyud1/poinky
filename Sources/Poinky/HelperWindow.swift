@@ -125,7 +125,7 @@ final class HelperWindows: NSObject, NSWindowDelegate, WKNavigationDelegate {
             return ["key": "a\(a.id)", "name": a.name, "title": a.title, "color": Self.color(a.name), "status": a.status.rawValue,
                     "waiting": !a.asks.isEmpty, "paused": a.paused, "ago": a.finished.map { CallController.ago($0) } ?? "",
                     "line": Self.plainLine(line), "dir": a.dir.lastPathComponent,
-                    "elapsed": (a.finished ?? Date()).timeIntervalSince(a.started), "cost": a.cost ?? 0]
+                    "elapsed": (a.finished ?? Date()).timeIntervalSince(a.started), "cost": a.cost ?? 0, "tokens": a.outputTokens]
         }
         let mine = Set(all.map(\.chat.place))
         for p in past where !mine.contains(p.chat.place) {
@@ -182,6 +182,8 @@ final class HelperWindows: NSObject, NSWindowDelegate, WKNavigationDelegate {
             "files": HelperChanges.files(a.entries).map { Self.short($0, in: a.dir) },
             "terminal": !a.session.isEmpty,
             "cost": a.cost ?? 0,
+            "tokens": a.outputTokens,
+            "context": a.contextTokens,
         ]
         if entries {
             d["name"] = a.name
