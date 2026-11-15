@@ -7,9 +7,10 @@
 <body style="margin:0">
 <div id="hud"></div>
 <script>
-  if (location.search.includes('calm')) {
-    const mm = window.matchMedia.bind(window);
-    window.matchMedia = q => q.includes('reduced-motion') ? { matches: true } : mm(q);
+  // Both runs set Reduced Motion themselves: GitHub's macOS runners report it as on.
+  {
+    const mm = window.matchMedia.bind(window), calm = location.search.includes('calm');
+    window.matchMedia = q => q.includes('reduced-motion') ? { matches: calm } : mm(q);
   }
   window.SB = { caption() {}, fadeCaptions() {}, apply() {} };
 </script>
