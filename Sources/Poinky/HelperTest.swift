@@ -598,6 +598,11 @@ extension HelperTest {
             check(got?.name == name && got?.intent == intent, "typed \"\(said)\" → \(got.map { "\($0.name) \($0.intent)" } ?? "not about a helper")")
         }
         check(HelperTalk.byName("@Violet add tests", names: names) == nil, "typed \"@Violet …\" with no Violet: not about a helper")
+        // Helper names: never one this run already had (the Helpers window lists them all).
+        let n1 = AgentManager.pickName(used: [("Mint", false)])
+        let n2 = AgentManager.pickName(used: AgentManager.names.map { ($0, false) })
+        let n3 = AgentManager.pickName(used: AgentManager.names.map { ($0, false) } + [("Mint 2", true)], reserved: ["Coral 2"])
+        check(n1 == "Coral" && n2 == "Mint 2" && n3 == "Violet 2", "names: a finished Mint isn't reused (\(n1)); after all six: \(n2), then \(n3)")
         changesChecks(check)
         // A new helper from the Helpers window (⌘N).
         check(HelperWindows.title(for: "fix the failing login test and add one for expired passwords") == "Fix the failing login test", "new helper: a title from the task (\(HelperWindows.title(for: "fix the failing login test and add one for expired passwords")))")

@@ -852,8 +852,14 @@ final class AgentManager {
     var reservedNames: Set<String> = []
 
     private func freeName() -> String {
-        let taken = Set(agents.filter { $0.status == .running || $0.status == .queued }.map(\.name)).union(reservedNames)
-        if let n = Self.names.first(where: { !taken.contains($0) }) { return n }
+        Self.pickName(used: agents.map { ($0.name, $0.status == .running || $0.status == .queued) }, reserved: reservedNames)
+    }
+
+    /// A name for a new helper that nobody in this run has had, so the Helpers window never lists two
+    /// "Mint"s: Mint, Coral… then "Mint 2", "Coral 2"… (same colors). `used`: this run's helpers.
+    static func pickName(used: [(name: String, active: Bool)], reserved: Set<String> = []) -> String {
+        let taken = Set(used.map(\.name)).union(reserved)
+        if let n = names.first(where: { !taken.contains($0) }) { return n }
         var k = 2
         while true {
             for n in Self.names where !taken.contains("\(n) \(k)") { return "\(n) \(k)" }
