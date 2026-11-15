@@ -275,9 +275,11 @@ final class Overlay: NSObject, WKNavigationDelegate {
     /// Opens a fresh paper at `frame` (screen points, top-left origin).
     /// `continuing`: keep drawing on the paper that's already open (a follow-up), if there is one.
     /// `avoid`: what's being explained; the paper never moves over it when it needs more room.
-    func lessonBegin(frame: CGRect, title: String, continuing: Bool = false, avoid: CGRect? = nil) {
+    /// `look`: "paper" or "chalk" (`PaperLook`). `session`: papers of one session make one notebook.
+    func lessonBegin(frame: CGRect, title: String, continuing: Bool = false, avoid: CGRect? = nil, look: String = "paper", session: Int? = nil) {
         let a = avoid.map { ",avoid:{x:\(Int($0.minX)),y:\(Int($0.minY)),w:\(Int($0.width)),h:\(Int($0.height))}" } ?? ""
-        js("SB.lessonBegin({x:\(Int(frame.minX)),y:\(Int(frame.minY)),w:\(Int(frame.width)),h:\(Int(frame.height)),h0:240\(a)}, \(jsString(title)), \(continuing))")
+        let extra = ",look:\(jsString(look))" + (session.map { ",session:\($0)" } ?? "")
+        js("SB.lessonBegin({x:\(Int(frame.minX)),y:\(Int(frame.minY)),w:\(Int(frame.width)),h:\(Int(frame.height)),h0:240\(a)\(extra)}, \(jsString(title)), \(continuing))")
     }
 
     // MARK: Drawings follow their window
@@ -331,6 +333,13 @@ final class Overlay: NSObject, WKNavigationDelegate {
     }
 
     func lessonStop() { js("SB.lessonStop()") }
+
+    /// Saves the paper because you asked out loud: the open page, or (`all`) this session's pages as one PDF.
+    /// The answer comes back through `onLessonSaved`.
+    func saveLesson(all: Bool) { js("SB.saveLesson(\(all))") }
+    /// A save you asked for by voice finished: where it went (nil: nothing to save, or it failed) and,
+    /// for the notebook, how many pages.
+    var onLessonSaved: ((URL?, Int?) -> Void)?
 
     /// Screen rectangles of things currently drawn (cards and the paper), in points.
     var occupiedRects: [CGRect] { cardRects }
@@ -433,12 +442,30 @@ final class Overlay: NSObject, WKNavigationDelegate {
         case "helperAction":
             if let id = Int("\(msg["id"] ?? "")"), let action = msg["action"] as? String { onHelperAction?(id, action) }
         case "saveLesson":
-            // The paper's Save button: a picture of the page on the Desktop.
+            // The paper's Save button (or "save this page"): a picture of the page on the Desktop.
             let title = msg["title"] as? String ?? "", png = msg["png"] as? String, svg = msg["svg"] as? String
+            let voice = msg["voice"] as? Bool ?? false
+            if msg["none"] as? Bool == true { if voice { onLessonSaved?(nil, nil) }; return }
             Task.detached(priority: .userInitiated) {
                 let url = LessonSaver.save(title: title, pngDataURL: png, svg: svg)
                 await MainActor.run {
                     self.js("SB.lessonSaved(\(self.jsString(url.map(LessonSaver.placeName) ?? "")), \(url != nil))")
+                    if voice { self.onLessonSaved?(url, nil) }
+                }
+            }
+        case "saveNotebook":
+            // "Save all" (or "save my notes"): every page of this session in one PDF.
+            let pages = (msg["pages"] as? [[String: Any]] ?? []).compactMap { p -> (title: String, png: String)? in
+                guard let png = p["png"] as? String else { return nil }
+                return (p["title"] as? String ?? "", png)
+            }
+            let voice = msg["voice"] as? Bool ?? false
+            if pages.isEmpty { if voice { onLessonSaved?(nil, 0) }; return }
+            Task.detached(priority: .userInitiated) {
+                let url = LessonSaver.saveNotebook(pages: pages)
+                await MainActor.run {
+                    self.js("SB.lessonSaved(\(self.jsString(url.map(LessonSaver.placeName) ?? "")), \(url != nil), true)")
+                    if voice { self.onLessonSaved?(url, pages.count) }
                 }
             }
         default:

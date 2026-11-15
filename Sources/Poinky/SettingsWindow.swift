@@ -504,6 +504,12 @@ private struct ClaudeTab: View {
                     model: cc ? $model.config.artistModel : $model.config.apiArtistModel, effort: $model.config.artistEffort)
                     .disabled(!model.config.artistEnabled)
                 Toggle("Teacher sketches explanations and 3D models", isOn: $model.config.artistEnabled)
+                Picker("Sketches are drawn on", selection: $model.config.paperLook) {
+                    Text("Paper, or a chalkboard on dark screens").tag("auto")
+                    Text("Always paper").tag("paper")
+                    Text("Always a chalkboard").tag("chalkboard")
+                }
+                .disabled(!model.config.artistEnabled)
                 Toggle("Quick web search (the talker looks things up itself, with web tools only)", isOn: $model.config.webSearch)
                     .disabled(!cc)
                 row("Guide", "walks you through, step by step",

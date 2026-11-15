@@ -196,6 +196,7 @@ struct TalkEvents {
             || !reminders.isEmpty || !reminderCancels.isEmpty
             || !tells.isEmpty || !stops.isEmpty || !undos.isEmpty || end || video != nil || recall != nil || search != nil
             || offer != nil
+            || saveLesson != nil
     }
     var video: (title: String, brief: String)?        // make a video explainer about this
     var videoCancel = false                           // stop the video being made
@@ -203,6 +204,7 @@ struct TalkEvents {
     var videoPlay = false                             // continue the paused video
     /// `<offer say="…">action tags</offer>`: prepared for a yes, not run now (see `PendingOffer`).
     var offer: (say: String?, body: String)?
+    var saveLesson: String?                           // <save-lesson/>: "page" (the open paper) or "all" (the session's notebook, one PDF)
 }
 
 /// A background job for a Claude Code agent, asked for by the talker.
@@ -357,6 +359,11 @@ struct TalkParser {
         ev.videoCancel = text.range(of: #"<video-cancel\s*/?>"#, options: .regularExpression) != nil
         ev.videoClose = text.range(of: #"<video-close\s*/?>"#, options: .regularExpression) != nil
         ev.videoPlay = text.range(of: #"<video-play\s*/?>"#, options: .regularExpression) != nil
+        // <save-lesson/> keeps the open page; <save-lesson pages="all"/> the whole session as one PDF.
+        if let r = text.range(of: #"<save-lesson(\s[^>]*)?/?>"#, options: .regularExpression) {
+            let tag = text[r].lowercased()
+            ev.saveLesson = tag.range(of: #"pages\s*=\s*"(all|notes|notebook|session)"|\sall\b"#, options: .regularExpression) != nil ? "all" : "page"
+        }
         if let b = Self.blocks(text, "video").first, !b.body.isEmpty {
             ev.video = (Self.attr("title", in: b.attrs).flatMap { $0.isEmpty ? nil : $0 } ?? String(b.body.prefix(60)), b.body)
         }

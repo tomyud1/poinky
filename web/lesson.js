@@ -10,13 +10,47 @@
 (function () {
   const X = window.SBX, SB = window.SB, NS = 'http://www.w3.org/2000/svg';
   const UNITS = 800;
-  const THEME = {
-    blue: ['#4a7bd8', '#dfe8fb'], red: ['#df7b7b', '#fbe3e3'], green: ['#58b07a', '#e2f4e8'],
-    yellow: ['#d9ad3c', '#fdf2d3'], purple: ['#9a7ddf', '#ece6fb'], orange: ['#e8914a', '#fde9da'],
-    gray: ['#9aa0a8', '#eceef1'], teal: ['#3aa89a', '#dff3f0'], pink: ['#d36aa8', '#fbe6f2'],
+  // Two looks: cream paper (the default) and a dark chalkboard, picked when what's behind the paper is dark
+  // (the app measures the screenshot under it) or by the setting. Each paper keeps the look it opened with.
+  const LIGHT = {
+    theme: {
+      blue: ['#4a7bd8', '#dfe8fb'], red: ['#df7b7b', '#fbe3e3'], green: ['#58b07a', '#e2f4e8'],
+      yellow: ['#d9ad3c', '#fdf2d3'], purple: ['#9a7ddf', '#ece6fb'], orange: ['#e8914a', '#fde9da'],
+      gray: ['#9aa0a8', '#eceef1'], teal: ['#3aa89a', '#dff3f0'], pink: ['#d36aa8', '#fbe6f2'],
+    },
+    ink: '#3b3b3b', muted: '#808080', pen: '#d4a72c', paper: '#fbf8f0', mark: '#c9a227', markFill: '#fff6d8',
+    rule: 'rgba(80,80,80,.55)', grid: 'rgba(0,0,0,.08)', sheet: 'rgba(0,0,0,.05)', chalk: false,
   };
-  const INK = '#3b3b3b', MUTED = '#808080', PEN_INK = '#d4a72c';
-  const PAPER = '#fbf8f0';
+  const BOARD = '#27332f';
+  /** A color blended into the board (opaque, so a text halo in it matches the fill behind). */
+  function onBoard(hex, a) {
+    const c = h => parseInt(hex.slice(h, h + 2), 16), b = h => parseInt(BOARD.slice(h, h + 2), 16);
+    return '#' + [1, 3, 5].map(h => Math.round(b(h) + (c(h) - b(h)) * a).toString(16).padStart(2, '0')).join('');
+  }
+  const CHALK_COLORS = { blue: '#93b8ff', red: '#ff9d94', green: '#8fe0a8', yellow: '#ffd866', purple: '#c9b3ff',
+    orange: '#ffb47c', gray: '#bfc6c2', teal: '#80ddce', pink: '#ffa5d5' };
+  const CHALK = {
+    theme: Object.fromEntries(Object.entries(CHALK_COLORS).map(([k, v]) => [k, [v, onBoard(v, .2)]])),
+    ink: '#efeee7', muted: '#a8b3ad', pen: '#ffd54f', paper: BOARD, mark: '#ffd54f', markFill: onBoard('#ffd54f', .2),
+    rule: 'rgba(236,236,226,.42)', grid: 'rgba(255,255,255,.08)', sheet: 'rgba(255,255,255,.035)', chalk: true,
+  };
+  let look = LIGHT, THEME = LIGHT.theme, INK = LIGHT.ink, MUTED = LIGHT.muted, PAPER = LIGHT.paper;
+  function useLook(chalk) {
+    look = chalk ? CHALK : LIGHT;
+    THEME = look.theme; INK = look.ink; MUTED = look.muted; PAPER = look.paper;
+  }
+  // Screen marks (off the paper) keep the yellow pen whatever the paper looks like.
+  const PEN_INK = '#d4a72c';
+  /** A color the model wrote ("ink", "#333", "navy"…): on the chalkboard anything dark becomes chalk white. */
+  function legible(c) {
+    if (!c || c === 'ink' || c === 'black') return INK;
+    if (!look.chalk) return c;
+    const m = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(c);
+    if (!m) return /^(black|navy|darkblue|darkgreen|maroon|brown|dimgray|darkslategray|purple)$/i.test(c) ? INK : c;
+    const h = m[1].length === 3 ? m[1].replace(/./g, x => x + x) : m[1];
+    const [r, g, b] = [0, 2, 4].map(i => parseInt(h.slice(i, i + 2), 16) / 255);
+    return .2126 * r + .7152 * g + .0722 * b < .42 ? INK : c;
+  }
   // Noteworthy's "1" is a bare stroke, the same as "l" and "I": in math and code that reads wrong, so the
   // digit 1 comes from Chalkboard SE (a flagged 1 in a matching hand).
   const FONT = '"PoinkyHand", "Noteworthy", "Chalkboard SE", "Marker Felt", ui-rounded, system-ui';
@@ -39,11 +73,25 @@
     .lpaper .lsvg > g[data-step]{transition:opacity .45s cubic-bezier(.3,.7,.3,1);cursor:pointer}
     .lpaper .lsvg > g.past{opacity:.55}
     @media (prefers-reduced-motion: reduce){.lpaper .lsvg > g[data-step]{transition:none}}
-    .lpaper .save{position:absolute;right:40px;top:5px;height:28px;border-radius:14px;border:0;padding:0 11px;cursor:pointer;z-index:3;
+    .lpaper .saves{position:absolute;right:40px;top:5px;display:flex;gap:6px;z-index:3}
+    .lpaper .save{height:28px;border-radius:14px;border:0;padding:0 11px;cursor:pointer;white-space:nowrap;
       background:rgba(30,32,38,.08);color:#5d584c;font:600 12.5px -apple-system,system-ui;transition:background .15s,color .15s,opacity .2s}
     .lpaper .save:hover{background:rgba(30,32,38,.72);color:#fff}
     .lpaper .save.done{background:#3a9a5b;color:#fff}
     .lpaper .save:disabled{opacity:.5;cursor:default}
+    .lpaper .save[hidden]{display:none}
+    /* The chalkboard: a dark board with soft smudges, chalk-white writing, and a grain that bites into
+       every stroke (a pattern of board-colored specks over the drawing; the saved picture gets the same). */
+    .card.lpaper.chalk{background-color:${BOARD};--halo:${BOARD};
+      background-image:radial-gradient(ellipse 60% 45% at 22% 18%,rgba(255,255,255,.045),transparent),
+        radial-gradient(ellipse 55% 50% at 78% 72%,rgba(255,255,255,.03),transparent),
+        linear-gradient(rgba(255,255,255,.03) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.03) 1px,transparent 1px);
+      background-size:100% 100%,100% 100%,22px 22px,22px 22px;box-shadow:0 22px 60px rgba(0,0,0,.5),0 0 0 1px rgba(255,255,255,.1)}
+    .lpaper.chalk .bar{color:#b7c1bb;background:rgba(255,255,255,.05);border-bottom-color:rgba(255,255,255,.08)}
+    .lpaper.chalk .save{background:rgba(255,255,255,.1);color:#d9dfdb}
+    .lpaper.chalk .save:hover{background:rgba(255,255,255,.88);color:#1f2925}
+    .lpaper.chalk .save.done{background:#3a9a5b;color:#fff}
+    .lpaper .grain{position:absolute;left:0;right:0;top:38px;bottom:0;pointer-events:none;z-index:2}
     @keyframes lp-in{from{opacity:0;transform:translateY(18px) scale(.97)}to{opacity:1;transform:none}}`;
   document.head.appendChild(style);
 
@@ -81,7 +129,7 @@
     return e;
   }
   const theme = c => THEME[c] || null;
-  const textColor = c => c === 'gray' || c === 'muted' ? MUTED : (theme(c) ? theme(c)[0] : (c || INK));
+  const textColor = c => c === 'gray' || c === 'muted' ? MUTED : (theme(c) ? theme(c)[0] : legible(c));
   const ease = u => u < .5 ? 2 * u * u : 1 - Math.pow(-2 * u + 2, 2) / 2;
   const jit = a => (Math.random() * 2 - 1) * a;
 
@@ -192,7 +240,12 @@
     X.report();
   }
   function grow(bottom) {
-    if (bottom > contentBottom + 1) { contentBottom = bottom; if (bottom + 30 <= H) label(); }
+    if (bottom > contentBottom + 1) {
+      const first = !contentBottom;
+      contentBottom = bottom;
+      if (bottom + 30 <= H) label();
+      if (first) saveAllButton();   // this page now counts toward "Save all N"
+    }
     if (bottom + 30 > H) setHeight(bottom + 30);
   }
   /** After erasing: the paper shrinks to what's left on it. */
@@ -225,23 +278,54 @@
     return c;
   }
 
+  // ---------- chalk grain: the same specks on screen and in the saved picture ----------
+  const GRAIN = 64;   // paper units per tile
+  let grainTile = null;
+  function grain() {
+    if (grainTile) return grainTile;
+    const cv = document.createElement('canvas'); cv.width = cv.height = GRAIN * 2;
+    const x = cv.getContext('2d');
+    let seed = 7;
+    const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+    x.fillStyle = BOARD;
+    for (let i = 0; i < 320; i++) {
+      x.globalAlpha = .4 + .45 * rnd();
+      x.beginPath(); x.arc(rnd() * cv.width, rnd() * cv.height, .7 + 1.5 * rnd() * rnd(), 0, 6.283); x.fill();
+    }
+    return (grainTile = cv);
+  }
+  function chalkBoard(c) {
+    const g = document.createElement('div');
+    g.className = 'grain';
+    try { g.style.backgroundImage = `url(${grain().toDataURL()})`; } catch (e) {}
+    g.style.backgroundSize = `${GRAIN * scale}px ${GRAIN * scale}px`;
+    c.appendChild(g);
+  }
+
   function newPaper(f, title) {
     frame = f;
+    // A new session (the app numbers them) starts a new notebook.
+    if (f.session != null && f.session !== notebookSession) { notebookSession = f.session; notebook.length = 0; }
+    useLook(f.look === 'chalk');
     scale = f.w / UNITS;
     const c = document.createElement('div');
-    c.className = 'card lpaper';
+    c.className = 'card lpaper' + (look.chalk ? ' chalk' : '');
     c.dataset.id = 'lesson'; c.dataset.type = 'lesson'; c.dataset.label = title || ''; c.dataset.title = title || '';
     Object.assign(c.style, { left: f.x + 'px', top: f.y + 'px', width: f.w + 'px' });
     top = f.y;
     toTop = false; yShift = 0; contentBottom = 0;
-    c.innerHTML = '<div class="bar"><span></span><button class="save" title="Save a picture of this page">Save</button><button class="x" title="Close">✕</button></div>';
+    c.innerHTML = '<div class="bar"><span></span><div class="saves"><button class="save" title="Save a picture of this page">Save</button>' +
+      '<button class="save all" hidden title="Save every page of this session as one PDF">Save all</button></div><button class="x" title="Close">✕</button></div>';
     c.querySelector('.bar span').textContent = title || '';
     svg = el('svg', { class: 'lsvg', preserveAspectRatio: 'xMidYMin meet' }, c);
     view = { h: 0, y: 0, vh: 0 };
     defs = el('defs', {}, svg);
-    c.querySelector('.x').addEventListener('click', () => { SB.lessonStop(); X.removeCard(c); });
+    c.querySelector('.x').addEventListener('click', () => { SB.lessonStop(); keepPage(c); X.removeCard(c); });
     c.querySelector('.save').addEventListener('click', e => { e.stopPropagation(); savePaper(c); });
-    c.querySelector('.save').addEventListener('mousedown', e => e.stopPropagation());
+    c.querySelector('.save.all').addEventListener('click', e => { e.stopPropagation(); saveNotebook(c); });
+    c.querySelectorAll('.save').forEach(b => b.addEventListener('mousedown', e => e.stopPropagation()));
+    if (look.chalk) chalkBoard(c);
+    c.dataset.look = look.chalk ? 'chalk' : 'paper';
     X.dragBy(c.querySelector('.bar'), c);
     // Once you drag it somewhere, it stays there (it still grows and shrinks).
     c.querySelector('.bar').addEventListener('mousedown', () => { c.dataset.moved = '1'; c.style.transition = ''; });
@@ -257,17 +341,21 @@
     for (const k in graphs) delete graphs[k];
     for (const k in tables) delete tables[k];
     used = [];
+    notebook.push({ c, page: null });
+    saveAllButton();
     paperSound();
     X.report();
   }
   // ---------- keeping a page: a picture of the paper (for revising later) ----------
-  /** The paper as a PNG data URL: everything drawn, on the lined paper, 2× for a sharp print. */
-  function paperPicture(c) {
-    const s = c.querySelector('svg.lsvg');
-    if (!s) return Promise.resolve(null);
+  /** The drawing on paper `c` as standalone SVG text (every step in focus), its height in units, its look.
+      Needs the paper on screen (it measures what's drawn). Null when nothing is drawn. */
+  function pageOf(c) {
+    const s = c && c.isConnected && c.querySelector('svg.lsvg');
+    if (!s) return null;
     let bottom = 0;
     for (const g of s.querySelectorAll(':scope > g')) { try { const b = g.getBBox(); if (b.width || b.height) bottom = Math.max(bottom, b.y + b.height); } catch (e) {} }
-    const h = Math.ceil(Math.max(200, bottom + 36)), title = c.dataset.title || '';
+    if (!bottom) return null;
+    const h = Math.ceil(Math.max(200, bottom + 36)), title = c.dataset.title || '', chalk = c.dataset.look === 'chalk';
     // Fills fade in with animations; write where they ended into the elements so the copy has them.
     for (const a of document.getAnimations()) {
       const t = a.effect && a.effect.target;
@@ -277,54 +365,124 @@
     copy.querySelectorAll('g.past').forEach(g => g.classList.remove('past'));   // the picture shows every step in focus
     copy.querySelectorAll('[clip-path]').forEach(n => n.removeAttribute('clip-path'));   // anything still being written
     copy.querySelectorAll('text[opacity="0"]').forEach(n => n.remove());
+    copy.querySelectorAll('[style*="stroke-dash"]').forEach(n => { n.style.strokeDasharray = ''; n.style.strokeDashoffset = ''; });
     copy.removeAttribute('style'); copy.removeAttribute('class');
     copy.setAttribute('xmlns', NS);
     copy.setAttribute('width', UNITS * 2); copy.setAttribute('height', h * 2);
     copy.setAttribute('viewBox', `0 0 ${UNITS} ${h}`);
     const st = document.createElementNS(NS, 'style');
-    st.textContent = FACES + `text{font-family:${FONT};white-space:pre;paint-order:stroke;stroke:var(--halo,${PAPER});stroke-width:5px;stroke-linejoin:round}`;
+    st.textContent = FACES + `text{font-family:${FONT};white-space:pre;paint-order:stroke;stroke:var(--halo,${(chalk ? CHALK : LIGHT).paper});stroke-width:5px;stroke-linejoin:round}`;
     copy.insertBefore(st, copy.firstChild);
-    const xml = new XMLSerializer().serializeToString(copy);
+    return { title, h, chalk, xml: new XMLSerializer().serializeToString(copy) };
+  }
+  /** A page as a PNG data URL, 2× for a sharp print: the drawing on the paper (or chalkboard) it was on. */
+  function picture(page) {
+    if (!page) return Promise.resolve(null);
+    const { xml, h, title, chalk } = page;
     return new Promise(res => {
       const img = new Image();
       img.onload = () => {
         try {
           const cv = document.createElement('canvas'); cv.width = UNITS * 2; cv.height = h * 2;
-          const x = cv.getContext('2d');
-          x.fillStyle = PAPER; x.fillRect(0, 0, cv.width, cv.height);
-          x.strokeStyle = 'rgba(0,0,0,.05)'; x.lineWidth = 2;
+          const x = cv.getContext('2d'), L = chalk ? CHALK : LIGHT;
+          x.fillStyle = L.paper; x.fillRect(0, 0, cv.width, cv.height);
+          if (chalk) {
+            // The board's smudges, as on screen.
+            for (const [cx, cy, rx, ry, a] of [[.22, .18, .6, .45, .045], [.78, .72, .55, .5, .03]]) {
+              x.save(); x.translate(cx * cv.width, cy * cv.height); x.scale(rx * cv.width, ry * cv.height);
+              const gr = x.createRadialGradient(0, 0, 0, 0, 0, 1);
+              gr.addColorStop(0, `rgba(255,255,255,${a})`); gr.addColorStop(1, 'rgba(255,255,255,0)');
+              x.fillStyle = gr; x.fillRect(-1, -1, 2, 2); x.restore();
+            }
+          }
+          x.strokeStyle = L.sheet; x.lineWidth = 2;
           for (let gx = 0; gx < cv.width; gx += 44) { x.beginPath(); x.moveTo(gx, 0); x.lineTo(gx, cv.height); x.stroke(); }
           for (let gy = 0; gy < cv.height; gy += 44) { x.beginPath(); x.moveTo(0, gy); x.lineTo(cv.width, gy); x.stroke(); }
           x.drawImage(img, 0, 0);
-          res({ png: cv.toDataURL('image/png'), title, width: cv.width, height: cv.height });
+          if (chalk) { x.fillStyle = x.createPattern(grain(), 'repeat'); x.fillRect(0, 0, cv.width, cv.height); }
+          res({ png: cv.toDataURL('image/png'), title, width: cv.width, height: cv.height, look: chalk ? 'chalk' : 'paper' });
         } catch (e) { res({ svg: xml, title }); }   // a canvas the browser won't read back: keep the drawing as SVG
       };
       img.onerror = () => res({ svg: xml, title });
       img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(xml);
     });
   }
-  async function savePaper(c) {
-    const b = c.querySelector('.save');
-    b.disabled = true; b.textContent = 'Saving…';
-    const pic = await paperPicture(c);
-    if (!pic) { b.disabled = false; b.textContent = 'Save'; return; }
-    X.post({ kind: 'saveLesson', title: pic.title, png: pic.png || null, svg: pic.svg || null });
+  const paperPicture = c => picture(pageOf(c));
+
+  // ---------- the session's notebook: every paper drawn in this session, in order ----------
+  const notebook = [];          // { c: the paper element, page: its last kept drawing }
+  let notebookSession = null;
+  /** Keeps what's on paper `c` now (after each drawing, before it's cleared or closed). */
+  function keepPage(c) {
+    const e = c && [...notebook].reverse().find(n => n.c === c);
+    if (!e) return;
+    const p = pageOf(c);
+    if (p) e.page = p;
+    saveAllButton();
+  }
+  const keptPages = () => notebook.filter(n => n.page);
+  /** "Save all 3" appears once the session has more than one page. */
+  function saveAllButton() {
+    const b = paper && paper.querySelector('.save.all');
+    if (!b) return;
+    const n = keptPages().length + (paper && !notebook.some(e => e.c === paper && e.page) && contentBottom ? 1 : 0);
+    b.hidden = n < 2;
+    if (!b.disabled && !b.classList.contains('done')) b.textContent = `Save all ${n}`;
+  }
+  /** The notebook's pages as pictures, in order (the open paper as it is right now). */
+  async function notebookPictures() {
+    if (paper && paper.isConnected) keepPage(paper);
+    const out = [];
+    for (const e of keptPages()) { const pic = await picture(e.page); if (pic && pic.png) out.push({ title: pic.title, png: pic.png }); }
+    return out;
+  }
+
+  async function savePaper(c, voice = false) {
+    const b = c && c.querySelector('.save');
+    if (b) { b.disabled = true; b.textContent = 'Saving…'; }
+    let pic = c ? await paperPicture(c) : null;
+    // Asked by voice with no paper open: the last page of the notebook.
+    if (!pic && voice) { const last = keptPages().pop(); pic = last ? await picture(last.page) : null; }
+    if (!pic) {
+      if (b) { b.disabled = false; b.textContent = 'Save'; }
+      if (voice) X.post({ kind: 'saveLesson', none: true, voice: true });
+      return;
+    }
+    X.post({ kind: 'saveLesson', title: pic.title, png: pic.png || null, svg: pic.svg || null, voice });
     SB.lastLessonPicture = pic;   // tests and tools read it
     // The app answers with SB.lessonSaved(where); without an app (a test page) the button just resets.
-    clearTimeout(b._t); b._t = setTimeout(() => { b.disabled = false; b.textContent = 'Save'; }, 4000);
+    if (b) { clearTimeout(b._t); b._t = setTimeout(() => { b.disabled = false; b.textContent = 'Save'; }, 4000); }
   }
-  /** The app saved the page: say where, briefly. */
-  SB.lessonSaved = (where, ok = true) => {
-    const b = paper && paper.querySelector('.save');
+  async function saveNotebook(c, voice = false) {
+    const b = c && c.querySelector('.save.all');
+    if (b) { b.disabled = true; b.textContent = 'Saving…'; }
+    const pages = await notebookPictures();
+    if (!pages.length) { if (voice) X.post({ kind: 'saveNotebook', pages: [], voice: true }); saveAllReset(b); return; }
+    X.post({ kind: 'saveNotebook', pages, voice });
+    SB.lastNotebook = pages;   // tests read it
+    if (b) { clearTimeout(b._t); b._t = setTimeout(() => saveAllReset(b), 4000); }
+  }
+  function saveAllReset(b) { if (!b) return; b.disabled = false; b.classList.remove('done'); saveAllButton(); }
+  /** The app saved the page (all: the notebook PDF): say where, briefly. */
+  SB.lessonSaved = (where, ok = true, all = false) => {
+    const b = paper && paper.querySelector(all ? '.save.all' : '.save');
     if (!b) return;
     b.disabled = false; b.textContent = ok ? `Saved to ${where} ✓` : "Couldn't save";
     b.classList.toggle('done', !!ok);
-    clearTimeout(b._t); b._t = setTimeout(() => { b.textContent = 'Save'; b.classList.remove('done'); }, 2600);
+    clearTimeout(b._t);
+    b._t = setTimeout(() => { b.classList.remove('done'); if (all) saveAllButton(); else b.textContent = 'Save'; }, 2600);
   };
   SB.lessonPicture = () => paper && paper.isConnected ? paperPicture(paper) : Promise.resolve(null);
+  /** Save by voice ("save this page", "save my notes"): the app is told what happened, and says where. */
+  SB.saveLesson = (all) => all ? saveNotebook(paper && paper.isConnected ? paper : null, true)
+    : savePaper(paper && paper.isConnected ? paper : null, true);
+  /** For tests: the session's pages (titles, looks). */
+  SB.lessonNotebook = () => { if (paper && paper.isConnected) keepPage(paper); return keptPages().map(e => ({ title: e.page.title, look: e.page.chalk ? 'chalk' : 'paper', h: e.page.h })); };
+  SB.notebookPictures = notebookPictures;
 
   function retire(c) {
     if (!c) return;
+    keepPage(c);
     c.classList.add('leaving');
     setTimeout(() => { c.remove(); X.report(); }, 300);
   }
@@ -402,9 +560,14 @@
   const unescapeTex = s => s.replace(/\f/g, '\\f').replace(/\t/g, '\\t').replace(/\x08/g, '\\b').replace(/\r/g, '\\r')
     .replace(/\n(?=[a-zA-Z])/g, '\\n');
 
+  /** Chemical formulas inside math (6CO2 + 6H2O -> C6H12O6) get their subscripts too: H2O → H_{2}O. */
+  const chemTex = str => str.replace(/(^|[^\\A-Za-z0-9_^])([A-Za-z0-9]+)(?![A-Za-z0-9])/g, (m, pre, w) => {
+    const p = chemParts(w);
+    return p ? pre + p.map(x => /^\d+$/.test(x) ? `_{${x}}` : x.replace('\u200b', '')).join('') : m;
+  });
   function parseTex(src) {
     let i = 0;
-    const s = unescapeTex(src).replace(/->/g, '→').replace(/-/g, '−').replace(/<=/g, '≤').replace(/>=/g, '≥').replace(/!=/g, '≠')
+    const s = chemTex(unescapeTex(src)).replace(/->/g, '→').replace(/-/g, '−').replace(/<=/g, '≤').replace(/>=/g, '≥').replace(/!=/g, '≠')
       .replace(/(\S)\s*\*\s*(?=\S)/g, '$1 · ').replace(/'/g, '′');
     function group(stop) {
       const out = [];
@@ -585,10 +748,11 @@
     let bb = node.getBBox();
     // Too wide for the paper: shrink it to fit (never past the right margin).
     const maxW = o.maxWidth || (UNITS - 24 - (o.align === 'center' ? 0 : Math.max(0, bb.x)));
-    if ((o.fit !== false || o.maxWidth) && bb.width > maxW + 1 && (bb.x >= 0 || o.maxWidth)) {
-      const k = Math.max(o.maxWidth ? .35 : .55, maxW / bb.width);
+    if ((o.fit !== false || o.maxWidth) && bb.width > maxW + 1 && (bb.x >= 0 || o.maxWidth) && (o.fitTries || 0) < 3) {
+      // Math with sub- and superscripts doesn't shrink in proportion: check again after shrinking.
+      const k = Math.max(o.maxWidth ? .35 : .55, maxW / bb.width * (o.fitTries ? .97 : 1));
       node.remove();
-      return writeText(g, { ...o, size: size * k, fit: false, maxWidth: undefined });
+      return writeText(g, { ...o, size: size * k, fit: false, maxWidth: o.maxWidth && isMath ? o.maxWidth : undefined, fitTries: (o.fitTries || 0) + 1 });
     }
     if (o.free !== false) {
       const dy = freeShift({ x: bb.x, y: bb.y, w: bb.width, h: bb.height });
@@ -637,7 +801,7 @@
     const [x1, y1] = o.from, [x2, y2] = o.to;
     const bend = o.curve || 0, len = Math.hypot(x2 - x1, y2 - y1) || 1;
     const cx = (x1 + x2) / 2 - (y2 - y1) / len * bend, cy = (y1 + y2) / 2 + (x2 - x1) / len * bend;
-    const col = theme(o.color) ? theme(o.color)[0] : (o.color || colorDefault || INK);
+    const col = theme(o.color) ? theme(o.color)[0] : legible(o.color || colorDefault);
     const wdt = o.width || 2.2;
     if (parent === svg || !parent) grow(Math.max(y1, y2, cy) + 10);
     const shaft = el('path', { d: `M${x1},${y1} Q${cx},${cy} ${x2},${y2}`, fill: 'none', stroke: col, 'stroke-width': wdt, 'stroke-linecap': 'round' }, g);
@@ -677,7 +841,7 @@
     const pts = o.points || [];
     if (pts.length < 2) return;
     grow(Math.max(...pts.map(p => p[1])) + 10);
-    const col = theme(o.color) ? theme(o.color)[0] : (o.color || INK);
+    const col = theme(o.color) ? theme(o.color)[0] : legible(o.color);
     const p = el('path', {
       d: pts.map((q, i) => (i ? 'L' : 'M') + q[0] + ',' + q[1]).join(' '), fill: 'none', stroke: col,
       'stroke-width': o.width || 2.2, 'stroke-linecap': 'round', 'stroke-linejoin': 'round',
@@ -721,8 +885,8 @@
   async function number(o) {
     const g = group(o);
     grow(o.y + 16);
-    const p = el('path', { d: circlePath(o.x, o.y, 14), fill: 'none', stroke: '#c9a227', 'stroke-width': 2, 'stroke-linecap': 'round' }, g);
-    el('circle', { cx: o.x, cy: o.y, r: 14, fill: '#fff6d8' }, g).style.opacity = 0;
+    const p = el('path', { d: circlePath(o.x, o.y, 14), fill: 'none', stroke: look.mark, 'stroke-width': 2, 'stroke-linecap': 'round' }, g);
+    el('circle', { cx: o.x, cy: o.y, r: 14, fill: look.markFill }, g).style.opacity = 0;
     await drawPath(p, onScreen, 700);
     await writeText(g, { x: o.x, y: o.y + 6, text: String(o.n ?? ''), size: 17, align: 'center', free: false });
   }
@@ -783,7 +947,7 @@
       if (c < t.colW.length) cx += t.colW[c];
     }
     d += `M${t.x - 2},${y0 + h + jit(.8)} L${t.x + t.w + 2},${y0 + h + jit(.8)}`;
-    await drawPath(el('path', { d, fill: 'none', stroke: header ? stroke : 'rgba(80,80,80,.55)', 'stroke-width': header ? 2.2 : 1.6, 'stroke-linecap': 'round' }, g), onScreen, 2600);
+    await drawPath(el('path', { d, fill: 'none', stroke: header ? stroke : look.rule, 'stroke-width': header ? 2.2 : 1.6, 'stroke-linecap': 'round' }, g), onScreen, 2600);
     cx = t.x;
     for (let c = 0; c < t.colW.length; c++) {
       const txt = cells[c] == null ? '' : String(cells[c]);
@@ -847,7 +1011,7 @@
       let d = '';
       for (let v = Math.ceil(xr[0] / sx) * sx; v <= xr[1] + 1e-9; v += sx) d += `M${X(v)},${y} L${X(v)},${y + h} `;
       for (let v = Math.ceil(yr[0] / sy) * sy; v <= yr[1] + 1e-9; v += sy) d += `M${x},${Y(v)} L${x + w},${Y(v)} `;
-      el('path', { d, stroke: 'rgba(0,0,0,.08)', 'stroke-width': 1, fill: 'none' }, g).animate([{ opacity: 0 }, { opacity: 1 }], { duration: 300, fill: 'forwards' });
+      el('path', { d, stroke: look.grid, 'stroke-width': 1, fill: 'none' }, g).animate([{ opacity: 0 }, { opacity: 1 }], { duration: 300, fill: 'forwards' });
     }
     const axis = (d) => el('path', { d, fill: 'none', stroke: col, 'stroke-width': 2, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }, g);
     await drawPath(axis(`M${x - 6},${Y(ay)} L${x + w + 8},${Y(ay) + jit(.8)} M${x + w},${Y(ay) - 5} L${x + w + 8},${Y(ay)} L${x + w},${Y(ay) + 5}`), onScreen, 1600);
@@ -878,7 +1042,7 @@
     const gr = graphs[o.graph] || graphs._last;
     if (!gr) return;
     const g = group(o, gr.g.parentNode === svg ? svg : svg);
-    const col = theme(o.color) ? theme(o.color)[0] : (o.color || THEME.blue[0]);
+    const col = theme(o.color) ? theme(o.color)[0] : (o.color ? legible(o.color) : THEME.blue[0]);
     let pts = [];
     const from = (o.from ?? gr.xr[0]), to = (o.to ?? gr.xr[1]);
     if (Array.isArray(o.points)) pts = o.points.map(p => [+p[0], +p[1]]);
@@ -954,7 +1118,7 @@
       const a0 = Math.random() * 6.28; d = '';
       for (let i = 0; i <= 50; i++) { const a = a0 + Math.PI * 2 * 1.06 * i / 50; d += (i ? 'L' : 'M') + (cx + Math.cos(a) * rx).toFixed(1) + ',' + (cy + Math.sin(a) * ry).toFixed(1); }
     }
-    const p = el('path', { d, fill: 'none', stroke: PEN_INK, 'stroke-width': 3, 'stroke-linecap': 'round', opacity: .9 }, g);
+    const p = el('path', { d, fill: 'none', stroke: look.pen, 'stroke-width': 3, 'stroke-linecap': 'round', opacity: .9 }, g);
     await drawPath(p, onScreen, 800);
   }
 
@@ -982,6 +1146,11 @@
   }
 
   async function erase(o) {
+    if (o.all && paper) {
+      // The notebook keeps the page as it was; what comes next is a new page.
+      keepPage(paper);
+      if (notebook.length && notebook[notebook.length - 1].page) notebook.push({ c: paper, page: null });
+    }
     const ids = o.all ? Object.keys(items) : (o.ids || []);
     for (const id of ids) {
       const g = items[id];
@@ -1106,6 +1275,7 @@
       penHide = setTimeout(() => { pen.style.opacity = 0; }, 2500);
       // Everything comes back into focus when the drawing has been still for a while (the lesson is over).
       unfocusTimer = setTimeout(() => focusStep(0), 4500);
+      keepPage(paper);
       X.report();
     }
   }
@@ -1129,6 +1299,7 @@
   SB.lessonBusy = () => running || queue.length > 0;
   SB._lessonTest = { compileFn, parseTex, items, tables, replayStep, focusStep };
   SB.lessonStop = () => {
+    if (paper && paper.isConnected) keepPage(paper);
     token++;
     queue = [];
     running = false;

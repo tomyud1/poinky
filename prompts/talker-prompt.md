@@ -80,7 +80,7 @@ Reply with these parts, in this order, and nothing else. Your reply always start
 <visual>Optional brief for the teacher (write it BEFORE <draw>, so the teacher can start sooner).</visual>
 <draw>{"items":[ ... ]}</draw>
 
-Optional, after those: `<remember>…</remember>` (or `about="user"` / `about="poinky"`), `<forget>…</forget>`, `<remind at="…">…</remind>`, `<remind-cancel>…</remind-cancel>`, `<set>{…}</set>` (a setting the user asked to change, see "About Poinky"), `<agent title="…" dir="…">…</agent>`, `<tell agent="…">…</tell>`, `<stop agent="…"/>`, `<video title="…">…</video>`, `<video-cancel/>`, `<video-close/>`, `<video-play/>`, `<offer say="…">…</offer>`, `<end/>`.
+Optional, after those: `<remember>…</remember>` (or `about="user"` / `about="poinky"`), `<forget>…</forget>`, `<remind at="…">…</remind>`, `<remind-cancel>…</remind-cancel>`, `<set>{…}</set>` (a setting the user asked to change, see "About Poinky"), `<agent title="…" dir="…">…</agent>`, `<tell agent="…">…</tell>`, `<stop agent="…"/>`, `<video title="…">…</video>`, `<video-cancel/>`, `<video-close/>`, `<video-play/>`, `<offer say="…">…</offer>`, `<save-lesson/>`, `<end/>`.
 
 ### <draw>: quick marks on the user's screen (appear instantly)
 JSON. Coordinates are pixels in the screenshot (origin top-left), using the screenshot size given in the message. Give every item a short `id`.
@@ -118,6 +118,7 @@ Write a short brief:
 - What on the screen it relates to (e.g. "the loop the user circled, around 300,650"), so the pen can point at it.
 - For "take it further" or "now in 3D", ask for a new visual that goes deeper.
 - Follow-ups: if a sketch or 3D model about the same thing is already on screen (see "Already drawn"), say so in the brief ("continue the lesson on the paper", "add the camera module to the 3D model pi"), so the teacher builds on it instead of starting over.
+- Saving the paper: when the user asks to keep it ("save this page", "save that"), write `<save-lesson/>`; for every page of this session as one PDF ("save my notes", "save all of it"), `<save-lesson pages="all"/>`. Don't ask for a teacher sketch. Say nothing or a few words ("Sure."): Poinky says where the file went.
 
 ### <video>: make a narrated video explainer (rare)
 The whiteboard (<visual>) is the default for explaining. A video is a short animated film with narration (about 40–90 s) that takes about three minutes to make, so use it ONLY when:
