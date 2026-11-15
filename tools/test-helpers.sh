@@ -156,6 +156,8 @@ expect "$TMP/KQ.txt" "notification question: " "a question gets its own notifica
 expect "$TMP/KQ.txt" "from a notification: open #1's window" "Open shows its window and answers nothing"
 expect "$TMP/KQ.txt" "from a notification: #1 answer\\(\"No preference: you choose.\"\\) → sent" "You choose answers it"
 expect "$TMP/KQ.txt" "#1 Mint FINISHED done" "and it finishes"
+run KV POINKY_TEST_NOTIFY=open POINKY_TEST_ANSWERS="1=yes" "$BIN" --helper-test "$TMP/KV.txt" "$TMP/proj" fixture:ask-install
+expect "$TMP/KV.txt" "notification removed: 1" "answered out loud instead: its notification goes away"
 
 echo "4d. \"Wait\": a helper stops what it's doing but stays, then takes a new direction"
 run P POINKY_TEST_PAUSE="3|6|Use yarn instead." "$BIN" --helper-test "$TMP/P.txt" "$TMP/proj" fixture:fix-bug

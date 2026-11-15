@@ -227,7 +227,10 @@ final class CallController: NSObject, NSMenuDelegate {
         ptt.onUp = { [weak self] send in self?.pushUp(send: send) }
         ptt.onTap = { [weak self] in self?.pushTap() }
         agents.onFinished = { [weak self] a in self?.helperScreen.finished(a); self?.askEnded(a.id); self?.agentFinished(a); self?.notifyAsks(nil); self?.notifier.finished(a) }
-        agents.onChange = { [weak self] in self?.refreshAgentsInHome(); self?.helperWindows.updateAll() }
+        agents.onChange = { [weak self] in
+            self?.refreshAgentsInHome(); self?.helperWindows.updateAll()
+            self?.notifyAsks(nil)   // answered (by voice, a card, its window) or withdrawn: its notification goes away
+        }
         agents.onEntry = { [weak self] a, e in self?.helperWindows.entry(a, e) }
         agents.onHands = { [weak self] id in
             guard let self, let id else { return }

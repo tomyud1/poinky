@@ -25,7 +25,10 @@ enum HelperTest {
         func counts() -> String { "running \(m.running.count), waiting \(m.queued.count)" }
         m.onHands = { id in log("mouse and keyboard: \(id.map { "#\($0)" } ?? "free")") }
         m.onEvent = { a, e in log("#\(a.id) \(a.name) event \(e)") }
-        m.onChange = { log("change: " + counts()) }
+        m.onChange = {
+            log("change: " + counts())
+            notifier?.stillOpen(m.agents.flatMap { h in h.asks.map { (h.id, $0) } })   // like the app: answered ones go away
+        }
         func finishIfDone() {
             // Everyone else is done: one still waiting for an answer that never came keeps waiting (then we stop it).
             let waitingOnly = !m.running.isEmpty && m.queued.isEmpty && m.running.allSatisfy { !$0.asks.isEmpty }
