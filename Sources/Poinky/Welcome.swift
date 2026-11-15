@@ -27,6 +27,14 @@ final class WelcomeModel: ObservableObject {
     @Published var answered = false
     @Published var tapped = false
     @Published var typed = false
+    /// When Settings' "Why isn't it working?" last ran its checks.
+    @Published var lastCheck: Date?
+    func runAllChecks() {
+        refreshAccess()
+        if askedScreen, screen != .allowed { checkScreenSoon() }
+        checkClaude()
+        lastCheck = Date()
+    }
     var hasNotch = NotchHome.notchScreen != nil
     var holdKeys = "⌃⌥"
     var typeKeys = "⌃⌥T"
@@ -733,3 +741,75 @@ private struct Tip: View {
     }
 }
 
+// MARK: - "Why isn't it working?" (Settings → General)
+
+/// Every check from the tour in one list, each with the button that fixes it: the permissions, Claude Code
+/// (installed, signed in), the hold-to-talk keys, and the natural voice. Runs when the section first
+/// appears and on Check Again.
+struct SetupCheckSection: View {
+    @ObservedObject var model = WelcomeWindowController.shared.model
+    @ObservedObject var settings: SettingsModel
+    @ObservedObject var installer = PhononInstaller.shared
+
+    var body: some View {
+        Section("Why isn't it working?") {
+            if model.lastCheck == nil {
+                Text("Checking…").font(.callout).foregroundStyle(.secondary)
+            } else {
+                row("Microphone", ok: model.mic == .allowed, why: "Needed to hear you.",
+                    fix: model.mic == .denied ? "Open Settings" : "Allow") { model.allow("mic") }
+                row("Speech Recognition", ok: model.speech == .allowed, why: "Turns your voice into words.",
+                    fix: model.speech == .denied ? "Open Settings" : "Allow") { model.allow("speech") }
+                row("Screen Recording", ok: model.screen == .allowed,
+                    why: model.askedScreen ? "Turn Poinky on in System Settings, then restart Poinky." : "Needed to see your screen.",
+                    fix: model.askedScreen ? "Restart Poinky" : "Allow") { model.askedScreen ? model.restartApp() : model.allow("screen") }
+                if settings.config.computerControl {
+                    row("Accessibility", ok: model.hands == .allowed, optional: true,
+                        why: "Only for clicking and typing for you.", fix: "Allow") { model.allow("hands") }
+                }
+                claudeRow
+                row("Hold to talk", ok: settings.config.pushToTalk != "off", optional: true,
+                    why: "Turned off: only the hands-free call shortcut starts Poinky.", fix: "Turn On") {
+                    settings.config.pushToTalk = "ctrl+option"
+                }
+                if settings.config.language.lowercased().hasPrefix("en"), settings.config.voiceEngine == "phonon" {
+                    row("Natural voice", ok: PhononVoice.isInstalled || installer.state == .done, optional: true,
+                        why: installer.state == .running ? "Installing… \(Int(installer.progress * 100))%" : "Not installed: the built-in voice speaks instead.",
+                        fix: installer.state == .running ? nil : "Install") { installer.start() }
+                }
+            }
+            HStack {
+                Button("Show the Welcome Tour") { WelcomeWindowController.shared.show() }
+                Spacer()
+                Button("Check Again") { model.runAllChecks() }.disabled(model.claude == .checking)
+            }
+        }
+        .onAppear { if model.lastCheck == nil { model.runAllChecks() } }
+    }
+
+    @ViewBuilder private var claudeRow: some View {
+        switch model.claude {
+        case .checking: row("Claude Code", ok: nil, why: "Checking…", fix: nil) {}
+        case .ready(let v): row("Claude Code", ok: true, why: v == "API key" ? "Using your API key." : "Signed in" + (v.isEmpty ? "" : " (version \(v))."), fix: nil) {}
+        case .missing: row("Claude Code", ok: false, why: "Not installed. It's my brain.", fix: "Install") { model.installClaude() }
+        case .signedOut: row("Claude Code", ok: false, why: "Installed, but not signed in.", fix: "Sign In") { model.signIn() }
+        case .unsure(let v): row("Claude Code", ok: nil, why: "Installed\(v.isEmpty ? "" : " (version \(v))"); couldn't tell if it's signed in.", fix: "Sign In") { model.signIn() }
+        }
+    }
+
+    /// ok: true (green check), false (needs fixing), nil (unknown / checking).
+    private func row(_ title: String, ok: Bool?, optional: Bool = false, why: String, fix: String?, action: @escaping () -> Void) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: ok == true ? "checkmark.circle.fill" : ok == nil ? "questionmark.circle" : optional ? "minus.circle" : "exclamationmark.circle.fill")
+                .foregroundStyle(ok == true ? Color.green : ok == nil || optional ? Color.secondary : Color.orange)
+                .frame(width: 18)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title)
+                if ok != true || title == "Claude Code" { Text(why).font(.caption).foregroundStyle(.secondary) }
+            }
+            Spacer()
+            if ok != true, let fix { Button(fix, action: action) }
+        }
+        .accessibilityElement(children: .combine)
+    }
+}
