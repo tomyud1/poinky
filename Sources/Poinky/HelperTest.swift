@@ -271,6 +271,7 @@ extension HelperTest {
             hw.agents = m
             m.onChange = { hw.updateAll() }
             hw.onTypedAnswer = { id, reply, text in log("typed \"\(text)\" → answer \(reply): \(hs.answer(id, reply))") }
+            hw.onNew = { req in let a = m.start(req, config: config); log("new from the window: \(req.title) in \(req.dir.map { ($0 as NSString).lastPathComponent } ?? "?") → \(a.map { "#\($0.id) \($0.name)" } ?? "FAILED")"); return a }
             hw.onResume = { past, text in
                 let a = m.resume(past, text: text, config: config)
                 log("continue \(past.name) (session \(past.session.isEmpty ? "none" : "kept")): \(a.map { "#\($0.id) \($0.name)" } ?? "FAILED")")
@@ -305,7 +306,18 @@ extension HelperTest {
                         hw.evaluateForTest(state) { r in log("window after continuing: \(r.map { "\($0)" } ?? "nil")") }
                         hw.snapshotForTest(to: URL(fileURLWithPath: outDir + "/window-continued.png"))
                     }
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { hw.close() }
+                    guard ended == 2 else { return }
+                    // A new helper from the window's form (⌘N), in the same folder.
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) {
+                        hw.evaluateForTest("(() => { document.body.dispatchEvent(new KeyboardEvent('keydown', {key: 'n', metaKey: true, bubbles: true})); return 1; })()") { _ in }
+                    }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) {
+                        hw.evaluateForTest("(() => { const t = document.getElementById('nTask'); t.value = 'fixture:quiet Check the README'; document.getElementById('nPlan').checked = false; t.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', metaKey: true, bubbles: true})); return document.getElementById('nDir').value; })()") { r in log("new helper from the window in \((r as? String).map { ($0 as NSString).lastPathComponent } ?? "nil")") }
+                    }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.4) {
+                        hw.evaluateForTest("document.getElementById('name').textContent + ' — ' + document.getElementById('title').textContent + ' | ' + [...document.querySelectorAll('.it .n')].map(e => e.firstChild.textContent).join(',')") { r in log("window after a new helper: \(r.map { "\($0)" } ?? "nil")") }
+                    }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) { hw.close() }
                 }
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 3) { hw.show(1); log("opened #1's window") }
@@ -587,6 +599,16 @@ extension HelperTest {
         }
         check(HelperTalk.byName("@Violet add tests", names: names) == nil, "typed \"@Violet …\" with no Violet: not about a helper")
         changesChecks(check)
+        // A new helper from the Helpers window (⌘N).
+        check(HelperWindows.title(for: "fix the failing login test and add one for expired passwords") == "Fix the failing login test", "new helper: a title from the task (\(HelperWindows.title(for: "fix the failing login test and add one for expired passwords")))")
+        let hw = HelperWindows()
+        var got: AgentRequest?
+        hw.onNew = { req in got = req; return nil }
+        check(hw.startNew(task: "  ", dir: NSHomeDirectory(), model: "", plan: false) == "Say what it should do.", "new helper: nothing to do")
+        check(hw.startNew(task: "x", dir: "/no/such/folder", model: "", plan: false) == "That folder doesn’t exist.", "new helper: a folder that isn't there")
+        _ = hw.startNew(task: "/review", dir: "~", model: "opus", plan: true)
+        check(got?.task == "/review" && got?.dir == NSHomeDirectory() && got?.model == "claude-opus-5-5" && got?.planFirst == true,
+              "new helper: task, folder (~ expanded), model and plan reach the app (\(String(describing: got)))")
         editMenuChecks(check)
         askChecks(check)
         lines.append(fails == 0 ? "ALL OK" : "\(fails) FAILED")

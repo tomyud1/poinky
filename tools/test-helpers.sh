@@ -224,6 +224,8 @@ if [ "${1:-}" = "--screen" ] || [ "${2:-}" = "--screen" ]; then
   expect "$L" "typed to the finished helper \\(box said \"Ask Mint to do more" "a finished helper can be asked for more"
   expect "$L" "continue Mint \\(session kept\\): #2 Mint" "it continues its own session, with its name"
   expect "$L" "window after continuing: .*\"pill\":\"Done\".*\"list\":\\[\"Mint[^\"]*\"\\]" "one window for all of it (the list shows it once)"
+  expect "$L" "new from the window: Fixture:quiet Check the README in proj → #3 [A-Za-z]+" "⌘N starts a new helper from the window, in a recent folder"
+  expect "$L" "window after a new helper: [A-Za-z]+ — Fixture:quiet Check the README" "the window shows the new one"
   grep -q "## Continued" "$TMP"/logs-win/*.md && pass "its log goes on" || bad "its log goes on"
   [ -s "$TMP/win/window-working.png" ] && pass "a picture of the window" || bad "a picture of the window"
   [ -n "${KEEP_SHOTS:-}" ] && cp "$TMP"/win/window-*.png "$KEEP_SHOTS"/ 2>/dev/null

@@ -16,6 +16,8 @@ final class HelperWindows: NSObject, NSWindowDelegate, WKNavigationDelegate {
     var onPause: ((_ id: Int) -> Void)?
     /// Something typed to a finished helper: continue it (the app starts it). Returns the new helper.
     var onResume: ((_ past: PastHelper, _ text: String) -> AgentManager.Agent?)?
+    /// A new helper started from the window (⌘N): the app starts it. Returns it.
+    var onNew: ((AgentRequest) -> AgentManager.Agent?)?
 
     private var window: NSWindow?
     private var web: WKWebView?
@@ -37,6 +39,12 @@ final class HelperWindows: NSObject, NSWindowDelegate, WKNavigationDelegate {
     func show(log: URL) {
         if let a = agents?.agents.last(where: { $0.log.place == log.place }) { select("a\(a.id)"); return }
         select("f" + log.deletingPathExtension().appendingPathExtension("chat.jsonl").path)
+    }
+
+    /// Opens the window with the form for a new helper.
+    func showNew() {
+        showList()
+        run("HW.openNew()")
     }
 
     /// Opens the window on the newest helper.
@@ -197,9 +205,67 @@ final class HelperWindows: NSObject, NSWindowDelegate, WKNavigationDelegate {
 
     // MARK: - From the page
 
+    /// Folders helpers worked in, most recent first (for a new helper).
+    private func recentFolders() -> [String] {
+        var seen = Set<String>(), out: [String] = []
+        let now = (agents?.agents ?? []).reversed().map(\.dir.path)
+        for p in now + past.map(\.dir.path) where seen.insert(p).inserted && FileManager.default.fileExists(atPath: p) { out.append(p) }
+        return Array(out.prefix(12))
+    }
+
+    /// A short title from what you typed: its first line, up to about six words.
+    static func title(for task: String) -> String {
+        let first = task.components(separatedBy: "\n").first { !$0.trimmingCharacters(in: .whitespaces).isEmpty } ?? task
+        var w = first.split(separator: " ").prefix(6).map(String.init)
+        while w.count > 2, let last = w.last, ["and", "the", "a", "an", "to", "of", "for", "with", "in", "on", "so", "that"].contains(last.lowercased()) { w.removeLast() }
+        let words = w.joined(separator: " ")
+        let t = words.trimmingCharacters(in: CharacterSet(charactersIn: " .,:;!?"))
+        return t.isEmpty ? "Helper" : String(t.prefix(1)).uppercased() + t.dropFirst()
+    }
+
+    /// Starts a helper from the window's form. Returns an error to show, or nil.
+    func startNew(task: String, dir: String, model: String, plan: Bool) -> String? {
+        let task = task.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !task.isEmpty else { return "Say what it should do." }
+        let path = (dir as NSString).expandingTildeInPath
+        var isDir: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: path, isDirectory: &isDir), isDir.boolValue else { return "That folder doesn’t exist." }
+        let req = AgentRequest(title: Self.title(for: task), dir: path, task: task, model: AgentRequest.modelName(model), planFirst: plan)
+        guard let a = onNew?(req) else { return "It couldn’t start: is Claude Code installed?" }
+        select("a\(a.id)")
+        return nil
+    }
+
     fileprivate func received(_ body: Any) {
         guard let msg = body as? [String: Any], let type = msg["type"] as? String else { return }
         if type == "select", let key = msg["key"] as? String { select(key); return }
+        if type == "newForm" {
+            let home = NSHomeDirectory()
+            let folders = recentFolders().map { ["path": $0, "label": $0.hasPrefix(home + "/") ? "~" + $0.dropFirst(home.count) : $0] }
+            run("HW.newForm(\(Self.json(["folders": folders])))")
+            return
+        }
+        if type == "chooseFolder" {
+            let panel = NSOpenPanel()
+            panel.canChooseDirectories = true
+            panel.canChooseFiles = false
+            panel.allowsMultipleSelection = false
+            panel.prompt = "Choose"
+            panel.message = "The folder the new helper works in"
+            if let w = window {
+                panel.beginSheetModal(for: w) { [weak self] r in
+                    guard r == .OK, let url = panel.url else { return }
+                    let home = NSHomeDirectory(), p = url.path
+                    self?.run("HW.newFolder(\(Self.json(["path": p, "label": p.hasPrefix(home + "/") ? "~" + p.dropFirst(home.count) : p])))")
+                }
+            }
+            return
+        }
+        if type == "new" {
+            let err = startNew(task: msg["task"] as? String ?? "", dir: msg["dir"] as? String ?? "", model: msg["model"] as? String ?? "", plan: (msg["plan"] as? Bool) ?? false)
+            if let err { run("HW.newError(\(Self.str(err)))") }
+            return
+        }
         guard let agents, let key = selected else { return }
         let a = shownID.flatMap { id in agents.agents.first { $0.id == id } }
         switch type {

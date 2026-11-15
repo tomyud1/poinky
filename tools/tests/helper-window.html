@@ -134,6 +134,21 @@ const run = () => {
     q('.end .copy').click();
     check(JSON.stringify(w.HW_OUT.slice(-1)[0]) === '{"type":"copy","text":"Fixed the rounding: shares add up."}', 'Copy summary hands its summary to the app');
 
+    // A new helper from the window (⌘N): what, where, which model, plan first.
+    key('n', { metaKey: true });
+    check(!q('#newf').hidden && d.activeElement === q('#nTask') && JSON.stringify(w.HW_OUT.slice(-1)[0]) === '{"type":"newForm"}', '⌘N opens the new-helper form, ready to type');
+    HW.newForm({ folders: [{ path: '/Users/you/projects/api', label: '~/projects/api' }, { path: '/Users/you/projects/web', label: '~/projects/web' }] });
+    check(q('#nDir').value === '/Users/you/projects/api' && q('#nDir').options.length === 3, `its folder: the most recent one, others to pick, or choose (${q('#nDir').value})`);
+    key('ArrowDown');
+    check(JSON.stringify(w.HW_OUT.slice(-1)[0]) === '{"type":"newForm"}', 'keys typed in the form don’t move the list');
+    q('#nGo').click();
+    check(q('#nErr').textContent === 'Say what it should do.' && !q('#newf').hidden, 'Start with nothing typed says what’s missing');
+    q('#nTask').value = '/review'; q('#nDir').value = '/Users/you/projects/web'; q('#nModel').value = 'opus'; q('#nPlan').checked = true;
+    q('#nTask').dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Enter', metaKey: true, bubbles: true }));
+    check(JSON.stringify(w.HW_OUT.slice(-1)[0]) === '{"type":"new","task":"/review","dir":"/Users/you/projects/web","model":"opus","plan":true}' && q('#newf').hidden, `⌘↩ starts it with the folder, model and plan (${JSON.stringify(w.HW_OUT.slice(-1)[0])})`);
+    key('n', { metaKey: true }); key('Escape');
+    check(q('#newf').hidden, 'Esc closes the form');
+
     // A past helper shown again in full.
     HW.init({ name: 'Coral', title: 'x', color: '#ff7a59', status: 'failed', entries: [{ k: 'task', text: 't' }, { k: 'end', kind: 'failed', text: 'It stopped while: Running the tests' }] });
     check(q('#name').textContent === 'Coral' && qa('.e').length === 2 && q('#pill').textContent === 'Stopped with a problem', 'opening it again redraws everything');

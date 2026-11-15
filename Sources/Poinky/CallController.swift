@@ -240,6 +240,10 @@ final class CallController: NSObject, NSMenuDelegate {
             guard let self else { return nil }
             return self.agents.resume(past, text: text, config: self.config)
         }
+        helperWindows.onNew = { [weak self] req in
+            guard let self else { return nil }
+            return self.agents.start(req, config: self.config)
+        }
         helperScreen.onOpen = { [weak self] id in self?.helperWindows.show(id) }
         helperScreen.onOtherAction = { [weak self] id, action in
             if action == "stop", self?.video.job?.id == id { self?.cancelVideo(say: true) }
@@ -852,6 +856,9 @@ final class CallController: NSObject, NSMenuDelegate {
         }
         ask(question)
     }
+
+    /// The menu: the Helpers window with the form for a new helper (task, folder, model, plan first).
+    @objc func newHelper() { helperWindows.showNew() }
 
     /// ⌃⌥H or the menu: the Helpers window, on the helper under the mouse if there is one.
     @objc func openHelpers() {
@@ -2628,6 +2635,7 @@ final class CallController: NSObject, NSMenuDelegate {
         if hold != "Off" { add("Hold \(hold) to talk, let go to send", nil) }
         add("Type to Poinky…  (\(HotKey.displayString(config.typeHotkey)))", #selector(openTypeBox))
         add("Helpers…  (\(HotKey.displayString(config.helpersHotkey)))", #selector(openHelpers))
+        add("New Helper…", #selector(newHelper))
         switch (state, mode) {
         case (.idle, _):
             add("Start Hands-Free Call  (\(shortcut))", #selector(toggleCall))
