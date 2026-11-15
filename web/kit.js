@@ -904,16 +904,27 @@
       /** Make a part glow and pulse for a few seconds ("this chip here"). */
       highlight(obj, o = {}) {
         if (!obj) return;
-        const col = color(o.color || 'yellow'), start = clock, dur = o.dur ?? 3;
+        const col = color(o.color || 'yellow'), start = clock, dur = o.dur ?? 3, tok = {};
+        // Each material remembers its own glow from before the first highlight, and only the latest
+        // highlight drives it (two quick clicks on a part used to leave it glowing for good).
         const mats = [];
-        obj.traverse(m => { if (m.isMesh && m.material && m.material.emissive) mats.push([m.material, m.material.emissive.clone(), m.material.emissiveIntensity]); });
-        anims.push(t => {
+        obj.traverse(m => {
+          const x = m.isMesh && m.material;
+          if (!x || !x.emissive) return;
+          if (!x.userData.hl) x.userData.hl = { e0: x.emissive.clone(), i0: x.emissiveIntensity };
+          x.userData.hl.tok = tok; mats.push(x);
+        });
+        const fn = t => {
           const u = (t - start) / dur;
-          for (const [m, e0, i0] of mats) {
-            if (u >= 1) { m.emissive.copy(e0); m.emissiveIntensity = i0; continue; }
+          for (const m of mats) {
+            const h = m.userData.hl;
+            if (!h || h.tok !== tok) continue;
+            if (u >= 1) { m.emissive.copy(h.e0); m.emissiveIntensity = h.i0; delete m.userData.hl; continue; }
             m.emissive.copy(col); m.emissiveIntensity = 0.25 + 0.35 * (0.5 + 0.5 * Math.sin((t - start) * 6));
           }
-        });
+          if (u >= 1) anims.splice(anims.indexOf(fn), 1);   // done: stop running every frame
+        };
+        anims.push(fn);
       },
       /** Smoothly zoom the camera onto a part; kit.focus() with no part shows everything again. */
       focus(obj, o = {}) {
@@ -2141,7 +2152,7 @@
     function frame(now) {
       const t = (now - t0) / 1000, dt = Math.min(0.05, (now - last) / 1000); last = now;
       clock = t;
-      for (const fn of anims) { try { fn(t, dt); } catch (e) {} }
+      for (const fn of anims.slice()) { try { fn(t, dt); } catch (e) {} }   // a copy: finished ones remove themselves
       for (let i = intros.length - 1; i >= 0; i--) {
         const a = intros[i], u = Math.min(1, Math.max(0, (t - a.t0) / a.dur));
         // The model's code changed this part while it was still dropping in ("fan.position.y = 2"):

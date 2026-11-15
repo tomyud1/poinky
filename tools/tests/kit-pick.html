@@ -39,6 +39,15 @@
     check(a === 'Left ventricle', `clicking a part says its name from the code (${a})`);
     check(await waitFor(() => shown('Left ventricle')), `and shows it as a tag (${tags()})`);
 
+    // Clicking twice quickly: the glow still ends, and nothing keeps running every frame.
+    const pumpMat = kit.get('left_ventricle').material;
+    await waitFor(() => !pumpMat.userData.hl);   // the first click's glow is over
+    const e0 = pumpMat.emissive.getHex();
+    click([-2, 0.8, 0]); await wait(400); click([-2, 0.8, 0]);
+    check(!!pumpMat.userData.hl, 'it glows while clicked');
+    await waitFor(() => pumpMat.emissive.getHex() === e0 && !pumpMat.userData.hl, 5000);
+    check(pumpMat.emissive.getHex() === e0 && !pumpMat.userData.hl, `a part clicked twice stops glowing (${pumpMat.emissive.getHexString()})`);
+
     const b = click([2, 0.8, 0]);
     check(b === 'Fan', `a labeled part answers with its label (${b})`);
     check(tag('Fan').classList.contains('flash'), 'and its label flashes');
