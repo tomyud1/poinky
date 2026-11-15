@@ -508,7 +508,7 @@ final class CallController: NSObject, NSMenuDelegate {
         askedAt = nil
         if config.memoryEnabled, !sessionExchanges.isEmpty {
             if quitting { DailyNotes.append(DailyNotes.plainNote(sessionExchanges)) }
-            else { Self.writeDailyNote(sessionExchanges, config: config, summary: summary.text) }
+            else { Self.writeDailyNote(sessionExchanges, config: config, summary: summary.full) }
         }
         sessionExchanges.removeAll()
         summary.stop()
@@ -1072,7 +1072,7 @@ final class CallController: NSObject, NSMenuDelegate {
     /// `history` if there's no summary yet).
     private func recapLines() -> [String] {
         guard !history.isEmpty else { return [] }
-        let gist = summary.text
+        let gist = summary.full
         var lines = ["(This session's earlier messages were cleared to keep you fast; old screenshots are gone. So follow-ups still make sense:)"]
         let recent = gist.isEmpty ? history : Array(history.suffix(5))
         if !gist.isEmpty { lines.append("The session so far, in short (what the user told you here still holds: answer with it):\n" + gist) }
@@ -1084,6 +1084,7 @@ final class CallController: NSObject, NSMenuDelegate {
 
     /// After each answer: the summary takes in the exchange, in the background (see `SessionSummary`).
     private func updateSummary(_ you: String, _ poinky: String, note: String?) {
+        summary.pin(from: you)
         var now: [String] = []
         let drawn = overlay.sceneDescription(scale: 1)
             .replacingOccurrences(of: #" at x=-?\d+ y=-?\d+ w=\d+ h=\d+"#, with: "", options: .regularExpression)

@@ -11,6 +11,14 @@ import Foundation
 @MainActor
 final class SessionSummary {
     private(set) var text = ""
+    /// Lasting facts the user stated this session, in their own words (`lastingFact`), kept from the moment
+    /// they're said, whatever the model's summary does with them. Newest last, at most `maxPinned`.
+    private(set) var pinned: [String] = []
+    static let maxPinned = 4
+    /// The summary as the recap and the daily note get it: the user's own words first.
+    var full: String {
+        (pinned.map { "- The user said: «\($0)»" } + (text.isEmpty ? [] : [text])).joined(separator: "\n")
+    }
     private(set) var updates = 0
     private var waiting: [String] = []   // exchanges not folded into `text` yet
     private var context = ""             // what's on screen and which helpers run, as of the newest exchange
@@ -57,6 +65,51 @@ final class SessionSummary {
         return s
     }
 
+    /// Pins the lasting facts in what the user just said (no model, right away).
+    func pin(from utterance: String) {
+        for f in Self.lastingFacts(utterance) where !pinned.contains(f) {
+            pinned.append(f)
+            if pinned.count > Self.maxPinned { pinned.removeFirst() }
+            Timeline.log("summary.pinned", ["chars": f.count])
+        }
+    }
+
+    /// Sentences where the user states something lasting about themselves or their plans: "my exam is on
+    /// Thursday and it covers chapters 3 to 5", "my name is Dana", "the report is due Friday". Not questions,
+    /// not requests ("remind me tomorrow…" is a reminder, handled elsewhere).
+    static func lastingFacts(_ utterance: String) -> [String] {
+        let sentences = utterance.components(separatedBy: CharacterSet(charactersIn: ".!?\n"))
+        let ends = utterance.trimmingCharacters(in: .whitespaces).hasSuffix("?")
+        var out: [String] = []
+        for (i, raw) in sentences.enumerated() {
+            var t = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard t.count >= 8, t.count <= 240 else { continue }
+            if ends, i >= sentences.count - 2 { continue }   // the question itself
+            let low = " " + t.lowercased().replacingOccurrences(of: "’", with: "'") + " "
+            for lead in ["ok so ", "okay so ", "so ", "ok ", "okay ", "well ", "and ", "also ", "oh and ", "by the way ", "btw "]
+                where low.hasPrefix(" " + lead) { t = String(t.dropFirst(lead.count)); break }
+            let start = t.lowercased()
+            let asks = ["what", "why", "how", "which", "when", "where", "who", "can ", "could", "would", "should", "is ",
+                        "are ", "do ", "does", "will", "remind", "set ", "open", "start", "tell", "make", "show",
+                        "explain", "write", "send", "find", "help", "give", "let's", "please"]
+            guard !asks.contains(where: { start.hasPrefix($0) }) else { continue }
+            let me = [" my ", " i ", " i'm ", " i am ", " i've ", " i have ", " we ", " we're ", " our ", " me "]
+            let deadline = low.contains(" due ") || low.contains(" deadline")   // "the report is due Friday"
+            guard deadline || me.contains(where: { low.contains($0) }) else { continue }
+            let lasting = [" monday", " tuesday", " wednesday", " thursday", " friday", " saturday", " sunday",
+                           " january", " february", " march ", " april", " may ", " june", " july", " august",
+                           " september", " october", " november", " december", " tomorrow", " next week",
+                           " due ", " deadline", " exam", " test ", " quiz", " midterm", " final ", " finals",
+                           " interview", " meeting", " appointment", " flight", " birthday", " presentation",
+                           " chapter", " my name is", " call me ", " i'm a ", " i am a ", " i work ", " i study",
+                           " i teach", " my boss", " my teacher", " my professor", " my manager", " my class"]
+            let clock = low.range(of: #"\b\d{1,2}(:\d\d)? ?(am|pm)\b|\b\d{1,2}(st|nd|rd|th)\b|\b\d{1,2}/\d{1,2}\b"#, options: .regularExpression) != nil
+            guard clock || lasting.contains(where: { low.contains($0) }) else { continue }
+            out.append(Recall.clip(t, 200))
+        }
+        return out
+    }
+
     /// `context`: what's drawn and the helpers now (replaces the last one).
     func add(_ exchange: String, context: String) {
         waiting.append(exchange)
@@ -72,6 +125,7 @@ final class SessionSummary {
         running = false
         waiting.removeAll()
         text = ""
+        pinned.removeAll()
         updates = 0
         failures = 0
     }
@@ -114,13 +168,19 @@ final class SessionSummary {
     }
 
     /// The lines that matter most after a swap (Facts, Goal, Open), short enough to send with every question.
-    var keyFacts: String { Self.keyFacts(text) }
+    var keyFacts: String { Self.keyFacts(text, pinned: pinned) }
 
     static let keyFactsMax = 400
-    static func keyFacts(_ summary: String) -> String {
+    static func keyFacts(_ summary: String, pinned: [String] = []) -> String {
         let lines = summary.split(separator: "\n").map(String.init)
         var out: [String] = []
         var room = keyFactsMax
+        if !pinned.isEmpty {
+            let said = "The user said: " + pinned.map { "«\($0)»" }.joined(separator: " ")
+            let c = Recall.clip(said, 250)
+            out.append(c)
+            room -= c.count + 1
+        }
         for label in ["Facts:", "Goal:", "Open:"] {
             for l in lines where l.hasPrefix("- " + label) {
                 let line = String(l.dropFirst(2))

@@ -95,9 +95,48 @@ def said(reply):
     return " ".join(m.strip() for m in re.findall(r"<say>([\s\S]*?)</say>", reply)) or reply.strip()
 
 
-def key_facts(summary, limit=400):
-    """SessionSummary.keyFacts: the Facts, Goal and Open lines, at most 400 characters."""
+ASKS = ["what", "why", "how", "which", "when", "where", "who", "can ", "could", "would", "should", "is ", "are ", "do ",
+        "does", "will", "remind", "set ", "open", "start", "tell", "make", "show", "explain", "write", "send", "find",
+        "help", "give", "let's", "please"]
+ME = [" my ", " i ", " i'm ", " i am ", " i've ", " i have ", " we ", " we're ", " our ", " me "]
+LASTING = [" monday", " tuesday", " wednesday", " thursday", " friday", " saturday", " sunday", " january", " february",
+           " march ", " april", " may ", " june", " july", " august", " september", " october", " november", " december",
+           " tomorrow", " next week", " due ", " deadline", " exam", " test ", " quiz", " midterm", " final ", " finals",
+           " interview", " meeting", " appointment", " flight", " birthday", " presentation", " chapter", " my name is",
+           " call me ", " i'm a ", " i am a ", " i work ", " i study", " i teach", " my boss", " my teacher",
+           " my professor", " my manager", " my class"]
+
+
+def lasting_facts(utterance):
+    """Mirror of SessionSummary.lastingFacts (no model): sentences where the user states something lasting."""
+    sentences = re.split(r"[.!?\n]", utterance)
+    ends = utterance.strip().endswith("?")
+    out = []
+    for i, raw in enumerate(sentences):
+        t = raw.strip()
+        if not 8 <= len(t) <= 240 or (ends and i >= len(sentences) - 2):
+            continue
+        low = " " + t.lower().replace("’", "'") + " "
+        for lead in ["ok so ", "okay so ", "so ", "ok ", "okay ", "well ", "and ", "also ", "oh and ", "by the way ", "btw "]:
+            if low.startswith(" " + lead):
+                t = t[len(lead):]
+                break
+        if any(t.lower().startswith(a) for a in ASKS):
+            continue
+        if not (" due " in low or " deadline" in low or any(m in low for m in ME)):
+            continue
+        clock = re.search(r"\b\d{1,2}(:\d\d)? ?(am|pm)\b|\b\d{1,2}(st|nd|rd|th)\b|\b\d{1,2}/\d{1,2}\b", low)
+        if clock or any(w in low for w in LASTING):
+            out.append(clip(t, 200))
+    return out
+
+
+def key_facts(summary, pinned=(), limit=400):
+    """SessionSummary.keyFacts: the user's pinned words, then the Facts, Goal and Open lines, at most 400 characters."""
     out, room = [], limit
+    if pinned:
+        c = clip("The user said: " + " ".join("«%s»" % p for p in pinned), 250)
+        out.append(c); room -= len(c) + 1
     lines = summary.split("\n")
     for label in ["Facts:", "Goal:", "Open:"]:
         for l in lines:
@@ -131,8 +170,9 @@ def old_recap(history):
     return lines + [f"- User: {clip(u, 200)} / You: {clip(a, 300)}" for u, a in history[-8:]]
 
 
-def new_recap(history, summary):
+def new_recap(history, summary, pinned=()):
     lines = ["(This session's earlier messages were cleared to keep you fast; old screenshots are gone. So follow-ups still make sense:)"]
+    summary = "\n".join(["- The user said: «%s»" % p for p in pinned] + ([summary] if summary else []))   # SessionSummary.full
     if summary:
         m = re.search(r'lines\.append\("(The session so far(?:[^"\\]|\\.)*)" \+ gist\)', R._controller())
         lines.append(R.swift_literal(m.group(1)) + summary)   # the header CallController.recapLines uses
@@ -191,6 +231,8 @@ def main():
     ap.add_argument("--runs", type=int, default=2, help="how many times to ask the last question per recap")
     ap.add_argument("--label", default="continuity")
     ap.add_argument("--rescore", nargs="*", help="score saved results/<label>.json again (no model calls)")
+    ap.add_argument("--no-pin", action="store_true", help="leave out the pinned facts (SessionSummary.lastingFacts), as before they existed")
+    ap.add_argument("--only", choices=["before", "after"], help="ask only one of the two")
     ap.add_argument("--facts", choices=["changed", "every"], default="changed",
                     help="after the swap, send the key facts again with the last question (every) or not (changed: unchanged, so not resent)")
     ap.add_argument("--reuse-summary", action="store_true", help="with --reuse: also take its summary (only the last question is asked)")
@@ -236,8 +278,12 @@ def main():
     print("\nSummary (%d chars):\n%s\n" % (len(summary), summary))
 
     results = {}
-    facts = key_facts(summary)
-    for name, recap in [("before", old_recap(history)), ("after", new_recap(history, summary))]:
+    pinned = [] if a.no_pin else [f for q, _ in history for f in lasting_facts(q)][-4:]
+    print("Pinned:", pinned)
+    facts = key_facts(summary, pinned)
+    for name, recap in [("before", old_recap(history)), ("after", new_recap(history, summary, pinned))]:
+        if a.only and name != a.only:
+            continue
         results[name] = []
         for _ in range(a.runs):
             fresh = Session(prompt)
@@ -255,8 +301,7 @@ def main():
     with open(path, "w", encoding="utf-8") as f:
         f.write(json.dumps(dict(session=log, summary=summary, final=FINAL, results=results),
                            indent=1, ensure_ascii=False).replace(home, "~"))
-    print("\nbefore %d/%d, after %d/%d → %s" % (sum(r["ok"] for r in results["before"]), a.runs,
-                                               sum(r["ok"] for r in results["after"]), a.runs, os.path.relpath(path, R.ROOT)))
+    print("\n" + ", ".join("%s %d/%d" % (k, sum(r["ok"] for r in v), len(v)) for k, v in results.items()), "→", os.path.relpath(path, R.ROOT))
 
 
 if __name__ == "__main__":
