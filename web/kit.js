@@ -105,6 +105,12 @@
     const linesSvg = document.getElementById('lines');
     const tagsDiv = document.getElementById('tags');
     const W = () => stage.clientWidth || innerWidth, H = () => stage.clientHeight || innerHeight;
+    // Reduce Motion (System Settings → Accessibility): no camera sway, swoop or turntable, parts appear
+    // without a bounce, and camera moves are short. What the model itself does (a fan spinning, blood
+    // flowing) still moves: that's the explanation.
+    const rmQuery = window.matchMedia ? matchMedia('(prefers-reduced-motion: reduce)') : null;
+    let reduceMotion = opts.reduceMotion ?? !!(rmQuery && rmQuery.matches);
+    if (rmQuery && opts.reduceMotion == null) try { rmQuery.addEventListener('change', e => { reduceMotion = e.matches; }); } catch (e) {}
 
     const renderer = new T.WebGLRenderer({ antialias: true, alpha: true, stencil: true });
     renderer.localClippingEnabled = true;   // for kit.cut / kit.cutaway
@@ -216,8 +222,8 @@
         if (o.userData.introduced) return;
         o.userData.introduced = true;
         const b = new T.Box3().setFromObject(o), hgt = b.isEmpty() ? 1 : b.getSize(new T.Vector3()).y;
-        const t0 = Math.max(clock + startDelay, introAt + gap); introAt = t0;
-        intros.push({ o, s: o.scale.clone(), y: o.position.y, lift: Math.max(hgt, 0.3) * 1.2, t0, dur: 0.55 });
+        const t0 = Math.max(clock + startDelay, introAt + (reduceMotion ? gap / 3 : gap)); introAt = t0;
+        intros.push({ o, s: o.scale.clone(), y: o.position.y, lift: reduceMotion ? 0 : Math.max(hgt, 0.3) * 1.2, t0, dur: reduceMotion ? 0.2 : 0.55 });
         o.scale.multiplyScalar(0.0001);
       });
     }
@@ -270,7 +276,7 @@
     }
     const meshesOf = obj => { const out = []; obj.traverse(m => { if (m.isMesh && !m.userData.helper) out.push(m); }); return out; };
     function aimCamera(az, el, dur) {
-      camTween = { az0: cam.baseAz, el0: cam.el, az1: az, el1: Math.max(-80 * DEG, Math.min(85 * DEG, el)), t0: clock, dur: Math.max(0.05, dur) };
+      camTween = { az0: cam.baseAz, el0: cam.el, az1: az, el1: Math.max(-80 * DEG, Math.min(85 * DEG, el)), t0: clock, dur: Math.max(0.05, reduceMotion ? Math.min(dur, 0.4) : dur) };
       if (fitted && !focused) fit();   // a new angle can need a different distance
     }
     // A step's camera: where it was heading when the next step started (or when you looked back).
@@ -283,7 +289,7 @@
       let az = v.az;
       while (az - cam.baseAz > Math.PI) az -= 2 * Math.PI;
       while (az - cam.baseAz < -Math.PI) az += 2 * Math.PI;
-      camTween = { az0: cam.baseAz, el0: cam.el, az1: az, el1: v.el, t0: clock, dur };
+      camTween = { az0: cam.baseAz, el0: cam.el, az1: az, el1: v.el, t0: clock, dur: reduceMotion ? Math.min(dur, 0.4) : dur };
       cam.goalTarget.copy(v.target); cam.goalDist = v.dist; focused = v.focused; cam.spin = v.spin || 0;
     }
     const camDir = () => new T.Vector3(Math.cos(cam.el) * Math.sin(cam.baseAz), Math.sin(cam.el), Math.cos(cam.el) * Math.cos(cam.baseAz));
@@ -353,11 +359,24 @@
               stencilFail: T.ReplaceStencilOp, stencilZFail: T.ReplaceStencilOp, stencilZPass: T.ReplaceStencilOp }));
             cap.renderOrder = order + 1; cap.userData.helper = true;
             capsGroup.add(cap);
-            const entry = { cap, mid: b.getCenter(new T.Vector3()), plane };
+            const entry = { cap, mid: b.getCenter(new T.Vector3()), plane, lift: spacing * 0.04 * (capSeq % 40) };   // inner faces sit a hair closer (no shimmer where they overlap)
             caps.push(entry); capList.push(entry);
           });
       }
       obj.userData.cut = { plane, caps, edge, at, setAt, axis: name, sgn };
+      // Seen edge-on (the code chose an axis that faces sideways from here), the cut face is a thin line:
+      // swing to a three-quarter view of it, from the side that was cut away.
+      const goal = camTween ? new T.Vector3(Math.cos(camTween.el1) * Math.sin(camTween.az1), Math.sin(camTween.el1), Math.cos(camTween.el1) * Math.cos(camTween.az1)) : view;
+      if (Math.abs(goal.dot(a)) < 0.4 && o.turn !== false) {
+        const az = camTween ? camTween.az1 : cam.baseAz, el = camTween ? camTween.el1 : cam.el;
+        if (name === 'y') aimCamera(az, sgn * 50 * DEG, o.dur ?? 1.4);
+        else {
+          let want = name === 'z' ? (sgn > 0 ? 0 : Math.PI) : (sgn > 0 ? Math.PI / 2 : -Math.PI / 2);
+          while (want - az > Math.PI) want -= 2 * Math.PI;
+          while (want - az < -Math.PI) want += 2 * Math.PI;
+          aimCamera(want + Math.sign(az - want || 1) * 35 * DEG, Math.max(15 * DEG, Math.min(30 * DEG, el)), o.dur ?? 1.4);
+        }
+      }
       return obj;
     }
     const easeBack = u => { const c1 = 1.4, c3 = c1 + 1; return 1 + c3 * Math.pow(u - 1, 3) + c1 * Math.pow(u - 1, 2); };
@@ -1150,7 +1169,8 @@
       if (tints) geo.setAttribute('color', new T.Float32BufferAttribute(cols, 3));
       geo.setIndex(index);
       const m = new T.Mesh(geo, material({ ...o, color: tints ? '#ffffff' : o.color, rough: o.rough ?? 0.5 }));
-      if (tints) { m.material.vertexColors = true; m.userData.capColor = base.clone(); }
+      // A cut face takes the color of the biggest part (not the grey default when only the parts have colors).
+      if (tints) { m.material.vertexColors = true; m.userData.capColor = o.color ? base.clone() : tints[solid.indexOf(solid.reduce((a, p) => p.R > a.R ? p : a))].clone(); }
       if (!tints && base) m.material.color.copy(base);
       return m;
     }
@@ -1934,7 +1954,7 @@
       const d = Math.max(fitDistance(box, center, az, el) * (labels.length ? 1.14 : 1.04), radius * 0.5);
       // While parts are still arriving, the camera only pulls back (no zooming in and out on each part).
       cam.goalDist = building && fitted ? Math.max(d, cam.goalDist) : d;
-      if (!fitted) { cam.target.copy(center); cam.dist = cam.goalDist * 1.6; cam.az = cam.baseAz - 0.5; fitted = true; }   // swoop in
+      if (!fitted) { cam.target.copy(center); cam.dist = cam.goalDist * (reduceMotion ? 1 : 1.6); cam.az = cam.baseAz - (reduceMotion ? 0 : 0.5); fitted = true; }   // swoop in
       // Shadows: aim the sun at the model and fit its shadow camera around it.
       sun.target.position.copy(center);
       sun.position.copy(center).add(new T.Vector3(0.45, 0.85, 0.6).normalize().multiplyScalar(radius * 3));
@@ -2022,11 +2042,12 @@
       }
       let az = cam.baseAz;
       const idle = (t - lastInteract) > 5;
-      if (cam.spin) { cam.baseAz += cam.spin / 60; az = cam.baseAz; }
-      else if (cam.sway && idle) az = cam.baseAz + Math.sin(t * 0.35) * 0.32;
-      cam.az += (az - cam.az) * 0.08;
-      cam.target.lerp(cam.goalTarget, 0.05);
-      cam.dist += (cam.goalDist - cam.dist) * 0.05;
+      if (cam.spin && !reduceMotion) { cam.baseAz += cam.spin / 60; az = cam.baseAz; }
+      else if (cam.sway && idle && !reduceMotion) az = cam.baseAz + Math.sin(t * 0.35) * 0.32;
+      const k = reduceMotion ? 0.3 : 1;   // glides settle in a few frames instead of a second
+      cam.az += (az - cam.az) * Math.min(1, 0.08 / k);
+      cam.target.lerp(cam.goalTarget, Math.min(1, 0.05 / k));
+      cam.dist += (cam.goalDist - cam.dist) * Math.min(1, 0.05 / k);
       const p = new T.Vector3(Math.cos(cam.el) * Math.sin(cam.az), Math.sin(cam.el), Math.cos(cam.el) * Math.cos(cam.az)).multiplyScalar(cam.dist).add(cam.target);
       camera.position.copy(p); camera.lookAt(cam.target);
     }
@@ -2131,7 +2152,7 @@
       // Filled faces of cut parts stay on their cutting plane.
       for (const c of capList) {
         const n = c.plane.normal;
-        c.cap.position.copy(c.mid).addScaledVector(n, -(n.dot(c.mid) + c.plane.constant));
+        c.cap.position.copy(c.mid).addScaledVector(n, -(n.dot(c.mid) + c.plane.constant) - (c.lift || 0));
         c.cap.lookAt(c.cap.position.clone().sub(n));
       }
       placeCamera(t);
@@ -2140,17 +2161,93 @@
       requestAnimationFrame(frame);
     }
 
+    // ---------- click a part: it lights up and says its name ----------
+    // The part under the pointer: the nearest solid surface that isn't cut away (glass and see-through
+    // shells are clicked through, unless there's nothing behind them).
+    const pickRay = new T.Raycaster();
+    function partAt(px, py) {
+      const r = renderer.domElement.getBoundingClientRect();
+      if (!r.width || !r.height) return null;
+      pickRay.setFromCamera(new T.Vector2((px - r.left) / r.width * 2 - 1, -(py - r.top) / r.height * 2 + 1), camera);
+      // A cut part is solid on its cut face: looking in through the cut, the ray meets the inside of the
+      // part's far wall, so cut parts are hit on both sides for this (the nearest, innermost one wins).
+      const flipped = [];
+      world.traverse(m => { if (m.isMesh && m.material && !Array.isArray(m.material) && m.material.side === T.FrontSide && (m.material.clippingPlanes || []).length) { flipped.push(m.material); m.material.side = T.DoubleSide; } });
+      let hits;
+      try { hits = pickRay.intersectObjects(world.children, true); } finally { flipped.forEach(m => { m.side = T.FrontSide; }); }
+      let behindGlass = null;
+      for (const h of hits) {
+        const m = h.object;
+        if (!m.isMesh || m.userData.helper || m.userData.isGround) continue;
+        let shown = true; for (let p = m; p; p = p.parent) if (!p.visible) shown = false;
+        if (!shown) continue;
+        const mat = Array.isArray(m.material) ? m.material[0] : m.material;
+        if (mat && (mat.clippingPlanes || []).some(pl => pl.distanceToPoint(h.point) < -1e-4)) continue;   // cut away
+        if (mat && mat.transparent && mat.opacity < 0.45) { behindGlass = behindGlass || m; continue; }
+        return m;
+      }
+      return behindGlass;
+    }
+    // A readable name from the code's `name:` ('leftVentricle', 'left_ventricle' → 'Left ventricle');
+    // short codes like 'lv' or 'g2' aren't names.
+    function niceName(n) {
+      if (!n || typeof n !== 'string') return null;
+      const s = n.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/[_\-.]+/g, ' ').replace(/\s*\d+$/, '').trim();
+      if (s.length < 3 || !/[aeiouy]/i.test(s) || /^(group|part|parts|mesh|object|obj|shell|body|base|model|main|root|stage|scene|world)$/i.test(s)) return null;
+      return s[0].toUpperCase() + s.slice(1).toLowerCase();
+    }
+    // What a clicked mesh is: its own label (or an enclosing part's), else the nearest readable name.
+    function whatIs(m) {
+      for (let p = m; p && p !== world; p = p.parent) {
+        const L = labels.find(L => !L.gone && !L.picked && L.target === p);
+        if (L) return { obj: p, text: String(L.text).replace(/\s*\n\s*/g, ' '), label: L };
+        const n = niceName(p.name);
+        if (n) return { obj: p, text: n };
+      }
+      let top = m; while (top.parent && top.parent !== world) top = top.parent;
+      return { obj: top, text: null };
+    }
+    let pickedLabel = null;
+    function pick(px, py) {
+      const m = partAt(px, py);
+      if (pickedLabel) { fadeLabel(pickedLabel); pickedLabel = null; }
+      if (!m) return null;
+      const w = whatIs(m);
+      kit.highlight(w.obj, { color: 'yellow', dur: 1.6 });
+      if (w.label) { w.label.tag.classList.remove('flash'); void w.label.tag.offsetWidth; w.label.tag.classList.add('flash'); }
+      else if (w.text) {
+        pickedLabel = kit.label(w.text, { to: w.obj, color: 'blue', temp: true, _note: -1 });
+        pickedLabel.picked = true; pickedLabel.delay = clock;
+      }
+      try { if (w.text && parent !== window) parent.postMessage({ sbPicked: w.text }, '*'); } catch (e) {}
+      return w.text;
+    }
+    kit.pick = pick;   // for tests: kit.pick(x, y) clicks there
+
     // ---------- drag to rotate, scroll to zoom ----------
-    let drag = null;
-    renderer.domElement.addEventListener('pointerdown', e => { camTween = null; drag = { x: e.clientX, y: e.clientY, az: cam.baseAz, el: cam.el }; lastInteract = (performance.now() - t0) / 1000; cam.spin = 0; });
+    let drag = null, press = null, hoverAt = 0;
+    renderer.domElement.addEventListener('pointerdown', e => { renderer.domElement.style.cursor = ''; press = { x: e.clientX, y: e.clientY, t: performance.now() }; camTween = null; drag = { x: e.clientX, y: e.clientY, az: cam.baseAz, el: cam.el }; lastInteract = (performance.now() - t0) / 1000; cam.spin = 0; });
     addEventListener('pointermove', e => {
-      if (!drag) return;
+      if (!drag) {
+        // A hand over parts you can click (a few times a second: raycasting every frame isn't needed).
+        const now = performance.now();
+        if (e.target === renderer.domElement && now - hoverAt > 120) {
+          hoverAt = now;
+          const m = partAt(e.clientX, e.clientY);
+          renderer.domElement.style.cursor = m ? 'pointer' : '';
+        }
+        return;
+      }
       cam.baseAz = drag.az - (e.clientX - drag.x) * 0.008;
       cam.az = cam.baseAz;
       cam.el = Math.max(-80 * DEG, Math.min(85 * DEG, drag.el + (e.clientY - drag.y) * 0.006));
       lastInteract = (performance.now() - t0) / 1000;
     });
-    addEventListener('pointerup', () => { drag = null; });
+    addEventListener('pointerup', e => {
+      drag = null;
+      if (press && Math.hypot(e.clientX - press.x, e.clientY - press.y) < 5 && performance.now() - press.t < 600) pick(e.clientX, e.clientY);
+      press = null;
+    });
     renderer.domElement.addEventListener('wheel', e => { cam.goalDist *= Math.exp(e.deltaY * 0.001); lastInteract = (performance.now() - t0) / 1000; e.preventDefault(); }, { passive: false });
     addEventListener('resize', () => { renderer.setSize(W(), H()); camera.aspect = W() / H(); camera.updateProjectionMatrix(); });
 

@@ -1,0 +1,75 @@
+<!doctype html><html><head><meta charset="utf-8">
+<!-- 3D models you can touch: clicking a part lights it up and shows its name (or flashes its label), see-through
+     shells and cut-away halves are clicked through; a cut seen edge-on turns the camera to show the cut face,
+     and a cut face takes the color of the part. -->
+<link rel="stylesheet" href="../../web/kit.css"></head><body style="width:800px;height:600px">
+<div id="stage"></div><svg id="lines"></svg><div id="tags"></div><div id="err"></div>
+<script src="../../vendor/three.min.js"></script>
+<script src="../../web/kit.js"></script>
+<script>
+(async () => {
+  const results = [], fail = [];
+  const check = (ok, what) => { results.push((ok ? 'ok   ' : 'FAIL ') + what); if (!ok) fail.push(what); };
+  const wait = ms => new Promise(r => setTimeout(r, ms));
+  const tags = () => [...document.querySelectorAll('#tags .tag')].map(t => t.textContent);
+  const tag = text => [...document.querySelectorAll('#tags .tag')].find(t => t.textContent === text);
+  const shown = text => { const t = tag(text); return !!t && +t.style.opacity === 1; };
+  const waitFor = async (fn, ms = 6000) => { for (let t = 0; t < ms && !fn(); t += 100) await wait(100); return fn(); };
+  try {
+    const kit = Kit({ reduceMotion: true }); kit.start(); window.kit = kit;   // no camera sway: clicks land where we aim
+    const T = THREE;
+    // Where a world point is on screen.
+    const screenOf = p => {
+      kit.camera.updateMatrixWorld();
+      const v = new T.Vector3(...p).project(kit.camera), r = kit.renderer.domElement.getBoundingClientRect();
+      return [r.left + (v.x + 1) / 2 * r.width, r.top + (1 - v.y) / 2 * r.height];
+    };
+    const click = p => kit.pick(...screenOf(p));
+    kit.run(`
+      kit.view({az:30, el:20});
+      const pump = kit.box({size:[1.6,1.6,1.6], at:[-2,0.8,0], color:'blue', name:'left_ventricle'});
+      const fan = kit.cylinder({r:0.8, h:1.6, at:[2,0.8,0], color:'green', name:'fanHousing'});
+      kit.label('Fan', {to: fan, color:'green'});
+      const tank = kit.sphere({r:0.6, at:[0,0.6,3], color:'glass', name:'tank'});
+      const core = kit.sphere({r:0.3, at:[0,0.6,3], color:'orange', name:'core'});
+      kit.box({size:[0.6,0.6,0.6], at:[0,0.3,-2.5], color:'gray', name:'g2'});`);
+    await wait(1500);
+
+    const a = click([-2, 0.8, 0]);
+    check(a === 'Left ventricle', `clicking a part says its name from the code (${a})`);
+    check(await waitFor(() => shown('Left ventricle')), `and shows it as a tag (${tags()})`);
+
+    const b = click([2, 0.8, 0]);
+    check(b === 'Fan', `a labeled part answers with its label (${b})`);
+    check(tag('Fan').classList.contains('flash'), 'and its label flashes');
+    check(await waitFor(() => !tags().includes('Left ventricle')), `the last picked name goes away (${tags()})`);
+    check(tags().filter(t => t === 'Fan').length === 1, 'no second "Fan" tag');
+
+    const c = click([0, 0.6, 3]);
+    check(c === 'Core', `glass is clicked through to what's inside (${c})`);
+
+    const d = click([0, 0.3, -2.5]);
+    check(d === null && await waitFor(() => !tags().includes('Core')), `a part with a code name ("g2") lights up without a made-up name (${d}; ${tags()})`);
+    const e = kit.pick(5, 5);
+    check(e === null, 'clicking empty space picks nothing');
+
+    // A cut chosen along an axis that's edge-on from here: the camera turns to see the cut face.
+    kit.run(`kit.clearLabels(); kit.view('front', {dur:0.2});`);
+    await wait(800);
+    kit.run(`const blob = kit.blob({parts:[{at:[0,0,0], r:1.2, color:'red'}, {at:[0,1,0], r:0.8, color:'red'}], at:[0,1.5,-6], name:'heart'});
+             kit.cut(blob, {axis:'z', dur:0.3});`);
+    await wait(2500);
+    const dir = kit.camera.getWorldDirection(new T.Vector3());
+    check(Math.abs(dir.z) > 0.45, `the cut face isn't seen edge-on (camera dir z ${dir.z.toFixed(2)})`);
+    let cap = null; kit.scene.traverse(m => { if (m.isMesh && m.userData.helper && m.material.map && m.material.stencilWrite && m.material.colorWrite !== false) cap = m; });
+    const col = cap && cap.material.color;
+    check(col && col.r > col.g * 2, `a cut through a colored blob is that color, not grey (${col && col.getHexString()})`);
+    // The cut-away half can't be clicked: the click goes to what's behind it, or nothing.
+    const f = click([0.3, 1.4, -6]);   // the middle of the cut face
+    check(f === 'Heart' && await waitFor(() => shown('Heart')), `a cut part is picked on its cut face (${f})`);
+  } catch (e) { check(false, 'threw: ' + (e && e.stack || e)); }
+  document.body.textContent = results.join('\n');
+  document.title = fail.length ? 'FAIL' : 'PASS';
+  window.testResults = { pass: !fail.length, lines: results };
+})();
+</script></body></html>
