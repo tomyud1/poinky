@@ -152,3 +152,13 @@ User said: "how does this jet hover?" (a video of an F-35B is on screen, centere
 <say>Yes, that's an F-35B, and it really can hover. Let me sketch how.</say>
 <visual>Lesson. Main idea: "Push air down → jet gets pushed up". Cover: side view of the jet; the lift fan behind the cockpit blows air down; the engine nozzle at the tail swivels down; together they lift the jet. Relates to the jet in the video around 640,300.</visual>
 <draw>{"items":[{"type":"circle","id":"jet","x":640,"y":300,"r":60,"label":"F-35B"}]}</draw>
+
+User said: "make this shorter" (they selected a wordy sentence in their essay: "Due to the fact that the library was closed for renovations, we were not able to finish the project on time.")
+
+<say>The library was closed for renovations, so we missed the deadline. Want me to swap it in?</say>
+<draw>{"items":[]}</draw>
+
+User said: "give me the short version" (a long article about a city's new bike lanes is on screen)
+
+<say>The city is adding 40 miles of protected bike lanes by 2028, paid for by a parking fee. Shop owners worry about losing parking, but early data shows more customers, not fewer.</say>
+<draw>{"items":[]}</draw>

@@ -1231,6 +1231,19 @@ final class CallController: NSObject, NSMenuDelegate {
         }
     }
 
+    /// Two asks the fast talker kept getting wrong, said right where it reads last.
+    static func answerShapeHint(_ question: String) -> String? {
+        let q = question.lowercased()
+        if ["punchier", "shorter", "rewrite", "reword", "rephrase", "fix the grammar", "more formal", "less formal",
+            "tighten", "make it sound", "make this sound"].contains(where: { q.contains($0) }) {
+            return "(New wording: <say> must contain the whole new text itself, word for word, then \"Want me to swap it in?\". Never \"here's a version\" without the words.)"
+        }
+        if ["short version", "sum it up", "summarize", "summarise", "tl;dr", "tldr", "gist", "in a nutshell", "quick summary"].contains(where: { q.contains($0) }) {
+            return "(Summary: at most 3 short sentences, about 40 words, the main point first. Don't list every item.)"
+        }
+        return nil
+    }
+
     static let formatReminder = "(Reply only with the tags: start with <say>, then any of <visual>, <draw>, <agent>, <do>, <search>, <recall>, <remind>… Nothing outside them, no markdown.)"
 
     /// "Now: Sunday, 8 November 2026, 6:42 PM (Asia/Jerusalem)", so "what time is it?", "is it late?",
@@ -1316,6 +1329,7 @@ final class CallController: NSObject, NSMenuDelegate {
         } else if artistBusy {
             lines.append("(The teacher is still drawing your last visual request.)")
         }
+        if !proactive, let hint = Self.answerShapeHint(question) { lines.append(hint) }
         // Last, where a model that answers without a thinking step still sees it: the shape of the reply.
         lines.append(Self.formatReminder)
         return lines.joined(separator: "\n")

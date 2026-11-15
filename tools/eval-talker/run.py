@@ -104,6 +104,21 @@ def wants_work_checked(q, work):
     return any(w in s for w in asks) and re.search(pat, work) is not None
 
 
+def answer_shape_hint(q):
+    """CallController.answerShapeHint, read from the source."""
+    src = _controller()
+    if "static func answerShapeHint" not in src:
+        return None
+    body = src[src.index("static func answerShapeHint"):]
+    body = body[:body.index("\n    }\n")]
+    s = q.lower()
+    for block in re.findall(r'if \[([\s\S]*?)\]\.contains[\s\S]*?return "((?:[^"\\]|\\.)*)"', body):
+        words = [swift_literal(w) for w in re.findall(r'"((?:[^"\\]|\\.)*)"', block[0])]
+        if any(w in s for w in words):
+            return swift_literal(block[1])
+    return None
+
+
 def teacher_line():
     m = re.search(r'lines\.append\("(\(The teacher is ALREADY(?:[^"\\]|\\.)*)"\)', _controller())
     return swift_literal(m.group(1))
@@ -133,6 +148,9 @@ def message_text(sc):
     selection = "".join(re.findall(r"«([\s\S]*)»", "\n".join(sc.get("ctx", []))))
     if wants_sketch(q) or wants_work_checked(q, selection):
         lines.append(teacher_line())
+    hint = answer_shape_hint(q)
+    if hint:
+        lines.append(hint)
     m = re.search(r'static let formatReminder = "((?:[^"\\]|\\.)*)"', _controller())
     if m:
         lines.append(swift_literal(m.group(1)))
