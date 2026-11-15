@@ -157,9 +157,12 @@ enum SpokenText {
         s = sub(s, #"√\s*\(([^)]+)\)"#, " the square root of $1")
         s = sub(s, #"√\s*"#, " the square root of ")
         s = sub(s, #"∛\s*"#, " the cube root of ")
+        // fractions: "1/2" → "one half", "x/2" → "x over 2"
+        s = replace(s, #"(?<![\w/.,])(\d{1,3})/(\d{1,3})(?![\w/]|\.\d|,\d)"#) { g in fraction(g[1], g[2]) ?? g[0] }
+        s = sub(s, #"(?<![\w/])([A-Za-z]|\d+|\)|squared|cubed)\s*/\s*([A-Za-z]|\d+)(?![\w/])"#, "$1 over $2")
         // operators between numbers or single letters
-        let left = #"(?<=(?:^|[\s(])(?:\d{1,12}(?:\.\d{1,6})?|[A-Za-z]|\d{1,6}[a-z])|\)|squared|cubed)"#
-        let right = #"(?=\s*(?:\d|[A-Za-z](?:\b|\d|\()|\(|the square|minus|-\d))"#
+        let left = #"(?<=(?:^|[\s(])(?:\d{1,12}(?:\.\d{1,6})?|[A-Za-z]|\d{1,6}[a-z])|\)|squared|cubed|half|halves|thirds?|quarters?|[a-z]{3,6}ths?|over \d{1,6}|of \d{1,6})"#
+        let right = #"(?=\s*(?:\d|[A-Za-z](?:\b|\d|\()|\(|the square|minus|-\d|(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve) (?:[a-z]*ths?|halves|half|thirds?|quarters?)\b))"#
         s = sub(s, left + #"\s*=\s*"# + right, " equals ")
         s = sub(s, left + #"\s*\+\s*"# + right, " plus ")
         s = sub(s, left + #"\s+-\s+"# + right, " minus ")
@@ -168,9 +171,8 @@ enum SpokenText {
         s = sub(s, left + #"\s+<\s+"# + right, " is less than ")
         s = sub(s, #"(?<=\s)=(?=\s)"#, "equals")
         s = sub(s, #"(?<=^|[\s(=])-(?=\d)"#, "minus ")
-        // fractions: "1/2" → "one half", "x/2" → "x over 2"
-        s = replace(s, #"(?<![\w/.,])(\d{1,3})/(\d{1,3})(?![\w/]|\.\d|,\d)"#) { g in fraction(g[1], g[2]) ?? g[0] }
-        s = sub(s, #"(?<![\w/])([A-Za-z]|\d+|\))\s*/\s*([A-Za-z]|\d+)(?![\w/])"#, "$1 over $2")
+        s = sub(s, #"\b(\d+)([a-z])\b"#, "$1 $2")                              // 3x → 3 x (read as "3 times")
+        s = sub(s, #"(?<=\w) > (?=[A-Z])"#, ", then ")                         // Settings > Privacy
         s = sub(s, #"(\d)°(?![CF]\b)"#, "$1 degrees")
         return s
     }
@@ -184,6 +186,7 @@ enum SpokenText {
         guard let n = Int(a), let d = Int(b), d > 0 else { return nil }
         if a == "24" && b == "7" { return "twenty-four seven" }
         if n == d && n > 12 { return "\(n) \(n)" }        // 50/50
+        if d == 10 || d == 100 { return "\(a) out of \(b)" }   // a score: 7/10
         guard n <= 12, d >= 2, d <= 12 else { return "\(a) over \(b)" }
         var word = ordinals[d]
         if n != 1 { word = d == 2 ? "halves" : word + "s" }
@@ -213,6 +216,22 @@ enum SpokenText {
         }
         // 2.1.280 → 2 point 1 point 280 (versions)
         s = replace(s, #"\b[vV]?(\d+(?:\.\d+){2,})\b"#) { g in g[1].replacingOccurrences(of: ".", with: " point ") }
+        // 1.25 → 1 point 2 5 (read as "one. 2 5" otherwise); a version says its parts: 1.10 → 1 point 10
+        s = replace(s, #"(?i)\b(version |v)?(?<![\d.$€£,])(\d+)\.(\d{1,4})(?!\d|\.\d|[A-Za-z%])"#) { g in
+            let frac = g[1].isEmpty ? g[3].map(String.init).joined(separator: " ") : g[3]
+            return g[1] + g[2] + " point " + frac
+        }
+        // 45–60 → 45 to 60; 16:9 → 16 to 9
+        s = sub(s, #"(?<![\d.:-])(\d{1,4})\s*[–—]\s*(\d{1,4})(?![\d.:])"#, "$1 to $2")
+        s = replace(s, #"(?<![\d.:/-])(\d{1,4})-(\d{1,4})(?![\d.:/-])"#) { g in   // 10-12, not 555-1234
+            guard let a = Int(g[1]), let b = Int(g[2]), b > a, g[2].count - g[1].count <= 1, !(g[1].count == 3 && g[2].count == 4) else { return g[0] }
+            return "\(g[1]) to \(g[2])"
+        }
+        s = sub(s, #"\b(\d{1,2}):(\d)\b(?!\d)"#, "$1 to $2")
+        for (k, v) in [("Mon", "Monday"), ("Tue", "Tuesday"), ("Tues", "Tuesday"), ("Wed", "Wednesday"), ("Thu", "Thursday"),
+                       ("Thurs", "Thursday"), ("Fri", "Friday"), ("Sat", "Saturday"), ("Sun", "Sunday")] {
+            s = sub(s, "\\b\(k)\\.?(?=,? (?:\\d|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec))", v)
+        }
         // 10:05 → 10 oh 5; 9:00 → 9 o'clock... keep "10:30" (the voice says it well)
         s = sub(s, #"\b(\d{1,2}):00\b(?!:)"#, "$1")
         s = sub(s, #"\b(\d{1,2}):0(\d)\b(?!:)"#, "$1 oh $2")
@@ -235,6 +254,10 @@ enum SpokenText {
         s = sub(s, #"(?i)\bw/o\b"#, "without")
         s = sub(s, #"(?i)\bw/(?=\s)"#, "with")
         s = sub(s, #"\bbtw\b"#, "by the way")
+        s = sub(s, #"\bpp\.\s*(?=\d)"#, "pages ")
+        s = sub(s, #"\bp\.\s*(?=\d)"#, "page ")
+        s = sub(s, #"\b(?:YoY|yoy)\b"#, "year over year")
+        s = sub(s, #"\bid\b"#, "ID")
         s = sub(s, #"\s&\s"#, " and ")
         return s
     }
