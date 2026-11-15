@@ -42,6 +42,15 @@
   .sb-ripple{position:absolute;width:34px;height:34px;margin:-17px 0 0 -17px;border-radius:50%;border:2.5px solid #3b82ff;
     pointer-events:none;z-index:49;animation:sbRipple .6s ease-out forwards;box-shadow:0 0 10px rgba(59,130,255,.6)}
   @keyframes sbRipple{from{transform:scale(.3);opacity:1}to{transform:scale(1.4);opacity:0}}
+  .sb-glance{position:absolute;width:34px;height:34px;margin:-17px 0 0 -17px;border-radius:50%;pointer-events:none;z-index:49;
+    border:1.5px solid rgba(255,255,255,.9);box-shadow:0 0 10px rgba(160,200,255,.7),inset 0 0 6px rgba(255,255,255,.5);
+    opacity:0;animation:sbGlance .5s cubic-bezier(.2,.7,.3,1) forwards}
+  @keyframes sbGlance{0%{transform:scale(.35);opacity:0}30%{opacity:.85}100%{transform:scale(1.15);opacity:0}}
+  .sb-glance.calm{animation:sbGlanceCalm .55s ease-out forwards}
+  @keyframes sbGlanceCalm{0%{opacity:0}30%{opacity:.7}100%{opacity:0}}
+  .sb-edge{position:fixed;inset:0;pointer-events:none;z-index:48;opacity:0;
+    box-shadow:inset 0 0 0 1.5px rgba(255,255,255,.32),inset 0 0 28px rgba(120,170,255,.22);animation:sbEdge .7s ease-out forwards}
+  @keyframes sbEdge{0%{opacity:0}25%{opacity:1}100%{opacity:0}}
   #hud.buddy{display:none}
   body.talking .pill.marking{display:none}
 
@@ -302,6 +311,20 @@
         r.style.left = x + 'px'; r.style.top = y + 'px';
         document.body.appendChild(r); setTimeout(() => r.remove(), 700);
       }, 380);
+    },
+    /** A screenshot just went to Claude: a quick glint on the buddy (a fade only with Reduced Motion),
+     *  or a faint glow around the screen's edge while the buddy is hidden or elsewhere. */
+    glance() {
+      const visible = buddyOn && buddy.classList.contains('on') && B.placed;
+      const el = document.createElement('div');
+      if (visible) {
+        el.className = 'sb-glance' + (calm ? ' calm' : '');
+        el.style.left = (B.x + 8) + 'px'; el.style.top = (B.y + 8) + 'px';
+      } else {
+        el.className = 'sb-edge';
+      }
+      document.body.appendChild(el);
+      setTimeout(() => el.remove(), 800);
     },
     /** Where your mouse is on this screen (points), or null. */
     cursorPos() { return cursor; },

@@ -332,6 +332,9 @@ final class Overlay: NSObject, WKNavigationDelegate {
     func setClaudeCaption(_ text: String?) { js("SB.caption('claude', \(jsString(text)))") }
     func setYouCaption(_ text: String?) { js("SB.caption('you', \(jsString(text)))") }
     func setArtistBusy(_ on: Bool) { js("SB.artist(\(on ? "true" : "false"))") }
+    /// A short glint on the buddy (or a faint glow around the screen while it's hidden) right after a
+    /// screenshot is taken for Claude, so you always know when Poinky looks.
+    func glance() { js("SB.glance && SB.glance()") }
 
     // MARK: - Setup
 
