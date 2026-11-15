@@ -828,6 +828,7 @@ final class AgentManager {
         case .kept(let branch, let files):
             let why = ok ? "they overlap with other changes in \(w.top.lastPathComponent)" : "it didn't finish"
             record(a.id, HelperEntry(k: "info", text: "Its changes to \(HelperUndo.names(files)) are on the git branch \(branch), because \(why)."))
+            record(a.id, HelperEntry(k: "branch", text: w.top.path, id: branch))   // its window's diff shows that branch
             appendLog(a, "- Kept its changes on the branch \(branch) (\(why)).\n")
             return ok ? "Its changes overlap with other changes in the folder, so they're on the git branch \(branch)." : nil
         case .failed(let why):

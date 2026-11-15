@@ -95,7 +95,7 @@ Still open: the first-run tutorial; rerunning `phonon/install.sh` when an update
 ## 7b. Helpers for power users (status: first pass done on `up/helpers`)
 Why: coders who run several Claude Code sessions in terminals should find Poinky's helpers at least as capable and nicer.
 Built (2026-11-15): a keyboard-first Helpers window (⌃⌥H): needs-you-first overview with each helper's folder, current step and time, Stop all; ⌘N starts a helper by typing (task or /command, folder, model, plan first); ⌘D shows the files it changed and their diff; ⌘T opens its session in Terminal (`claude --resume`); Copy summary; "@Mint …" in the type box; ⌘C/⌘V work in the type box and the window (they did nothing before: no Edit menu).
-Still open: a macOS notification when a helper needs you and no session runs (Allow / Don't allow on it); tokens/cost per helper in the list while it works; reusing a name that's in the list (two "Mint"s); a helper whose overlapping worktree was kept on a `poinky/<name>-…` branch: show that branch's diff.
+Still open: a macOS notification when a helper needs you and no session runs (Allow / Don't allow on it); a live cost estimate (only tokens until a turn ends); talking by name to "Mint 2". Done since: no reused names, live tokens, the diff of work kept on a `poinky/<name>-…` branch (a `branch` entry).
 
 ## 8. Later
 - Approve helpers from the phone (`AwayNotifier` is the start).

@@ -668,6 +668,20 @@ extension HelperTest {
         check(since.contains("-mine, not committed"), "changes: from where it started, your folder as it was then (\(HelperChanges.counts(since)))")
         check(HelperChanges.diff(files: files, in: repo).contains("No changes now"), "changes: without a start point, only what isn't committed")
         check(HelperChanges.base([HelperEntry(k: "worktree", text: "/r", detail: "/w", id: "abc123")]) == "abc123", "changes: a worktree's start point")
+        // Work kept on a branch (its worktree's changes didn't fit): the window shows that branch.
+        sh(["checkout", "-q", "-b", "poinky/coral-test"])
+        try? "def add(a, b):\n    return b + a\n".write(to: repo.appendingPathComponent("calc.py"), atomically: true, encoding: .utf8)
+        sh(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qam", "coral"])
+        sh(["checkout", "-q", "-"])
+        let head = { () -> String in let p = Process(); let o = Pipe(); p.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+            p.arguments = ["-C", repo.path, "rev-parse", "HEAD"]; p.standardOutput = o; try? p.run(); p.waitUntilExit()
+            return String(decoding: o.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines) }()
+        let kept = [HelperEntry(k: "worktree", text: repo.path, detail: "/tmp/gone-worktree-xyz", id: head),
+                    HelperEntry(k: "branch", text: repo.path, id: "poinky/coral-test")]
+        let bd = HelperChanges.branchDiff(kept) ?? ""
+        check(bd.hasPrefix("#@branch poinky/coral-test") && bd.contains("+    return b + a") && bd.contains("-    return a + b"), "changes: work kept on a branch shows that branch's diff")
+        check(HelperChanges.branchDiff([HelperEntry(k: "branch", text: repo.path, id: "poinky/gone")])?.contains("isn't there any more") == true, "changes: a branch that's gone says so")
+        check(HelperChanges.branchDiff(entries) == nil, "changes: no branch, no branch diff")
         let nogit = HelperChanges.diff(files: ["/tmp/x.txt"], in: URL(fileURLWithPath: "/"))
         check(nogit.hasPrefix("# Not in a git repository"), "changes: not in a repo, it says so")
         // A worktree that's gone: its files are shown in your folder.

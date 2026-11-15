@@ -42,6 +42,19 @@ enum HelperChanges {
         entries.last(where: { $0.k == "base" })?.id ?? entries.last(where: { $0.k == "worktree" })?.id
     }
 
+    /// Its work kept on a git branch (its worktree's changes didn't fit your folder): the diff of that
+    /// branch from where it started, starting with "#@branch <name>". Nil if there's no such branch (any more).
+    static func branchDiff(_ entries: [HelperEntry]) -> String? {
+        guard let b = entries.last(where: { $0.k == "branch" }), let branch = b.id, !b.text.isEmpty else { return nil }
+        let repo = URL(fileURLWithPath: b.text)
+        guard let r = git(["rev-parse", "--verify", "--quiet", "refs/heads/" + branch], in: repo), r.code == 0, !r.out.isEmpty else {
+            return "# Its changes were on the git branch \(branch), which isn't there any more (merged or deleted?)."
+        }
+        let from = base(entries).flatMap { c in git(["cat-file", "-e", c + "^{commit}"], in: repo)?.code == 0 ? c : nil } ?? (branch + "^")
+        let d = git(["diff", "--no-color", "--no-ext-diff", from, "refs/heads/" + branch], in: repo)?.out ?? ""
+        return "#@branch \(branch)\n" + (d.isEmpty ? "# No changes on it." : d)
+    }
+
     /// The diff of those files (unified, no color): from `base` (where it started, so what it committed
     /// counts too) when that's known, else from the last commit. Not in a git repo: says so.
     /// Starts with "#@since-start" when it's from where it started.
@@ -67,7 +80,7 @@ enum HelperChanges {
             let untracked = Set((git(["ls-files", "--others", "--exclude-standard", "--"] + rel, in: root)?.out ?? "")
                 .split(separator: "\n").map(String.init))
             let tracked = rel.filter { !untracked.contains($0) }
-            let from = base.flatMap { b in b.allSatisfy(\.isHexDigit) && git(["cat-file", "-e", b + "^{commit}"], in: root) != nil ? b : nil }
+            let from = base.flatMap { b in b.allSatisfy(\.isHexDigit) && git(["cat-file", "-e", b + "^{commit}"], in: root)?.code == 0 ? b : nil }
             if from != nil { parts.append("#@since-start") }
             if !tracked.isEmpty, let d = git(["diff", "--no-color", "--no-ext-diff", from ?? "HEAD", "--"] + tracked, in: root)?.out, !d.isEmpty { parts.append(d) }
             for f in rel where untracked.contains(f) {

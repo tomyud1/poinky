@@ -128,6 +128,8 @@ const run = () => {
     check(q('#diffBody .a') && q('#diffBody .r') && q('#diffBody .f').textContent === 'tipsplit.py' && /No changes now/.test(q('#diffBody .c').textContent), 'added and removed lines colored, the file named, notes shown');
     HW.diff('#@since-start\ndiff --git a/a.py b/a.py\n--- a/a.py\n+++ b/a.py\n@@ -1 +1 @@\n-x\n+y');
     check(/since it started/.test(q('#diffHead').textContent) && !/since-start/.test(q('#diffBody').textContent), `from where it started, it says so (${q('#diffHead').textContent})`);
+    HW.diff('#@branch poinky/coral-20261115t2040\ndiff --git a/a.py b/a.py\n--- a/a.py\n+++ b/a.py\n@@ -1 +1 @@\n-x\n+y');
+    check(/on the git branch poinky\/coral-20261115t2040/.test(q('#diffHead').textContent) && !/#@/.test(q('#diffBody').textContent), `work kept on a branch: it says which (${q('#diffHead').textContent})`);
     key('Escape');
     check(q('#diff').hidden, 'Esc goes back from the diff');
     key('/');

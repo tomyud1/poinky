@@ -511,8 +511,8 @@ footer.off .composer{opacity:.55}
   // A unified diff, colored: file headers, added and removed lines, notes ("# …").
   function renderDiff(text) {
     let add = 0, del = 0, files = 0;
-    const out = [], since = /^#@since-start\n?/.test(text);
-    text = String(text).replace(/^#@since-start\n?/, '');
+    const out = [], since = /^#@since-start\n?/.test(text), br = (String(text).match(/^#@branch (\S+)/) || [])[1];
+    text = String(text).replace(/^#@(since-start|branch \S+)\n?/, '');
     for (const l of String(text).split('\n')) {
       let cls = '';
       if (l.startsWith('diff --git')) { files++; const m = l.match(/ b\/(.*)$/); out.push(`<span class="f">${esc(m ? m[1] : l)}</span>`); continue; }
@@ -524,7 +524,7 @@ footer.off .composer{opacity:.55}
       out.push(`<span${cls ? ` class="${cls}"` : ''}>${esc(l) || ' '}</span>`);
     }
     $('diffBody').innerHTML = out.join('') || '<span class="c">No changes to show.</span>';
-    $('diffHead').innerHTML = files ? `<b>${files} file${files === 1 ? '' : 's'}</b> · <span class="add">+${add}</span> <span class="del">−${del}</span> <span>${since ? 'since it started' : 'as they are now'}</span>` : '<b>Changes</b>';
+    $('diffHead').innerHTML = files ? `<b>${files} file${files === 1 ? '' : 's'}</b> · <span class="add">+${add}</span> <span class="del">−${del}</span> <span>${br ? 'on the git branch ' + esc(br) : since ? 'since it started' : 'as they are now'}</span>` : (br ? `<b>The git branch ${esc(br)}</b>` : '<b>Changes</b>');
     $('diffBody').scrollTop = 0;
     return { files, add, del };
   }
