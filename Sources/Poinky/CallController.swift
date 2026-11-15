@@ -250,6 +250,7 @@ final class CallController: NSObject, NSMenuDelegate {
         }
         video.window.onWantClose = { [weak self] in self?.closeVideo() }
         video.window.onClosed = { [weak self] job in self?.videoClosed(job) }
+        overlay.onLessonSaved = { [weak self] url, pages in self?.lessonSaved(url, pages: pages) }
         typeBox.onSend = { [weak self] text, helper in self?.typed(text, helper: helper) }
         agents.onStarted = { [weak self] a in self?.helperScreen.started(a) }
         agents.onEvent = { [weak self] a, e in self?.helperScreen.event(a, e) }
@@ -895,6 +896,26 @@ final class CallController: NSObject, NSMenuDelegate {
         if said != nil { overlay.setClaudeCaption("Undoing what \(name) did…") }
     }
 
+    /// A save you asked for out loud ("save my notes") is done: say where it went, after what's being said.
+    func lessonSaved(_ url: URL?, pages: Int?) {
+        let line = Self.savedLine(url, pages: pages)
+        guard state != .idle else { sayWhenFree(line); return }
+        speaker.openSource()
+        speaker.enqueue(line)
+        speaker.endTurn()
+        state = .speaking
+    }
+
+    /// "I saved all 3 pages as one PDF on your Desktop."
+    nonisolated static func savedLine(_ url: URL?, pages: Int?) -> String {
+        guard let url else {
+            return pages == nil ? "There's no page to save yet." : "There are no pages to save yet."
+        }
+        let place = LessonSaver.placeName(url) == "Pictures" ? "in Pictures, in the Poinky folder" : "on your \(LessonSaver.placeName(url))"
+        if let n = pages { return n == 1 ? "I saved the page as a PDF \(place)." : "I saved all \(n) pages as one PDF \(place)." }
+        return "I saved a picture of the page \(place)."
+    }
+
     /// A short line now if a session is up, or in a quiet one.
     func sayWhenFree(_ line: String) {
         if state == .idle {
@@ -1517,6 +1538,7 @@ final class CallController: NSObject, NSMenuDelegate {
             }
         }
         handleVideoTags(ev)
+        if let what = ev.saveLesson { overlay.saveLesson(all: what == "all") }
         if ev.end { endAfterSpeaking = true }
     }
 
@@ -1679,7 +1701,10 @@ final class CallController: NSObject, NSMenuDelegate {
         lessonOpen = true
         currentTag = nil
         let frame = paperFrame()
-        overlay.lessonBegin(frame: frame, title: title, continuing: continuing, avoid: focusRegion)
+        // A dark screen behind the paper gets a chalkboard (or what the setting says).
+        let light = config.paperLook == "auto" ? lastSnapshot.flatMap { PaperLook.brightness(of: $0, in: frame) } : nil
+        overlay.lessonBegin(frame: frame, title: title, continuing: continuing, avoid: focusRegion,
+                            look: PaperLook.pick(setting: config.paperLook, brightness: light), session: callID)
         placeCaptions(extra: [frame])
     }
 

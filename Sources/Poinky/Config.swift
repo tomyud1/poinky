@@ -49,6 +49,7 @@ struct AppConfig: Codable {
     var frontAppContext = true         // send the front app's selected text, open document and web address with each question
     var computerControl = true         // Poinky may click and type for you when you ask it to do something
     var webPhotos = true               // pin a photo of the real thing (from Wikipedia) next to 3D models and lessons
+    var paperLook = "auto"             // lesson paper: "auto" (a chalkboard when the screen behind it is dark), "paper", "chalkboard"
     var agentPermission = "auto"        // background agents: "auto" (Claude Code's auto mode; falls back to acceptEdits if it can't start), "acceptEdits" (edit the project + run tests, ask for the rest), "plan"
     var agentModel = ""                // background agents' model ("" = your Claude Code default)
     var maxHelpers = 3                 // helpers (background agents) working at once, 1–6; more wait in line
@@ -114,6 +115,7 @@ struct AppConfig: Codable {
         checkForUpdates = try c.decodeIfPresent(Bool.self, forKey: .checkForUpdates) ?? d.checkForUpdates
         computerControl = try c.decodeIfPresent(Bool.self, forKey: .computerControl) ?? d.computerControl
         webPhotos = try c.decodeIfPresent(Bool.self, forKey: .webPhotos) ?? d.webPhotos
+        paperLook = try c.decodeIfPresent(String.self, forKey: .paperLook) ?? d.paperLook
         agentPermission = try c.decodeIfPresent(String.self, forKey: .agentPermission) ?? d.agentPermission
         agentModel = try c.decodeIfPresent(String.self, forKey: .agentModel) ?? d.agentModel
         maxHelpers = try c.decodeIfPresent(Int.self, forKey: .maxHelpers) ?? d.maxHelpers

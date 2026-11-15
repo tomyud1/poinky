@@ -33,6 +33,8 @@ window.lab = {
     const sw = innerWidth, sh = innerHeight, w = Math.min(760, Math.max(480, sw * .42));
     const frame = opts.frame || { x: sw - w - 24, y: 64, w, h: sh - 88 };
     if (opts.avoid) frame.avoid = opts.avoid;
+    // What the app picks (PaperLook): the chalkboard when the screen behind the paper is dark; ?look= forces one.
+    frame.look = opts.look || params.get('look') || (bg === 'light' ? 'paper' : 'chalk');
     const re = /<lesson([^>]*)>|<\/lesson>|<say>([\s\S]*?)<\/say>|<step>([\s\S]*?)<\/step>/g;
     const items = []; let m;
     while ((m = re.exec(text))) {

@@ -116,6 +116,72 @@
     }
     SB.lessonSaved('Desktop', true);
     check(/Desktop/.test(paperEl.querySelector('.save').textContent), 'the button says where it went');
+    check(paperEl.querySelector('.save.all').hidden, '"Save all" stays hidden while the session has one page');
+
+    // The chalkboard: a dark paper picked when what's behind it is dark (the app passes look: 'chalk').
+    const lum = hex => { const h = hex.replace('#', ''); const [r, g, b] = [0, 2, 4].map(i => parseInt(h.slice(i, i + 2), 16) / 255).map(v => v <= .03928 ? v / 12.92 : Math.pow((v + .055) / 1.055, 2.4)); return .2126 * r + .7152 * g + .0722 * b; };
+    const rgbHex = c => { const m = c.match(/\d+/g); return '#' + m.slice(0, 3).map(v => (+v).toString(16).padStart(2, '0')).join(''); };
+    const contrast = (a, b) => (Math.max(lum(a), lum(b)) + .05) / (Math.min(lum(a), lum(b)) + .05);
+    SB.lessonBegin({ x: 700, y: 60, w: 640, h: 800, look: 'chalk' }, 'chalk page');
+    await wait(50);
+    const board = [...W.document.querySelectorAll('.card.lpaper')].pop();
+    check(board.classList.contains('chalk') && board.querySelector('.grain'), 'a dark screen gets the chalkboard, with its chalk grain');
+    const boardColor = rgbHex(W.getComputedStyle(board).backgroundColor);
+    check(lum(boardColor) < .05, `the board is dark (${boardColor})`);
+    SB.lessonStep({ ops: [
+      { op: 'text', id: 'ct', x: 40, y: 60, text: 'Photosynthesis', size: 32, bold: true },
+      { op: 'text', id: 'cdark', x: 40, y: 120, text: 'written in dark ink', size: 24, color: '#222222' },
+      { op: 'box', id: 'cb', x: 40, y: 160, w: 260, h: 70, text: 'light energy', color: 'yellow' },
+      { op: 'arrow', id: 'ca', from: [320, 195], to: [520, 195], label: 'makes sugar' },
+      { op: 'mark', id: 'cm', target: 'ct' },
+    ] }, 1);
+    await done();
+    const fillOf = id => item(id).querySelector('text').getAttribute('fill');
+    check(contrast(fillOf('ct'), boardColor) > 7, `chalk-white writing reads well on the board (contrast ${contrast(fillOf('ct'), boardColor).toFixed(1)})`);
+    check(contrast(fillOf('cdark'), boardColor) > 7, `a dark color the teacher asked for becomes chalk white (${fillOf('cdark')})`);
+    const penInk = item('cm').querySelector('path').getAttribute('stroke');
+    check(contrast(penInk, boardColor) > 7, `the yellow pen stays bright on the board (${penInk}, contrast ${contrast(penInk, boardColor).toFixed(1)})`);
+    const boxStroke = item('cb').querySelector('path').getAttribute('stroke'), boxFill = item('cb').querySelector('rect').getAttribute('fill');
+    check(lum(boxFill) < .1 && contrast(boxStroke, boxFill) > 5, `boxes get a dark tinted fill and a bright outline (${boxFill}, ${boxStroke})`);
+    const cpic = await SB.lessonPicture();
+    check(cpic && cpic.look === 'chalk' && /^data:image\/png/.test(cpic.png), 'the saved picture is a chalkboard too');
+    if (cpic && cpic.png) {
+      const img = new Image(); img.src = cpic.png; await img.decode();
+      const cv = W.document.createElement('canvas'); cv.width = img.width; cv.height = img.height;
+      const cx = cv.getContext('2d'); cx.drawImage(img, 0, 0);
+      const corner = cx.getImageData(1500, img.height - 20, 1, 1).data;
+      check(lum(rgbHex(`rgb(${corner[0]},${corner[1]},${corner[2]})`)) < .05, `the picture's background is the board (${corner.slice(0, 3).join(',')})`);
+      const title = cx.getImageData(80, 70, 400, 60).data;
+      let bright = 0; for (let i = 0; i < title.length; i += 4) if (title[i] > 180 && title[i + 1] > 180) bright++;
+      check(bright > 300, `the chalk writing is in the picture (${bright} bright pixels in the title)`);
+    }
+
+    // The session's notebook: every paper is kept, in order; "Save all N" makes one PDF of them.
+    const allBtn = board.querySelector('.save.all');
+    check(allBtn && !allBtn.hidden && /2/.test(allBtn.textContent), `a second page shows "Save all 2" (${allBtn && allBtn.textContent})`);
+    SB.lessonStep({ ops: [{ op: 'clear' }, { op: 'text', id: 'p3', x: 40, y: 60, text: 'After the board was wiped', size: 28 }] }, 1);
+    await done();
+    const nb = SB.lessonNotebook();
+    check(nb.length === 3 && nb[0].title === 'test' && nb[1].title === 'chalk page' && nb[0].look === 'paper' && nb[1].look === 'chalk',
+      `the notebook keeps every page in order, wiped boards too (${nb.map(p => p.title + '/' + p.look).join(', ')})`);
+    msgs.length = 0;
+    SB.saveLesson(true);
+    for (let i = 0; i < 100 && !msgs.some(m => m.kind === 'saveNotebook'); i++) await wait(50);
+    const book = msgs.find(m => m.kind === 'saveNotebook');
+    check(book && book.voice === true && book.pages.length === 3 && book.pages.every(p => /^data:image\/png/.test(p.png)) && book.pages[1].title === 'chalk page',
+      `"save my notes" sends all ${book ? book.pages.length : 0} pages as pictures, with their titles`);
+    msgs.length = 0;
+    SB.saveLesson(false);
+    for (let i = 0; i < 100 && !msgs.some(m => m.kind === 'saveLesson'); i++) await wait(50);
+    const one = msgs.find(m => m.kind === 'saveLesson');
+    check(one && one.voice === true && /^data:image\/png/.test(one.png || '') && one.title === 'chalk page', '"save this page" sends the open page, marked as asked by voice');
+    SB.lessonSaved('Desktop', true, true);
+    check(/Desktop/.test(allBtn.textContent), 'the "Save all" button says where the PDF went');
+    // A new session starts a new notebook.
+    SB.lessonBegin({ x: 700, y: 60, w: 640, h: 800, session: 99 }, 'next session');
+    SB.lessonStep({ ops: [{ op: 'text', x: 40, y: 60, text: 'Fresh start', size: 28 }] }, 1);
+    await done();
+    check(SB.lessonNotebook().length === 1 && !W.document.querySelector('.card.lpaper:not(.leaving)').classList.contains('chalk'), 'a new session starts a new notebook (and the light paper comes back)');
   } catch (e) { check(false, 'threw: ' + e.message); }
   window.testResults = { pass: !fail.length, lines: results };
 })();
