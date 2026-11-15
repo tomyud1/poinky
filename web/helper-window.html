@@ -291,6 +291,9 @@ footer.off .composer{opacity:.55}
 
   const fmtTime = s => { s = Math.max(0, Math.round(s)); const m = Math.floor(s / 60); return m >= 60 ? `${Math.floor(m / 60)} h ${m % 60} min` : m ? `${m}:${String(s % 60).padStart(2, '0')}` : `${s} s`; };
   // 950 → "950", 3240 → "3.2k", 48100 → "48k"
+  // A live cost: Claude Code's figure, or "~" when part of it is estimated from tokens (HelperCost).
+  const fmtCost = (d, est) => d == null || d < 0 ? '' : (est ? '~' : '') + '$' + (d < 0.01 ? '0.01' : d.toFixed(2));
+  const costTip = est => est ? ' Cost so far is an estimate from tokens and list prices; Claude Code gives its own figure when a turn ends. On a subscription it counts toward your plan\u2019s limits, not a bill.' : '';
   const fmtTok = n => n < 1000 ? String(n) : n < 10000 ? (n / 1000).toFixed(1).replace(/\.0$/, '') + 'k' : Math.round(n / 1000) + 'k';
   const fmtDur = s => { s = Math.round(s); return s < 60 ? `${s} s` : s < 3600 ? `${Math.round(s / 60)} min` : `${Math.floor(s / 3600)} h ${Math.round((s % 3600) / 60)} min`; };
 
@@ -430,9 +433,9 @@ footer.off .composer{opacity:.55}
     pill.className = 'pill' + (st.waiting && live ? ' wait' : '') + (s === 'done' ? ' done' : s === 'failed' ? ' failed' : '');
     const t = (Date.now() - st.startedAt) / 1000;
     pill.textContent = s === 'queued' ? 'Waiting for a free spot'
-      : s === 'running' ? (st.waiting ? 'Waiting for you' : st.paused ? 'Paused' : 'Working · ' + fmtTime(t) + (st.tokens ? ' · ' + fmtTok(st.tokens) + ' tokens' : ''))
+      : s === 'running' ? (st.waiting ? 'Waiting for you' : st.paused ? 'Paused' : 'Working · ' + fmtTime(t) + (st.tokens ? ' · ' + fmtTok(st.tokens) + ' tokens' : '') + (st.liveCost > 0 ? ' · ' + fmtCost(st.liveCost, st.costEstimated) : ''))
       : s === 'done' ? 'Done' : s === 'failed' ? 'Stopped with a problem' : 'Stopped';
-    pill.title = live && st.tokens ? `It has written ${st.tokens.toLocaleString()} tokens` + (st.context ? `; its conversation is ${st.context.toLocaleString()} tokens long` : '') : '';
+    pill.title = live && st.tokens ? `It has written ${st.tokens.toLocaleString()} tokens` + (st.context ? `; its conversation is ${st.context.toLocaleString()} tokens long` : '') + '.' + costTip(st.costEstimated && st.liveCost > 0) : '';
     $('stop').hidden = !live;
     $('term').hidden = !st.terminal;
     const ch = $('changes'), f = st.files || [];
@@ -571,7 +574,7 @@ footer.off .composer{opacity:.55}
       for (const id of ['main', 'footer', 'now', 'todo']) $(id).style.display = '';
       $('folder').hidden = false;
       st.resumable = !!d.resumable;
-      st.files = d.files || []; st.terminal = !!d.terminal; st.tokens = d.tokens || 0; st.context = d.context || 0;
+      st.files = d.files || []; st.terminal = !!d.terminal; st.tokens = d.tokens || 0; st.context = d.context || 0; st.liveCost = d.liveCost; st.costEstimated = !!d.costEstimated;
       closeDiff();
       st.name = d.name || 'Helper';
       document.title = st.name + (d.title ? ' — ' + d.title : '');
@@ -596,6 +599,7 @@ footer.off .composer{opacity:.55}
       if ('files' in d) st.files = d.files || [];
       if ('tokens' in d) st.tokens = d.tokens || 0;
       if ('context' in d) st.context = d.context || 0;
+      if ('liveCost' in d) { st.liveCost = d.liveCost; st.costEstimated = !!d.costEstimated; }
       if ('terminal' in d) st.terminal = !!d.terminal;
       if (d.elapsed != null && (st.status === 'running' || st.status === 'queued')) st.startedAt = Date.now() - d.elapsed * 1000;
       render();
@@ -625,7 +629,7 @@ footer.off .composer{opacity:.55}
       const ago = s => { s = Math.max(0, Math.round(s || 0)); return s < 60 ? `${s} s` : s < 3600 ? `${Math.floor(s / 60)} min` : `${Math.floor(s / 3600)} h ${Math.floor((s % 3600) / 60)} min`; };
       const row = it => {
         const live = it.status === 'running' || it.status === 'queued';
-        const tag = it.waiting ? 'Needs you' : it.paused ? 'Paused' : it.status === 'queued' ? 'Waiting' : live ? ago(it.elapsed) + (it.tokens ? ' · ' + fmtTok(it.tokens) + ' tokens' : '')
+        const tag = it.waiting ? 'Needs you' : it.paused ? 'Paused' : it.status === 'queued' ? 'Waiting' : live ? ago(it.elapsed) + (it.tokens ? ' · ' + fmtTok(it.tokens) + ' tokens' : '') + (it.liveCost > 0 ? ' · ' + fmtCost(it.liveCost, it.costEstimated) : '')
           : (it.status === 'done' ? '' : it.status === 'failed' ? 'Problem · ' : 'Stopped · ') + (it.ago || '') + (it.cost >= 0.01 ? ' · $' + it.cost.toFixed(2) : '');
         const where = it.dir && it.line ? `${it.dir} · ` : it.dir || '';
         return `<div class="it${it.key === selected ? ' on' : ''}${live ? ' live' : ''}${it.waiting ? ' need' : ''}" data-key="${esc(it.key)}" style="--accent-row:${esc(it.color || '#34c98e')}"><span class="d" style="background:${esc(it.color || '#34c98e')};color:${esc(it.color || '#34c98e')}"></span>` +

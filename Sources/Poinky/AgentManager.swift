@@ -51,6 +51,11 @@ final class AgentManager {
         /// Tokens it has written so far, and the size of its conversation now (live, from the stream).
         var outputTokens = 0
         var contextTokens = 0
+        /// This run's cost by list prices so far (`HelperCost`), and what it was when `cost` last came.
+        var estimate: Double?
+        var estimateAtCost = 0.0
+        /// What to show while it works: Claude Code's figure plus an estimate since (`estimated` then).
+        var liveCost: (dollars: Double, estimated: Bool)? { HelperCost.live(cost: cost, estimate: estimate, estimateAtCost: estimateAtCost) }
 
         /// Its window's record, next to the log.
         var chat: URL { log.deletingPathExtension().appendingPathExtension("chat.jsonl") }
@@ -484,6 +489,7 @@ final class AgentManager {
 
     private func launch(id: Int, req: AgentRequest, config: AppConfig, exe: String) -> Bool {
         guard let agent = agents.first(where: { $0.id == id }) else { return false }
+        if let i = agents.firstIndex(where: { $0.id == id }) { agents[i].estimate = nil; agents[i].estimateAtCost = 0 }   // a new process counts from zero
         let home = FileManager.default.homeDirectoryForCurrentUser
         let dir = agent.dir
         let notes = """
@@ -628,10 +634,11 @@ final class AgentManager {
                 }
                 let events = stream.feed(data)
                 let tokens = (stream.outputTokens, stream.contextTokens)
+                let estimate = stream.estimatedCost
                 var entries = stream.takeEntries()
                 let now = Date().timeIntervalSince(t0)
                 for k in entries.indices { entries[k].t = now }
-                DispatchQueue.main.async { MainActor.assumeIsolated { self?.received(id: id, events: events, entries: entries, tokens: tokens) } }
+                DispatchQueue.main.async { MainActor.assumeIsolated { self?.received(id: id, events: events, entries: entries, tokens: tokens, estimate: estimate) } }
             }
             p.waitUntilExit()
             try? rawHandle?.close()
@@ -642,7 +649,7 @@ final class AgentManager {
     }
 
     /// New output from a helper (possibly no events: it's still a sign of life).
-    private func received(id: Int, events: [HelperEvent], entries: [HelperEntry] = [], tokens: (Int, Int)? = nil) {
+    private func received(id: Int, events: [HelperEvent], entries: [HelperEntry] = [], tokens: (Int, Int)? = nil, estimate: Double? = nil) {
         // Anything new means the helper is busy again: don't let it finish yet.
         closeWork[id]?.cancel()
         closeWork[id] = nil
@@ -652,6 +659,7 @@ final class AgentManager {
             if ctx > 0 { agents[i].contextTokens = ctx }
             onChange?()
         }
+        if let estimate { agents[i].estimate = estimate }
         // Requests for the mouse that Poinky answers itself (you already said yes) aren't shown as questions.
         let handled = Set(events.compactMap { e -> String? in
             if case .asking(let a) = e, a.isHands, handsAllowed.contains(id) { return a.requestID }
@@ -713,7 +721,7 @@ final class AgentManager {
                 onAsksChanged?(agents[i])
             case .turnEnded(let ok, let summary, _, let cost):
                 agents[i].turns += 1
-                if let cost { agents[i].cost = cost }
+                if let cost { agents[i].cost = cost; agents[i].estimateAtCost = agents[i].estimate ?? 0 }
                 // Paused: the interrupted turn ended; it waits for what you say next.
                 if agents[i].paused { onEvent?(agents[i], e); continue }
                 lastTurn[id] = (ok, summary)

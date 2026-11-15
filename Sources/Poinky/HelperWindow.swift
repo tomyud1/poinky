@@ -125,7 +125,8 @@ final class HelperWindows: NSObject, NSWindowDelegate, WKNavigationDelegate {
             return ["key": "a\(a.id)", "name": a.name, "title": a.title, "color": Self.color(a.name), "status": a.status.rawValue,
                     "waiting": !a.asks.isEmpty, "paused": a.paused, "ago": a.finished.map { CallController.ago($0) } ?? "",
                     "line": Self.plainLine(line), "dir": a.dir.lastPathComponent,
-                    "elapsed": (a.finished ?? Date()).timeIntervalSince(a.started), "cost": a.cost ?? 0, "tokens": a.outputTokens]
+                    "elapsed": (a.finished ?? Date()).timeIntervalSince(a.started), "cost": a.cost ?? 0, "tokens": a.outputTokens,
+                    "liveCost": a.liveCost?.dollars ?? -1, "costEstimated": a.liveCost?.estimated ?? false]
         }
         let mine = Set(all.map(\.chat.place))
         for p in past where !mine.contains(p.chat.place) {
@@ -184,6 +185,8 @@ final class HelperWindows: NSObject, NSWindowDelegate, WKNavigationDelegate {
             "cost": a.cost ?? 0,
             "tokens": a.outputTokens,
             "context": a.contextTokens,
+            "liveCost": a.liveCost?.dollars ?? -1,      // -1: unknown (a model not in HelperCost's table)
+            "costEstimated": a.liveCost?.estimated ?? false,
         ]
         if entries {
             d["name"] = a.name

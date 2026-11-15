@@ -44,6 +44,11 @@ struct HelperStream {
     private var usage: [String: Int] = [:]
     private(set) var outputTokens = 0
     private(set) var contextTokens = 0
+    /// Each reply's tokens by kind (for the cost estimate, `HelperCost`), and the session's model.
+    private var replies: [String: HelperCost.Usage] = [:]
+    private var model = ""
+    /// What it has cost so far by list prices (nil: a model not in `HelperCost.prices`).
+    var estimatedCost: Double? { HelperCost.estimate(Array(replies.values), fallbackModel: model) }
 
     mutating func takeEntries() -> [HelperEntry] {
         defer { entries.removeAll() }
@@ -71,6 +76,7 @@ struct HelperStream {
             var seen = Set<String>()
             let cmds = (((obj["slash_commands"] as? [String]) ?? []) + ((obj["skills"] as? [String]) ?? []))
                 .filter { !skip.contains($0) && seen.insert($0).inserted }
+            model = obj["model"] as? String ?? model
             return [.started(session: obj["session_id"] as? String ?? "", model: obj["model"] as? String ?? "", commands: cmds)]
 
         case "assistant":
@@ -81,6 +87,11 @@ struct HelperStream {
                 let key = (msg["id"] as? String) ?? "m\(usage.count)"
                 usage[key] = max(usage[key] ?? 0, n("output_tokens"))
                 outputTokens = usage.values.reduce(0, +)
+                var r = replies[key] ?? HelperCost.Usage()
+                if let m = msg["model"] as? String, !m.isEmpty { r.model = m }
+                r.input = max(r.input, n("input_tokens")); r.output = max(r.output, n("output_tokens"))
+                r.cacheRead = max(r.cacheRead, n("cache_read_input_tokens")); r.cacheWrite = max(r.cacheWrite, n("cache_creation_input_tokens"))
+                replies[key] = r
                 if !nested { contextTokens = n("input_tokens") + n("cache_read_input_tokens") + n("cache_creation_input_tokens") }
             }
             let content = ((obj["message"] as? [String: Any])?["content"] as? [[String: Any]]) ?? []

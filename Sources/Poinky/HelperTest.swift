@@ -627,6 +627,28 @@ extension HelperTest {
         }
         _ = ts.feed(Data((reply("a", 50, 1000, false) + reply("a", 50, 1000, false) + reply("b", 200, 4000, false) + reply("c", 30, 9999, true)).utf8))
         check(ts.outputTokens == 280 && ts.contextTokens == 4003, "tokens: \(ts.outputTokens) written (each reply once, sub-agents too), conversation \(ts.contextTokens) (not a sub-agent's)")
+        // A live cost estimate from the same tokens (list prices; Claude Code's own figure comes at a turn's end).
+        var cs = HelperStream()
+        let costLines: [String] = [
+            #"{"type":"system","subtype":"init","session_id":"s","model":"claude-sonnet-5-5"}"#,
+            #"{"type":"assistant","parent_tool_use_id":null,"message":{"id":"a","content":[],"usage":{"input_tokens":1000,"cache_read_input_tokens":100000,"cache_creation_input_tokens":20000,"output_tokens":5000}}}"#,
+            #"{"type":"assistant","parent_tool_use_id":null,"message":{"id":"a","content":[],"usage":{"input_tokens":1000,"cache_read_input_tokens":100000,"cache_creation_input_tokens":20000,"output_tokens":5000}}}"#,
+            #"{"type":"assistant","parent_tool_use_id":"t1","message":{"id":"h","model":"claude-haiku-5-5","content":[],"usage":{"input_tokens":0,"cache_read_input_tokens":0,"cache_creation_input_tokens":0,"output_tokens":100000}}}"#]
+        _ = cs.feed(Data(costLines.map { $0 + "\n" }.joined().utf8))
+        // Sonnet 5.5: 1000×2 + 5000×10 + 100000×0.10 + 20000×2.5 = 112,000 µ$ = $0.112; its Haiku sub-agent: 100000×0.5 = $0.05.
+        let est = cs.estimatedCost ?? -1
+        check(abs(est - 0.162) < 0.0001, "cost: estimated from each reply's tokens and its own model (\(est))")
+        let pOpus55: Bool = HelperCost.price(for: "claude-opus-5-5[1m]")?.output == 20
+        let pOpus5: Bool = HelperCost.price(for: "claude-opus-5")?.output == 25
+        let pFable: Bool = HelperCost.price(for: "claude-fable-5-1")?.cacheRead == 0.25
+        check(pOpus55 && pOpus5 && pFable && HelperCost.price(for: "gpt-5") == nil, "cost: the price table picks the right model")
+        let l1 = HelperCost.live(cost: nil, estimate: 0.05, estimateAtCost: 0)
+        let l2 = HelperCost.live(cost: 0.40, estimate: 0.30, estimateAtCost: 0.30)
+        let l3 = HelperCost.live(cost: 0.40, estimate: 0.45, estimateAtCost: 0.30)
+        let l4 = HelperCost.live(cost: nil, estimate: nil, estimateAtCost: 0)
+        let liveOK1: Bool = l1?.estimated == true && l2?.dollars == 0.40 && l2?.estimated == false
+        let liveOK2: Bool = abs((l3?.dollars ?? 0) - 0.55) < 1e-9 && l3?.estimated == true && l4 == nil
+        check(liveOK1 && liveOK2, "cost: Claude Code's figure at a turn's end, plus an estimate after it")
         changesChecks(check)
         // A new helper from the Helpers window (⌘N).
         check(HelperWindows.title(for: "fix the failing login test and add one for expired passwords") == "Fix the failing login test", "new helper: a title from the task (\(HelperWindows.title(for: "fix the failing login test and add one for expired passwords")))")
