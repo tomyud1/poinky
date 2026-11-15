@@ -8,6 +8,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Developer check: `open -n -g Poinky.app --args --read-app <out.txt> ["Menu > Item"]`
         // writes what the doer would read about the front app, then quits.
         let args = CommandLine.arguments
+        // Updates (see Updater.swift): `--update-test out.txt` checks, updates and maybe restarts;
+        // the restarted copy gets `--update-relaunched out.txt`, writes which commit it is, and quits.
+        if let i = args.firstIndex(of: "--update-relaunched"), i + 1 < args.count {
+            let line = "relaunched \(Updater.running.commit.prefix(7)) at \(Bundle.main.bundlePath)\n"
+            if let h = FileHandle(forWritingAtPath: args[i + 1]) { h.seekToEndOfFile(); h.write(Data(line.utf8)); try? h.close() }
+            NSApp.terminate(nil)
+            return
+        }
+        if let i = args.firstIndex(of: "--update-test"), i + 1 < args.count {
+            Updater.shared.selfTest(out: args[i + 1])
+            return
+        }
         // `Poinky --read-context out.txt`: what AppContextReader sees in the front app (as the signed app).
         if let i = args.firstIndex(of: "--read-context"), i + 1 < args.count {
             let out = args[i + 1]
@@ -58,7 +70,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         if let i = args.firstIndex(of: "--settings-shot"), i + 1 < args.count {
-            SettingsWindowController.shared.snapshotTab(to: args[i + 1], voice: args.dropFirst(i + 2).first == "voice")
+            SettingsWindowController.shared.snapshotTab(to: args[i + 1], tab: args.dropFirst(i + 2).first ?? "claude")
             return
         }
         if let i = args.firstIndex(of: "--helper-test"), i + 2 < args.count {

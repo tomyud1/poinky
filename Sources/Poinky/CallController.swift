@@ -279,6 +279,7 @@ final class CallController: NSObject, NSMenuDelegate {
         menu.delegate = self
         statusItem.menu = menu
         setupHome()
+        setupUpdater()
         TextIndex.warmUp()   // the first text recognition after a restart can be slow: get it out of the way
         updateUI()
     }
@@ -293,6 +294,7 @@ final class CallController: NSObject, NSMenuDelegate {
         m.onBuddy = { [weak self] in self?.toggleBuddy() }
         m.onSettings = { [weak self] in self?.home.collapse(); self?.openSettings() }
         m.onReset = { [weak self] in self?.home.collapse(); self?.resetEverything() }
+        m.onUpdate = { [weak self] in self?.home.collapse(); self?.config.save(); SettingsWindowController.shared.show(tab: "general") }
         m.onQuit = { NSApp.terminate(nil) }
         m.onOpenReport = { [weak self] r in
             self?.home.collapse()
@@ -344,6 +346,33 @@ final class CallController: NSObject, NSMenuDelegate {
     }
 
     func startCall() { startSession(.handsFree) }
+
+    /// Updates (Settings → General): an arrow in the notch when there's a new version, and a warning
+    /// before restarting would cut off a session or helpers.
+    private func setupUpdater() {
+        let u = Updater.shared
+        u.onChange = { [weak self] in
+            guard let self else { return }
+            switch u.state {
+            case .available: self.home.model.update = "available"
+            case .ready: self.home.model.update = "ready"
+            case .updating: break
+            default: self.home.model.update = ""
+            }
+        }
+        u.busyReason = { [weak self] in
+            guard let self else { return nil }
+            let names = self.agents.running.map(\.name)
+            var parts: [String] = []
+            if self.state != .idle { parts.append("This ends the current session.") }
+            if !names.isEmpty {
+                let who = names.count == 1 ? "\(names[0]) is" : names.dropLast().joined(separator: ", ") + " and \(names.last!) are"
+                parts.append("\(who) still working; restarting stops \(names.count == 1 ? "it" : "them").")
+            }
+            return parts.isEmpty ? nil : parts.joined(separator: " ")
+        }
+        u.autoCheck(config.checkForUpdates)
+    }
 
     /// Quitting: stop background agents too (nothing would hear their results).
     func shutdown() {
@@ -2675,6 +2704,7 @@ final class CallController: NSObject, NSMenuDelegate {
     /// The Settings window saved: pick up what can change right away.
     private func settingsChanged(_ cfg: AppConfig) {
         away.settings(cfg)
+        if cfg.checkForUpdates != config.checkForUpdates { Updater.shared.autoCheck(cfg.checkForUpdates) }
         let hotkeyChanged = cfg.hotkey != config.hotkey || cfg.buddyHotkey != config.buddyHotkey || cfg.typeHotkey != config.typeHotkey
         config = cfg
         ScreenCapture.excludedBundleIDs = Set(cfg.excludedApps)

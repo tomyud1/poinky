@@ -29,6 +29,13 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp .build/release/Poinky "$APP/Contents/MacOS/Poinky"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
+# Which source this is, for Settings → General → Updates (the app updates from this folder).
+if COMMIT="$(git rev-parse HEAD 2>/dev/null)"; then
+  PB=/usr/libexec/PlistBuddy; PLIST="$APP/Contents/Info.plist"
+  DIRTY=0; [ -z "$(git status --porcelain --untracked-files=no 2>/dev/null)" ] || DIRTY=1
+  "$PB" -c "Add :PoinkyCommit string $COMMIT" -c "Add :PoinkyCommitDate string $(git log -1 --format=%cI)" \
+        -c "Add :PoinkyDirty string $DIRTY" -c "Add :PoinkySource string $PWD" "$PLIST"
+fi
 cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 cp prompts/talker-prompt.md prompts/artist-prompt.md prompts/guide-prompt.md prompts/doer-prompt.md prompts/poinky-manual.md "$APP/Contents/Resources/"
 # The voice helper and its installer travel with the app, so the app can install the voice itself

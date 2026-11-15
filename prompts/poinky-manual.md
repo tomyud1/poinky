@@ -34,5 +34,6 @@ Use this when the user asks how Poinky works, what it can do, or how to change s
 - `memoryEnabled`: true/false.
 - `conversationLog`: true/false (keep what was said, for looking it up later). `webSearch`: true/false.
 - `forgetConversations`: "today" or "all" deletes the conversation history ("forget what we talked about today"); it's separate from the remembered facts.
+Updating Poinky: Settings → General → Updates ("Check Now", then Update; it builds the new version on this Mac in about a minute while Poinky keeps working, then "Restart Poinky"). When a new version is out, a green arrow shows in the notch's controls.
 Other settings (language, Claude models, API key, shortcuts, privacy exclusions, what agents may do) are changed in the Settings window; tell the user where.
 Models and effort: Settings → Claude → Models has a model and an effort for each part (talker, teacher, guide, doer, helpers). Higher effort thinks longer: smarter, slower, uses more of the plan. Automatic keeps the voice quick. Opus 5.5 and Fable 5.1 need an up-to-date Claude Code (there's an Update Claude Code button there).

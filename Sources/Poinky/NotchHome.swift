@@ -54,6 +54,7 @@ final class NotchModel: ObservableObject {
     func clearTip() { tipWork?.cancel(); hoverButton = nil; tip = nil }
     @Published var buddyHidden = false
     @Published var agentsRunning = 0
+    @Published var update = ""             // "" · available · ready (shows the update arrow)
     /// What helpers did, newest last: the hover panel lists the latest few, and the ones you haven't
     /// heard yet show as colored dots beside the notch.
     @Published private(set) var reports: [HelperReport] = []
@@ -90,6 +91,7 @@ final class NotchModel: ObservableObject {
     var onBuddy: () -> Void = {}
     var onSettings: () -> Void = {}
     var onReset: () -> Void = {}
+    var onUpdate: () -> Void = {}
     var onQuit: () -> Void = {}
 
     static let wing: CGFloat = 80
@@ -322,6 +324,11 @@ struct NotchView: View {
                 NotchIcon(m: m, id: "end", icon: "stop.circle", tip: "End the session (clears the screen; the next \(m.holdKeys) starts a new one)", action: m.onEnd)
             }
             NotchIcon(m: m, id: "reset", icon: "arrow.clockwise", tip: "Not responding? Restart Poinky's voice, mic and Claude sessions (helpers keep working)", action: m.onReset)
+            if !m.update.isEmpty {
+                NotchIcon(m: m, id: "update", icon: m.update == "ready" ? "arrow.down.circle.fill" : "arrow.down.circle",
+                          tip: m.update == "ready" ? "The new version of Poinky is ready: click to restart into it" : "A new version of Poinky is available: click to see what's new and update",
+                          tint: Color.green, action: m.onUpdate)
+            }
             NotchIcon(m: m, id: "settings", icon: "gearshape", tip: "Settings: voice, shortcuts, Claude models, memory, privacy", action: m.onSettings)
             NotchIcon(m: m, id: "quit", icon: "power", tip: "Quit Poinky (stops background agents too)", action: m.onQuit)
         }

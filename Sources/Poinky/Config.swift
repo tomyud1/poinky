@@ -44,6 +44,7 @@ struct AppConfig: Codable {
     var memoryEnabled = true           // remember things about you between sessions (stored only on this Mac)
     var conversationLog = true         // keep what you and Poinky said (conversations/*.jsonl, only on this Mac) so it can look it up later
     var webSearch = true               // the main buddy may do a quick web search itself (Claude Code brain only)
+    var checkForUpdates = true         // look for a new Poinky on GitHub now and then (never installs by itself)
     var frontAppContext = true         // send the front app's selected text, open document and web address with each question
     var computerControl = true         // Poinky may click and type for you when you ask it to do something
     var webPhotos = true               // pin a photo of the real thing (from Wikipedia) next to 3D models and lessons
@@ -108,6 +109,7 @@ struct AppConfig: Codable {
         conversationLog = try c.decodeIfPresent(Bool.self, forKey: .conversationLog) ?? d.conversationLog
         webSearch = try c.decodeIfPresent(Bool.self, forKey: .webSearch) ?? d.webSearch
         frontAppContext = try c.decodeIfPresent(Bool.self, forKey: .frontAppContext) ?? d.frontAppContext
+        checkForUpdates = try c.decodeIfPresent(Bool.self, forKey: .checkForUpdates) ?? d.checkForUpdates
         computerControl = try c.decodeIfPresent(Bool.self, forKey: .computerControl) ?? d.computerControl
         webPhotos = try c.decodeIfPresent(Bool.self, forKey: .webPhotos) ?? d.webPhotos
         agentPermission = try c.decodeIfPresent(String.self, forKey: .agentPermission) ?? d.agentPermission

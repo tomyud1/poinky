@@ -13,6 +13,8 @@ final class SettingsModel: ObservableObject {
     var onSaved: ((AppConfig) -> Void)?
     /// What happened when you sent a test notification to your phone.
     @Published var awayTestResult: String?
+    /// Which tab is showing (the notch's update arrow opens General).
+    @Published var tab = "general"
     /// Plays a sample with the local voice (provided by the app, which owns the voice helper).
     var previewVoice: ((String, Double) -> Void)?
 
@@ -117,8 +119,9 @@ final class SettingsWindowController {
     let model = SettingsModel()
     private var window: NSWindow?
 
-    func show() {
+    func show(tab: String? = nil) {
         model.reload()
+        if let tab { model.tab = tab }
         if window == nil {
             let host = NSHostingController(rootView: SettingsView(model: model))
             let w = NSWindow(contentViewController: host)
@@ -133,14 +136,17 @@ final class SettingsWindowController {
     }
 
     /// Developer check (`--settings-shot <out.png> [voice]`): a picture of the Claude (or Voice) tab, then quit.
-    func snapshotTab(to out: String, voice: Bool = false) {
+    func snapshotTab(to out: String, tab name: String = "claude") {
         model.reload()
-        let tab = voice ? AnyView(VoiceTab(model: model)) : AnyView(ClaudeTab(model: model))
-        let host = NSHostingView(rootView: tab.frame(width: 620, height: voice ? 560 : 900))
-        let w = NSWindow(contentRect: CGRect(x: -3000, y: 0, width: 620, height: voice ? 560 : 900), styleMask: [.borderless], backing: .buffered, defer: false)
+        let voice = name == "voice"
+        let tab = voice ? AnyView(VoiceTab(model: model)) : name == "general" ? AnyView(GeneralTab(model: model)) : AnyView(ClaudeTab(model: model))
+        let h: CGFloat = voice ? 560 : name == "general" ? 1000 : 900
+        let host = NSHostingView(rootView: tab.frame(width: 620, height: h))
+        let w = NSWindow(contentRect: CGRect(x: -3000, y: 0, width: 620, height: h), styleMask: [.borderless], backing: .buffered, defer: false)
         w.contentView = host
         w.orderFrontRegardless()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+        let delay = Double(ProcessInfo.processInfo.environment["POINKY_SHOT_DELAY"] ?? "") ?? 2.5
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
             if let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) {
                 host.cacheDisplay(in: host.bounds, to: rep)
                 try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: out))
@@ -156,13 +162,13 @@ struct SettingsView: View {
     @ObservedObject var model: SettingsModel
 
     var body: some View {
-        TabView {
-            GeneralTab(model: model).tabItem { Label("General", systemImage: "gearshape") }
-            VoiceTab(model: model).tabItem { Label("Voice", systemImage: "waveform") }
-            ClaudeTab(model: model).tabItem { Label("Claude", systemImage: "sparkles") }
-            MemoryTab(model: model).tabItem { Label("Memory", systemImage: "brain") }
-            PrivacyTab(model: model).tabItem { Label("Privacy", systemImage: "hand.raised") }
-            AdvancedTab(model: model).tabItem { Label("Advanced", systemImage: "wrench.and.screwdriver") }
+        TabView(selection: $model.tab) {
+            GeneralTab(model: model).tabItem { Label("General", systemImage: "gearshape") }.tag("general")
+            VoiceTab(model: model).tabItem { Label("Voice", systemImage: "waveform") }.tag("voice")
+            ClaudeTab(model: model).tabItem { Label("Claude", systemImage: "sparkles") }.tag("claude")
+            MemoryTab(model: model).tabItem { Label("Memory", systemImage: "brain") }.tag("memory")
+            PrivacyTab(model: model).tabItem { Label("Privacy", systemImage: "hand.raised") }.tag("privacy")
+            AdvancedTab(model: model).tabItem { Label("Advanced", systemImage: "wrench.and.screwdriver") }.tag("advanced")
         }
         .frame(width: 580, height: 460)
         .padding(.top, 6)
@@ -177,8 +183,12 @@ private let languages: [(String, String)] = [
 
 private struct GeneralTab: View {
     @ObservedObject var model: SettingsModel
+    @ObservedObject var updater = Updater.shared
+    /// An update waiting, building or ready goes first (the notch's arrow opens this tab).
+    private var updateFirst: Bool { [.available, .updating, .ready].contains(updater.state) }
     var body: some View {
         Form {
+            if updateFirst { UpdateSection(model: model) }
             Section {
                 Picker("Hold to talk", selection: $model.config.pushToTalk) {
                     ForEach(pushOptions, id: \.1) { Text($0.0).tag($0.1) }
@@ -241,8 +251,67 @@ private struct GeneralTab: View {
                 Text("Hold ⌥ Option and click or drag to mark things on screen any time Poinky is active.")
                     .font(.callout).foregroundStyle(.secondary)
             }
+            if !updateFirst { UpdateSection(model: model) }
         }
         .formStyle(.grouped)
+    }
+}
+
+/// Settings → General → Updates: this version, what's new, Update, then Restart.
+private struct UpdateSection: View {
+    @ObservedObject var model: SettingsModel
+    @ObservedObject var updater = Updater.shared
+
+    var body: some View {
+        Section("Updates") {
+            LabeledContent("This version") { Text(updater.version).textSelection(.enabled) }
+            switch updater.state {
+            case .available:
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(updater.changes.isEmpty ? "A new version is available." :
+                         "A new version is available (\(updater.changes.count == 30 ? "30+" : "\(updater.changes.count)") change\(updater.changes.count == 1 ? "" : "s")):")
+                    ForEach(Array(updater.changes.prefix(6).enumerated()), id: \.offset) { _, c in
+                        Text("• " + c).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                    }
+                    if updater.changes.count > 6 { Text("and \(updater.changes.count - 6) more").font(.caption).foregroundStyle(.secondary) }
+                }
+                HStack {
+                    Text("Poinky keeps working while it builds (about a minute).").font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Update") { updater.update() }.keyboardShortcut(.defaultAction)
+                }
+            case .updating:
+                VStack(alignment: .leading, spacing: 6) {
+                    ProgressView(value: updater.progress)
+                    Text(updater.step).font(.caption).foregroundStyle(.secondary)
+                }
+            case .ready:
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("The new version is ready. Restart Poinky to use it.")
+                    if let w = updater.restartWarning { Text(w).font(.caption).foregroundStyle(.orange) }
+                }
+                HStack { Spacer(); Button("Restart Poinky") { updater.restart() }.keyboardShortcut(.defaultAction) }
+            default:
+                HStack {
+                    Text(status).font(.callout).foregroundStyle(.secondary).textSelection(.enabled)
+                    Spacer()
+                    Button(updater.state == .checking ? "Checking…" : "Check Now") { updater.check() }
+                        .disabled(updater.state == .checking)
+                }
+            }
+            Toggle("Check for updates automatically", isOn: $model.config.checkForUpdates)
+        }
+        .onAppear { if model.config.checkForUpdates { updater.checkIfStale() } }
+    }
+
+    private var status: String {
+        let at = updater.lastChecked.map { " (checked at \($0.formatted(date: .omitted, time: .shortened)))" } ?? ""
+        switch updater.state {
+        case .upToDate: return "Poinky is up to date\(at)."
+        case .failed(let why), .unavailable(let why): return why
+        case .checking: return "Looking for a new version…"
+        default: return "Gets the newest Poinky from GitHub and builds it on this Mac."
+        }
     }
 }
 
