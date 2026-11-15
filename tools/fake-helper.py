@@ -101,8 +101,16 @@ def wait_answer(rid):
             answered.wait(0.2)
         return answers.pop(rid)
 
+_replies = [0]
 def emit(obj):
     obj = {k: v for k, v in obj.items() if k != "_t"}
+    # The recordings have no usage: give each reply some, the way Claude Code reports it (per message).
+    msg = obj.get("message") if obj.get("type") == "assistant" else None
+    if isinstance(msg, dict) and "usage" not in msg:
+        _replies[0] += 1
+        msg = dict(msg, usage={"input_tokens": 4, "cache_read_input_tokens": 12000 + 900 * _replies[0], "cache_creation_input_tokens": 300, "output_tokens": 120})
+        msg.setdefault("id", "msg_fake_%d" % _replies[0])
+        obj = dict(obj, message=msg)
     with out_lock:
         sys.stdout.write(json.dumps(obj) + "\n")
         sys.stdout.flush()

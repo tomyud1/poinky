@@ -58,6 +58,8 @@ const run = () => {
     check(qa('.note').some(n => /My plan/.test(n.textContent) && n.querySelector('ol li')), 'notes in full, lists rendered');
     HW.status({ status: 'running', waiting: false, now: 'Running the tests', elapsed: 90 });
     check(!q('#now').hidden && q('#nowTxt').textContent === 'Running the tests' && /^Working · 1:3\d$/.test(q('#pill').textContent), `"doing now" and the time (${q('#pill').textContent})`);
+    HW.status({ tokens: 48100, context: 61234 });
+    check(/^Working · 1:3\d · 48k tokens$/.test(q('#pill').textContent) && /61,234 tokens long/.test(q('#pill').title), `live tokens in the header, its conversation size on hover (${q('#pill').textContent})`);
     const end = S[S.length - 1];
     HW.add(end); HW.status({ status: 'done', waiting: false });
     check(q('.end .head span').textContent === 'Done' && /All 4 tests pass/.test(q('.end .note').textContent), 'done: its summary');
@@ -94,12 +96,12 @@ const run = () => {
     // The overview on the left: who needs you first, what each is doing, where.
     HW.list([
       { key: 'a2', name: 'Coral', title: 'Add dark mode', color: '#ff7a59', status: 'running', waiting: true, line: 'Can I run npm install?', dir: 'web-app', elapsed: 300 },
-      { key: 'a1', name: 'Mint', title: 'Fix rounding', color: '#34c98e', status: 'running', line: 'Running the tests', dir: 'tipsplit', elapsed: 125 },
+      { key: 'a1', name: 'Mint', title: 'Fix rounding', color: '#34c98e', status: 'running', line: 'Running the tests', dir: 'tipsplit', elapsed: 125, tokens: 3240 },
       { key: 'a3', name: 'Violet', title: 'Docs', color: '#9b6bff', status: 'done', line: 'Updated the README.', dir: 'docs', ago: '2 min ago', cost: 0.42 },
       { key: 'f/x.chat.jsonl', name: 'Amber', title: 'Yesterday', status: 'done', earlier: true, line: 'Did it.', dir: 'api' }], 'a1');
     const rows = qa('.it');
     check(rows.length === 4 && rows[0].classList.contains('need') && /Needs you/.test(rows[0].textContent), 'the helper that needs you is first, marked "Needs you"');
-    check(/tipsplit · Running the tests/.test(rows[1].querySelector('.l').textContent) && /2 min/.test(rows[1].querySelector('small').textContent), `each row: its folder, what it's doing, how long (${rows[1].querySelector('.l').textContent} / ${rows[1].querySelector('small').textContent})`);
+    check(/tipsplit · Running the tests/.test(rows[1].querySelector('.l').textContent) && rows[1].querySelector('small').textContent === '2 min · 3.2k tokens', `each row: its folder, what it's doing, how long, tokens so far (${rows[1].querySelector('.l').textContent} / ${rows[1].querySelector('small').textContent})`);
     check(rows[2].querySelector('small').textContent === '2 min ago · $0.42', 'a finished one: when, and its usage (' + rows[2].querySelector('small').textContent + ')');
     check(!q('#stopAll').hidden, 'two at work: "Stop all" is offered');
     q('#stopAll').click();
@@ -126,6 +128,8 @@ const run = () => {
     check(q('#diffBody .a') && q('#diffBody .r') && q('#diffBody .f').textContent === 'tipsplit.py' && /No changes now/.test(q('#diffBody .c').textContent), 'added and removed lines colored, the file named, notes shown');
     HW.diff('#@since-start\ndiff --git a/a.py b/a.py\n--- a/a.py\n+++ b/a.py\n@@ -1 +1 @@\n-x\n+y');
     check(/since it started/.test(q('#diffHead').textContent) && !/since-start/.test(q('#diffBody').textContent), `from where it started, it says so (${q('#diffHead').textContent})`);
+    HW.diff('#@branch poinky/coral-20261115t2040\ndiff --git a/a.py b/a.py\n--- a/a.py\n+++ b/a.py\n@@ -1 +1 @@\n-x\n+y');
+    check(/on the git branch poinky\/coral-20261115t2040/.test(q('#diffHead').textContent) && !/#@/.test(q('#diffBody').textContent), `work kept on a branch: it says which (${q('#diffHead').textContent})`);
     key('Escape');
     check(q('#diff').hidden, 'Esc goes back from the diff');
     key('/');

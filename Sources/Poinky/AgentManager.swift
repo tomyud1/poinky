@@ -48,6 +48,9 @@ final class AgentManager {
         var entries: [HelperEntry] = []
         /// What Claude Code says it cost so far (dollars), from its last answer.
         var cost: Double?
+        /// Tokens it has written so far, and the size of its conversation now (live, from the stream).
+        var outputTokens = 0
+        var contextTokens = 0
 
         /// Its window's record, next to the log.
         var chat: URL { log.deletingPathExtension().appendingPathExtension("chat.jsonl") }
@@ -624,10 +627,11 @@ final class AgentManager {
                     }
                 }
                 let events = stream.feed(data)
+                let tokens = (stream.outputTokens, stream.contextTokens)
                 var entries = stream.takeEntries()
                 let now = Date().timeIntervalSince(t0)
                 for k in entries.indices { entries[k].t = now }
-                DispatchQueue.main.async { MainActor.assumeIsolated { self?.received(id: id, events: events, entries: entries) } }
+                DispatchQueue.main.async { MainActor.assumeIsolated { self?.received(id: id, events: events, entries: entries, tokens: tokens) } }
             }
             p.waitUntilExit()
             try? rawHandle?.close()
@@ -638,11 +642,16 @@ final class AgentManager {
     }
 
     /// New output from a helper (possibly no events: it's still a sign of life).
-    private func received(id: Int, events: [HelperEvent], entries: [HelperEntry] = []) {
+    private func received(id: Int, events: [HelperEvent], entries: [HelperEntry] = [], tokens: (Int, Int)? = nil) {
         // Anything new means the helper is busy again: don't let it finish yet.
         closeWork[id]?.cancel()
         closeWork[id] = nil
         guard let i = agents.firstIndex(where: { $0.id == id }), agents[i].status == .running else { return }
+        if let (out, ctx) = tokens, out != agents[i].outputTokens || (ctx > 0 && ctx != agents[i].contextTokens) {
+            agents[i].outputTokens = out
+            if ctx > 0 { agents[i].contextTokens = ctx }
+            onChange?()
+        }
         // Requests for the mouse that Poinky answers itself (you already said yes) aren't shown as questions.
         let handled = Set(events.compactMap { e -> String? in
             if case .asking(let a) = e, a.isHands, handsAllowed.contains(id) { return a.requestID }
@@ -825,6 +834,7 @@ final class AgentManager {
         case .kept(let branch, let files):
             let why = ok ? "they overlap with other changes in \(w.top.lastPathComponent)" : "it didn't finish"
             record(a.id, HelperEntry(k: "info", text: "Its changes to \(HelperUndo.names(files)) are on the git branch \(branch), because \(why)."))
+            record(a.id, HelperEntry(k: "branch", text: w.top.path, id: branch))   // its window's diff shows that branch
             appendLog(a, "- Kept its changes on the branch \(branch) (\(why)).\n")
             return ok ? "Its changes overlap with other changes in the folder, so they're on the git branch \(branch)." : nil
         case .failed(let why):

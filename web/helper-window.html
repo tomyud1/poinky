@@ -290,6 +290,8 @@ footer.off .composer{opacity:.55}
   }
 
   const fmtTime = s => { s = Math.max(0, Math.round(s)); const m = Math.floor(s / 60); return m >= 60 ? `${Math.floor(m / 60)} h ${m % 60} min` : m ? `${m}:${String(s % 60).padStart(2, '0')}` : `${s} s`; };
+  // 950 → "950", 3240 → "3.2k", 48100 → "48k"
+  const fmtTok = n => n < 1000 ? String(n) : n < 10000 ? (n / 1000).toFixed(1).replace(/\.0$/, '') + 'k' : Math.round(n / 1000) + 'k';
   const fmtDur = s => { s = Math.round(s); return s < 60 ? `${s} s` : s < 3600 ? `${Math.round(s / 60)} min` : `${Math.floor(s / 3600)} h ${Math.round((s % 3600) / 60)} min`; };
 
   const st = { runs: 0, curCp: null, resumable: false, name: 'Helper', status: 'running', startedAt: Date.now(), asks: new Map(), files: [], terminal: false, items: [], selected: '', group: null, open: new Set(), todoOpen: true, ended: false, waiting: false, now: '' };
@@ -428,8 +430,9 @@ footer.off .composer{opacity:.55}
     pill.className = 'pill' + (st.waiting && live ? ' wait' : '') + (s === 'done' ? ' done' : s === 'failed' ? ' failed' : '');
     const t = (Date.now() - st.startedAt) / 1000;
     pill.textContent = s === 'queued' ? 'Waiting for a free spot'
-      : s === 'running' ? (st.waiting ? 'Waiting for you' : st.paused ? 'Paused' : 'Working · ' + fmtTime(t))
+      : s === 'running' ? (st.waiting ? 'Waiting for you' : st.paused ? 'Paused' : 'Working · ' + fmtTime(t) + (st.tokens ? ' · ' + fmtTok(st.tokens) + ' tokens' : ''))
       : s === 'done' ? 'Done' : s === 'failed' ? 'Stopped with a problem' : 'Stopped';
+    pill.title = live && st.tokens ? `It has written ${st.tokens.toLocaleString()} tokens` + (st.context ? `; its conversation is ${st.context.toLocaleString()} tokens long` : '') : '';
     $('stop').hidden = !live;
     $('term').hidden = !st.terminal;
     const ch = $('changes'), f = st.files || [];
@@ -508,8 +511,8 @@ footer.off .composer{opacity:.55}
   // A unified diff, colored: file headers, added and removed lines, notes ("# …").
   function renderDiff(text) {
     let add = 0, del = 0, files = 0;
-    const out = [], since = /^#@since-start\n?/.test(text);
-    text = String(text).replace(/^#@since-start\n?/, '');
+    const out = [], since = /^#@since-start\n?/.test(text), br = (String(text).match(/^#@branch (\S+)/) || [])[1];
+    text = String(text).replace(/^#@(since-start|branch \S+)\n?/, '');
     for (const l of String(text).split('\n')) {
       let cls = '';
       if (l.startsWith('diff --git')) { files++; const m = l.match(/ b\/(.*)$/); out.push(`<span class="f">${esc(m ? m[1] : l)}</span>`); continue; }
@@ -521,7 +524,7 @@ footer.off .composer{opacity:.55}
       out.push(`<span${cls ? ` class="${cls}"` : ''}>${esc(l) || ' '}</span>`);
     }
     $('diffBody').innerHTML = out.join('') || '<span class="c">No changes to show.</span>';
-    $('diffHead').innerHTML = files ? `<b>${files} file${files === 1 ? '' : 's'}</b> · <span class="add">+${add}</span> <span class="del">−${del}</span> <span>${since ? 'since it started' : 'as they are now'}</span>` : '<b>Changes</b>';
+    $('diffHead').innerHTML = files ? `<b>${files} file${files === 1 ? '' : 's'}</b> · <span class="add">+${add}</span> <span class="del">−${del}</span> <span>${br ? 'on the git branch ' + esc(br) : since ? 'since it started' : 'as they are now'}</span>` : (br ? `<b>The git branch ${esc(br)}</b>` : '<b>Changes</b>');
     $('diffBody').scrollTop = 0;
     return { files, add, del };
   }
@@ -568,7 +571,7 @@ footer.off .composer{opacity:.55}
       for (const id of ['main', 'footer', 'now', 'todo']) $(id).style.display = '';
       $('folder').hidden = false;
       st.resumable = !!d.resumable;
-      st.files = d.files || []; st.terminal = !!d.terminal;
+      st.files = d.files || []; st.terminal = !!d.terminal; st.tokens = d.tokens || 0; st.context = d.context || 0;
       closeDiff();
       st.name = d.name || 'Helper';
       document.title = st.name + (d.title ? ' — ' + d.title : '');
@@ -591,6 +594,8 @@ footer.off .composer{opacity:.55}
       if ('paused' in d) st.paused = !!d.paused;
       if ('now' in d) st.now = d.now || '';
       if ('files' in d) st.files = d.files || [];
+      if ('tokens' in d) st.tokens = d.tokens || 0;
+      if ('context' in d) st.context = d.context || 0;
       if ('terminal' in d) st.terminal = !!d.terminal;
       if (d.elapsed != null && (st.status === 'running' || st.status === 'queued')) st.startedAt = Date.now() - d.elapsed * 1000;
       render();
@@ -620,7 +625,7 @@ footer.off .composer{opacity:.55}
       const ago = s => { s = Math.max(0, Math.round(s || 0)); return s < 60 ? `${s} s` : s < 3600 ? `${Math.floor(s / 60)} min` : `${Math.floor(s / 3600)} h ${Math.floor((s % 3600) / 60)} min`; };
       const row = it => {
         const live = it.status === 'running' || it.status === 'queued';
-        const tag = it.waiting ? 'Needs you' : it.paused ? 'Paused' : it.status === 'queued' ? 'Waiting' : live ? ago(it.elapsed)
+        const tag = it.waiting ? 'Needs you' : it.paused ? 'Paused' : it.status === 'queued' ? 'Waiting' : live ? ago(it.elapsed) + (it.tokens ? ' · ' + fmtTok(it.tokens) + ' tokens' : '')
           : (it.status === 'done' ? '' : it.status === 'failed' ? 'Problem · ' : 'Stopped · ') + (it.ago || '') + (it.cost >= 0.01 ? ' · $' + it.cost.toFixed(2) : '');
         const where = it.dir && it.line ? `${it.dir} · ` : it.dir || '';
         return `<div class="it${it.key === selected ? ' on' : ''}${live ? ' live' : ''}${it.waiting ? ' need' : ''}" data-key="${esc(it.key)}" style="--accent-row:${esc(it.color || '#34c98e')}"><span class="d" style="background:${esc(it.color || '#34c98e')};color:${esc(it.color || '#34c98e')}"></span>` +

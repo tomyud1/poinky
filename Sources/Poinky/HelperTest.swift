@@ -82,7 +82,7 @@ enum HelperTest {
             }
         }
         m.onFinished = { a in
-            log("#\(a.id) \(a.name) FINISHED \(a.status.rawValue) turns=\(a.turns) steps=\(a.steps.count) checklist=\(a.checklist.count) blocked=\(a.blocked.count) followUps=\(a.followUps.count): \(a.summary.prefix(160))")
+            log("#\(a.id) \(a.name) FINISHED \(a.status.rawValue) turns=\(a.turns) steps=\(a.steps.count) checklist=\(a.checklist.count) blocked=\(a.blocked.count) followUps=\(a.followUps.count) tokens=\(a.outputTokens)/\(a.contextTokens): \(a.summary.prefix(160))")
             finishIfDone()
         }
         // Answers, by helper: "1=yes,2=No, use a pad helper,3=ignore" (said to it, a second after it asks).
@@ -603,6 +603,13 @@ extension HelperTest {
         let n2 = AgentManager.pickName(used: AgentManager.names.map { ($0, false) })
         let n3 = AgentManager.pickName(used: AgentManager.names.map { ($0, false) } + [("Mint 2", true)], reserved: ["Coral 2"])
         check(n1 == "Coral" && n2 == "Mint 2" && n3 == "Violet 2", "names: a finished Mint isn't reused (\(n1)); after all six: \(n2), then \(n3)")
+        // Tokens from the stream: a reply's usage repeats on each of its parts, so it counts once.
+        var ts = HelperStream()
+        let reply = { (id: String, out: Int, ctx: Int, nested: Bool) in
+            #"{"type":"assistant","parent_tool_use_id":"# + (nested ? #""t1""# : "null") + #","message":{"id":""# + id + #"","content":[],"usage":{"input_tokens":3,"cache_read_input_tokens":"# + "\(ctx)" + #","cache_creation_input_tokens":0,"output_tokens":"# + "\(out)" + "}}}\n"
+        }
+        _ = ts.feed(Data((reply("a", 50, 1000, false) + reply("a", 50, 1000, false) + reply("b", 200, 4000, false) + reply("c", 30, 9999, true)).utf8))
+        check(ts.outputTokens == 280 && ts.contextTokens == 4003, "tokens: \(ts.outputTokens) written (each reply once, sub-agents too), conversation \(ts.contextTokens) (not a sub-agent's)")
         changesChecks(check)
         // A new helper from the Helpers window (⌘N).
         check(HelperWindows.title(for: "fix the failing login test and add one for expired passwords") == "Fix the failing login test", "new helper: a title from the task (\(HelperWindows.title(for: "fix the failing login test and add one for expired passwords")))")
@@ -661,6 +668,20 @@ extension HelperTest {
         check(since.contains("-mine, not committed"), "changes: from where it started, your folder as it was then (\(HelperChanges.counts(since)))")
         check(HelperChanges.diff(files: files, in: repo).contains("No changes now"), "changes: without a start point, only what isn't committed")
         check(HelperChanges.base([HelperEntry(k: "worktree", text: "/r", detail: "/w", id: "abc123")]) == "abc123", "changes: a worktree's start point")
+        // Work kept on a branch (its worktree's changes didn't fit): the window shows that branch.
+        sh(["checkout", "-q", "-b", "poinky/coral-test"])
+        try? "def add(a, b):\n    return b + a\n".write(to: repo.appendingPathComponent("calc.py"), atomically: true, encoding: .utf8)
+        sh(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qam", "coral"])
+        sh(["checkout", "-q", "-"])
+        let head = { () -> String in let p = Process(); let o = Pipe(); p.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+            p.arguments = ["-C", repo.path, "rev-parse", "HEAD"]; p.standardOutput = o; try? p.run(); p.waitUntilExit()
+            return String(decoding: o.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines) }()
+        let kept = [HelperEntry(k: "worktree", text: repo.path, detail: "/tmp/gone-worktree-xyz", id: head),
+                    HelperEntry(k: "branch", text: repo.path, id: "poinky/coral-test")]
+        let bd = HelperChanges.branchDiff(kept) ?? ""
+        check(bd.hasPrefix("#@branch poinky/coral-test") && bd.contains("+    return b + a") && bd.contains("-    return a + b"), "changes: work kept on a branch shows that branch's diff")
+        check(HelperChanges.branchDiff([HelperEntry(k: "branch", text: repo.path, id: "poinky/gone")])?.contains("isn't there any more") == true, "changes: a branch that's gone says so")
+        check(HelperChanges.branchDiff(entries) == nil, "changes: no branch, no branch diff")
         let nogit = HelperChanges.diff(files: ["/tmp/x.txt"], in: URL(fileURLWithPath: "/"))
         check(nogit.hasPrefix("# Not in a git repository"), "changes: not in a repo, it says so")
         // A worktree that's gone: its files are shown in your folder.
