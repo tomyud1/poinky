@@ -6,6 +6,7 @@ enum HelperTest {
     private static var manager: AgentManager?
     private static var manager2: AgentManager?
     private static var away: AwayNotifier?
+    private static var notifier: HelperNotifier?
     private static var restarted = false
     private static var lines: [String] = []
 
@@ -81,7 +82,24 @@ enum HelperTest {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { NSApp.terminate(nil) }
             }
         }
+        // POINKY_TEST_NOTIFY=<allow|deny|choose|open,choose…>: no session runs, so a request becomes a Mac
+        // notification (a fake center: no permission prompt), and these buttons are clicked on it, a second apart.
+        let notifyClicks = (env["POINKY_TEST_NOTIFY"] ?? "").split(separator: ",").compactMap { HelperNotifier.Action(rawValue: String($0)) }
+        let fakeCenter = FakeNotifications()
+        if !notifyClicks.isEmpty {
+            let n = HelperNotifier(poster: fakeCenter)
+            notifier = n
+            var c = config
+            c.helperNotify = true; c.helperNotifyDone = true
+            n.settings(c)
+            n.isAway = { true }
+            fakeCenter.log = { log($0) }
+            n.onAnswer = { id, rid, reply in log("from a notification: #\(id) \(reply) → \(m.answer(id: id, requestID: rid, reply))") }
+            n.onOpen = { id in log("from a notification: open #\(id)'s window") }
+        }
         m.onFinished = { a in
+            notifier?.stillOpen(m.agents.flatMap { h in h.asks.map { (h.id, $0) } })
+            notifier?.finished(a)
             log("#\(a.id) \(a.name) FINISHED \(a.status.rawValue) turns=\(a.turns) steps=\(a.steps.count) checklist=\(a.checklist.count) blocked=\(a.blocked.count) followUps=\(a.followUps.count) tokens=\(a.outputTokens)/\(a.contextTokens): \(a.summary.prefix(160))")
             finishIfDone()
         }
@@ -103,6 +121,16 @@ enum HelperTest {
             n.onAnswer = { id, rid, reply in log("from the phone: #\(id) \(reply) → \(m.answer(id: id, requestID: rid, reply))") }
         }
         m.onAsksChanged = { a in
+            notifier?.stillOpen(m.agents.flatMap { h in h.asks.map { (h.id, $0) } })
+            if let n = notifier, let first = a.asks.first {
+                n.asking(a, first, inSession: false)
+                for (k, action) in notifyClicks.enumerated() {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1 + Double(k)) {
+                        log("click \(action.rawValue) on #\(a.id)'s notification")
+                        fakeCenter.click(action, agent: a.id)
+                    }
+                }
+            }
             away?.stillOpen(Set(m.agents.flatMap { $0.asks.map(\.requestID) }))
             if let first = a.asks.first { away?.asking(a, first) }
             guard let ask = a.asks.first else { log("#\(a.id) \(a.name) has no open requests"); return }
@@ -662,6 +690,7 @@ extension HelperTest {
               "new helper: task, folder (~ expanded), model and plan reach the app (\(String(describing: got)))")
         editMenuChecks(check)
         askChecks(check)
+        notifierChecks(check)
         lines.append(fails == 0 ? "ALL OK" : "\(fails) FAILED")
         try? lines.joined(separator: "\n").write(toFile: out, atomically: true, encoding: .utf8)
         DispatchQueue.main.async { NSApp.terminate(nil) }
@@ -742,5 +771,97 @@ extension HelperTest {
                                           ("a", #selector(NSText.selectAll(_:))), ("z", Selector(("undo:"))), ("z⇧", Selector(("redo:"))),
                                           ("w", #selector(NSWindow.performClose(_:)))]
         for (k, sel) in want { check(keys[k] == sel, "edit menu: ⌘\(k.uppercased()) → \(NSStringFromSelector(sel))") }
+    }
+}
+
+extension HelperTest {
+    /// Mac notifications for helpers, through a fake notification center (no permission prompt on this Mac).
+    static func notifierChecks(_ check: (Bool, String) -> Void) {
+        func request(_ id: String, _ tool: String, _ input: [String: Any]) -> HelperAsk? {
+            HelperAsk.from(["type": "control_request", "request_id": id, "request": ["subtype": "can_use_tool", "tool_name": tool, "input": input]])
+        }
+        guard let npm = request("r1", "Bash", ["command": "make build"]),
+              let push = request("r2", "Bash", ["command": "git push origin main --force"]),
+              let edit = request("r3", "Edit", ["file_path": "/tmp/proj/calc.py"]),
+              let q = request("r4", "AskUserQuestion", ["questions": [["question": "Tabs or spaces?", "options": [["label": "Tabs"], ["label": "Spaces"]]]]]),
+              let plan = request("r5", "ExitPlanMode", ["plan": "# Fix the rounding\n1. Read calc.py"])
+        else { check(false, "notifier: requests parse"); return }
+        let fake = FakeNotifications()
+        let n = HelperNotifier(poster: fake)
+        var c = AppConfig()
+        c.helperNotify = true
+        n.settings(c)
+        var away = false
+        n.isAway = { away }
+        var answers: [(Int, String, HelperAsk.Reply)] = [], opened: [Int] = []
+        n.onAnswer = { answers.append(($0, $1, $2)) }
+        n.onOpen = { opened.append($0) }
+        var a = AgentManager.Agent(id: 7, name: "Mint 2", title: "Add left-pad to the demo", task: "…", dir: URL(fileURLWithPath: "/tmp/proj"), started: Date(), log: URL(fileURLWithPath: "/tmp/x.md"))
+
+        n.asking(a, npm, inSession: true)
+        check(fake.posted.isEmpty, "notifier: in a session Poinky says it out loud (no notification)")
+        n.asking(a, npm, inSession: false)
+        let p1 = fake.posted.last
+        check(p1?.title == "Mint 2: Add left-pad to the demo" && p1?.body == "Can I run make build?" && p1?.category == HelperNotifier.askCategory,
+              "notifier: no session: its name and task, the plain question (\(p1.map { "\($0.title) / \($0.body)" } ?? "none"))")
+        n.asking(a, npm, inSession: true, parked: true)
+        check(fake.posted.count == 1, "notifier: parked later: not shown twice")
+        fake.click(.allow, agent: 7)
+        check(answers.count == 1 && answers[0].0 == 7 && answers[0].1 == "r1" && answers[0].2 == .yes(always: false, extra: ""),
+              "notifier: Allow answers that one request with a plain yes (never \"always\")")
+        fake.click(.allow, agent: 7)
+        check(answers.count == 1, "notifier: a second click on an answered one does nothing")
+
+        // Answered by voice (or on the card): its notification goes away, and its buttons no longer count.
+        n.asking(a, edit, inSession: false)
+        n.stillOpen([])
+        check(fake.removed.contains(HelperNotifier.id(edit)), "notifier: answered elsewhere: its notification is removed")
+        fake.click(.allow, agent: 7)
+        check(answers.count == 1, "notifier: … and Allow on it does nothing")
+
+        // Risky: Allow still works (an explicit click), but the exact command is said, and the Allow is the red one.
+        a.asks = [push]
+        n.asking(a, push, inSession: true, parked: true)
+        let p2 = fake.posted.last
+        check(p2?.category == HelperNotifier.riskyCategory && p2?.body.contains("git push origin main --force") == true,
+              "notifier: a risky one says exactly what it runs (\(p2?.body.replacingOccurrences(of: "\n", with: " / ") ?? ""))")
+        fake.click(.deny, agent: 7)
+        check(answers.last?.1 == "r2" && answers.last?.2 == .no(reason: ""), "notifier: Don't allow says no")
+
+        // A question: Open shows its window (answers nothing); You choose answers it.
+        n.asking(a, q, inSession: false)
+        check(fake.posted.last?.category == HelperNotifier.questionCategory && fake.posted.last?.body == "Tabs or spaces?\nTabs · Spaces", "notifier: a question with its choices")
+        let before = answers.count
+        fake.click(.allow, agent: 7)
+        fake.click(.open, agent: 7)
+        check(answers.count == before && opened == [7, 7], "notifier: a question isn't answered by Allow; Open shows its window")
+        fake.click(.choose, agent: 7)
+        check(answers.last?.1 == "r4" && answers.last?.2 == .answer("No preference: you choose."), "notifier: You choose answers the question")
+
+        n.asking(a, plan, inSession: false)
+        check(fake.posted.last?.category == HelperNotifier.planCategory && fake.posted.last?.body.contains("Fix the rounding") == true, "notifier: a plan, with its title")
+
+        // Finished: only when asked for, and only while you're away.
+        a.status = .done; a.summary = "Added left-pad. All tests pass. Nothing else changed."
+        let count = fake.posted.count
+        n.finished(a)
+        check(fake.posted.count == count, "notifier: finished: off unless you turn it on")
+        c.helperNotifyDone = true
+        n.settings(c); n.isAway = { away }
+        n.finished(a)
+        check(fake.posted.count == count, "notifier: finished while you're at the Mac: no notification")
+        away = true
+        n.finished(a)
+        check(fake.posted.last?.title == "Mint 2 finished: Add left-pad to the demo" && fake.posted.last?.body == "Added left-pad. All tests pass.",
+              "notifier: finished while away: \(fake.posted.last.map { "\($0.title) / \($0.body)" } ?? "none")")
+        fake.click(.open, agent: 7)
+        check(opened.last == 7, "notifier: clicking it opens its window")
+
+        // Turned off: nothing, and what was shown goes away.
+        c.helperNotify = false
+        n.settings(c)
+        let count2 = fake.posted.count
+        n.asking(a, edit, inSession: false)
+        check(fake.posted.count == count2 && fake.removed.contains(HelperNotifier.id(plan)), "notifier: turned off: no notifications, open ones removed")
     }
 }
