@@ -136,6 +136,7 @@ enum BrainFactory {
             prompt += Memory.promptSection(enabled: config.memoryEnabled)
         }
         if role == .talker { prompt += LookUp.promptSection(config) }
+        if role == .talker { Receipts.sessionParts = Receipts.parts(memoryEnabled: config.memoryEnabled) }
         switch config.brain {
         case .claudeCode:
             return ClaudeCodeBrain(model: config.model(for: role), effort: config.effort(for: role),

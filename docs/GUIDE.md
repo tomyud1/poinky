@@ -6,6 +6,7 @@ The full tour. For a quick start, see the [README](../README.md).
 
 - **Your voice stays on your Mac.** Speech-to-text is Apple's on-device engine; the voice (Phonon or Apple) runs locally.
 - **Screenshots and your transcribed question go to Claude** (through Claude Code or the Anthropic API), only when you ask something (and at each step while it's guiding you or acting for you). Nothing is captured in between.
+- **See exactly what was sent:** hover the notch and click **What I saw** (or Settings → Privacy → Show What Poinky Saw). Each of the last 20 questions has a receipt: the screenshot, every line about the app in front, which of your files (personality, About me, memory, notes) were in Claude's instructions, and any web search. Receipts stay on your Mac; turn them off (which deletes them) in Settings → Privacy. A quick glint on the buddy shows each time Poinky takes a screenshot.
 - **Password managers are never captured** (Passwords, Keychain, 1Password, Bitwarden, LastPass by default; add more in Settings → Privacy).
 - Memory, settings and agent logs are plain files in `~/Library/Application Support/Poinky/`.
 - When a lesson shows a photo of something, Poinky searches Wikipedia for it (only the search words are sent, not your screen).

@@ -88,6 +88,9 @@ final class CallController: NSObject, NSMenuDelegate {
     private var quitting = false   // the app is quitting: no time for a model to write the daily note
     private var sessionExchanges: [(user: String, assistant: String)] = []
     private var frontContext = AppContext()
+    private var receiptID: String?            // this turn's receipt (Receipts), so a lookup or the teacher adds to it
+    private var receiptTurn = -1
+    private var guideReceiptID: String?
     private var reminderTimer: Timer?
     private var dueLines: [String] = []          // reminders that came due, waiting for a moment you're free
     private var reminderCheckPending = false
@@ -306,6 +309,7 @@ final class CallController: NSObject, NSMenuDelegate {
         let settings = SettingsWindowController.shared.model
         settings.onSaved = { [weak self] cfg in self?.settingsChanged(cfg) }
         settings.previewVoice = { [weak self] voice, speed in self?.previewVoice(voice: voice, speed: speed) }
+        settings.startFresh = { [weak self] in self?.resetEverything() }
         // Load the local voice in the background now, so the first call doesn't wait for it.
         if wantsPhonon(config) { try? phonon.start() }
         PhononInstaller.shared.onInstalled = { [weak self] in self?.voiceInstalled() }
@@ -339,9 +343,21 @@ final class CallController: NSObject, NSMenuDelegate {
         m.onTeacher = { [weak self] in self?.toggleArtist() }
         m.onBuddy = { [weak self] in self?.toggleBuddy() }
         m.onSettings = { [weak self] in self?.home.collapse(); self?.openSettings() }
-        m.onReset = { [weak self] in self?.home.collapse(); self?.resetEverything() }
         m.onUpdate = { [weak self] in self?.home.collapse(); self?.config.save(); SettingsWindowController.shared.show(tab: "general") }
         m.onQuit = { NSApp.terminate(nil) }
+        m.onReceipts = { [weak self] in self?.home.collapse(); ReceiptsWindow.shared.show() }
+        ReceiptsWindow.shared.model.onSettings = { SettingsWindowController.shared.show(tab: "privacy") }
+        Receipts.enabled = config.receipts
+        let refreshReceipt = { [weak m] in
+            guard let m else { return }
+            let r = Receipts.latest
+            m.receiptLine = r?.short ?? ""
+            m.receiptDetail = r?.summary ?? ""
+            m.receiptAt = r?.at ?? .distantPast
+            ReceiptsWindow.shared.model.reload()   // an open window updates too (a lookup adds to the last one)
+        }
+        Receipts.onChange = refreshReceipt
+        refreshReceipt()
         m.onOpenReport = { [weak self] r in
             self?.home.collapse()
             self?.helperWindows.show(log: r.log)
@@ -863,6 +879,12 @@ final class CallController: NSObject, NSMenuDelegate {
             speaker.stop()
             mergeNext = true
         }
+        // "Start fresh" (said or typed): the same as Settings → General → Start Fresh, without a model.
+        if Self.isStartFresh(text) {
+            mergeNext = false
+            DispatchQueue.main.async { [weak self] in self?.resetEverything() }
+            return
+        }
         // A helper is waiting for your answer: a clear yes or no (or a pick) goes straight to it.
         if guide == nil, let (id, reply) = helperScreen.askReply(text, pointing: talkTarget, asking: askingNow) {
             if let t = talkTarget { talkTarget = nil; overlay.helperListen(id: t, on: false) }
@@ -1338,6 +1360,9 @@ final class CallController: NSObject, NSMenuDelegate {
                         : "Explain this to the user (2D lesson, or a 3D model if they asked for 3D). Started in parallel with the talker; the talker only says a short hand-over line.")
                 }
                 let q = BrainQuestion(text: self.talkerText(question, snap, proactive: proactive), snapshot: snap)
+                self.overlay.glance()
+                self.addReceipt(q, question: proactive ? "" : question, snap: snap, turn: myTurn)
+                if sketchNow || checkNow { self.receiptAlso("The teacher (\(self.config.model(for: .artist))) got the same screenshot to sketch an answer") }
                 _ = try await talker.ask(q) { delta in self.received(delta, turn: myTurn) }
                 guard myTurn == self.turn else { return }
                 let ev = self.parser.finish()
@@ -1349,6 +1374,11 @@ final class CallController: NSObject, NSMenuDelegate {
                     if ev.search != nil, said.isEmpty { self.speaker.enqueue("One sec, let me check."); self.state = .speaking }
                     let found = await self.lookUp(recall: ev.recall, search: ev.search, question: question, turn: myTurn)
                     guard myTurn == self.turn else { return }
+                    Receipts.update(self.receiptID) { r in
+                        if let q = ev.search { r.lookups.append("Web search “\(q)” (Claude's web search got these words and your question)") }
+                        if let w = ev.recall { r.lookups.append("Looked through earlier conversations here on this Mac for “\(w)”; what it found went to Claude") }
+                        r.message += "\n\n--- Then, with what was found ---\n" + found
+                    }
                     self.lookupReply = true
                     self.parser = TalkParser()
                     _ = try await talker.ask(BrainQuestion(text: found, snapshot: nil)) { delta in self.received(delta, turn: myTurn) }
@@ -1487,6 +1517,61 @@ final class CallController: NSObject, NSMenuDelegate {
         // Last, where a model that answers without a thinking step still sees it: the shape of the reply.
         lines.append(Self.formatReminder)
         return lines.joined(separator: "\n")
+    }
+
+    // MARK: - Receipts (what each question sent)
+
+    private func addReceipt(_ q: BrainQuestion, question: String, snap: Snapshot, turn myTurn: Int, role: PromptRole = .talker) {
+        Receipts.enabled = config.receipts
+        guard config.receipts else { receiptID = nil; return }
+        var r = Receipt(id: Receipts.newID(), at: Date())
+        r.question = Recall.clip(question, 400)
+        r.role = role.rawValue
+        r.brain = config.brain == .claudeCode ? "Claude Code" : "Anthropic API"
+        r.model = config.model(for: role)
+        r.size = "\(snap.width)x\(snap.height)"
+        r.closeUp = snap.focus != nil
+        if role == .talker, !question.isEmpty {
+            let f = frontContext
+            r.app = f.app; r.window = f.window; r.page = f.page
+            r.document = f.document.map { AppContext.tilde($0.path) } ?? ""
+            r.selectionChars = f.selection.count
+            r.front = f.lines
+        }
+        r.parts = Receipts.sessionParts
+        r.message = q.text
+        receiptID = Receipts.add(r, jpegBase64: snap.jpegBase64)
+        receiptTurn = myTurn
+    }
+
+    /// A walkthrough: one receipt for the whole guide (or doer) run, counting its screenshots.
+    private func guideReceipt(_ q: BrainQuestion, goal: String, first: Bool, acting: Bool, snap: Snapshot) {
+        Receipts.enabled = config.receipts
+        guard config.receipts else { return }
+        if first || guideReceiptID == nil {
+            var r = Receipt(id: Receipts.newID(), at: Date())
+            let role: PromptRole = acting ? .doer : .guide
+            r.question = Recall.clip(goal, 400)
+            r.role = role.rawValue
+            r.brain = config.brain == .claudeCode ? "Claude Code" : "Anthropic API"
+            r.model = config.model(for: role)
+            r.size = "\(snap.width)x\(snap.height)"
+            r.parts = Receipts.parts(memoryEnabled: config.memoryEnabled)
+            r.message = q.text
+            guideReceiptID = Receipts.add(r, jpegBase64: snap.jpegBase64)
+        } else {
+            Receipts.update(guideReceiptID, jpegBase64: snap.jpegBase64) { r in
+                r.steps += 1
+                r.at = Date()
+                r.message = "(Step \(r.steps + 1); each step sends a new screenshot and this:)\n" + q.text
+            }
+        }
+    }
+
+    /// Something else got this turn's screenshot too (the teacher).
+    private func receiptAlso(_ line: String) {
+        guard receiptTurn == turn else { return }
+        Receipts.update(receiptID) { r in if !r.also.contains(line) { r.also.append(line) } }
     }
 
     // MARK: - Looking things up
@@ -1793,6 +1878,7 @@ final class CallController: NSObject, NSMenuDelegate {
 
     private func runArtist(_ job: ArtistJob) {
         guard let artist else { return }
+        receiptAlso("The teacher (\(config.model(for: .artist))) got the same screenshot to sketch an answer")
         if artistBusy { artistWaiting = job; return }
         artistBusy = true
         overlay.setArtistBusy(true)
@@ -2191,7 +2277,10 @@ final class CallController: NSObject, NSMenuDelegate {
                 final class Box { var parser = TalkParser() }
                 let box = Box()
                 self.speaker.openSource()
-                _ = try await brain.ask(BrainQuestion(text: lines.joined(separator: "\n"), snapshot: snap)) { delta in
+                let gq = BrainQuestion(text: lines.joined(separator: "\n"), snapshot: snap)
+                self.overlay.glance()
+                self.guideReceipt(gq, goal: g.goal, first: g.count == 1, acting: g.acting, snap: snap)
+                _ = try await brain.ask(gq) { delta in
                     guard myCall == self.callID, self.guide != nil else { return }
                     self.handleGuide(box.parser.feed(delta), snap: snap)
                 }
@@ -2963,6 +3052,16 @@ final class CallController: NSObject, NSMenuDelegate {
         config.save()
         home.model.teacherOn = config.artistEnabled
         if state != .idle { overlay.setClaudeCaption("Artist \(config.artistEnabled ? "on" : "off") from your next call.") }
+    }
+
+    /// Only the whole sentence: "start fresh", "Poinky, start over fresh please", "restart yourself".
+    static func isStartFresh(_ text: String) -> Bool {
+        var t = text.lowercased().replacingOccurrences(of: #"[^a-z ]"#, with: " ", options: .regularExpression)
+        for w in ["poinky", "please", "hey", "okay", "ok", "just", "can you", "could you"] {
+            t = t.replacingOccurrences(of: #"\b\#(w)\b"#, with: " ", options: .regularExpression)
+        }
+        t = t.split(separator: " ").joined(separator: " ")
+        return ["start fresh", "start over fresh", "start afresh", "restart yourself", "reset yourself", "start yourself fresh"].contains(t)
     }
 
     /// "Poinky isn't responding": start everything over without quitting. Ends the session, restarts the

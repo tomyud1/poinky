@@ -92,9 +92,17 @@ final class NotchModel: ObservableObject {
     var onTeacher: () -> Void = {}
     var onBuddy: () -> Void = {}
     var onSettings: () -> Void = {}
-    var onReset: () -> Void = {}
     var onUpdate: () -> Void = {}
     var onQuit: () -> Void = {}
+    var onReceipts: () -> Void = {}
+
+    /// The last question's receipt, in a few words ("Screenshot + Preview: Lecture 5.pdf + your selection").
+    /// Shown as one quiet line at the bottom of the hover panel; nothing until something was sent.
+    @Published var receiptLine = ""
+    @Published var receiptAt = Date.distantPast
+    var receiptDetail = ""                  // the longer summary, for its tooltip
+    var showsReceipt: Bool { !receiptLine.isEmpty && Date().timeIntervalSince(receiptAt) < 12 * 3600 }
+    static let receiptRow: CGFloat = 20
 
     static let wing: CGFloat = 80
     var sessionOn: Bool { phase != "off" }
@@ -123,7 +131,8 @@ final class NotchModel: ObservableObject {
         let wide = notchWidth + 2 * Self.wing
         if expanded {
             return CGSize(width: max(wide, 300), height: notchHeight + Self.buttonRow + (showsLastLine ? Self.lineRow : 0)
-                          + CGFloat(recentReports.count) * Self.lineRow + (recentReports.isEmpty ? 0 : 4) + 6)
+                          + CGFloat(recentReports.count) * Self.lineRow + (recentReports.isEmpty ? 0 : 4)
+                          + (showsReceipt ? Self.receiptRow : 0) + 6)
         }
         if active { return CGSize(width: wide, height: notchHeight) }
         if beckon && hasNotch { return CGSize(width: max(notchWidth, 150) + 44, height: notchHeight + 6) }
@@ -206,6 +215,7 @@ struct NotchView: View {
                                 .notchTip(m, "info", infoTip)
                         }
                         buttons.frame(height: NotchModel.buttonRow)
+                        if m.showsReceipt { ReceiptLine(m: m) }
                     }
                     .transition(.opacity.combined(with: .offset(y: -6)))
                 }
@@ -333,7 +343,6 @@ struct NotchView: View {
             if m.sessionOn && !m.inCall {
                 NotchIcon(m: m, id: "end", icon: "stop.circle", tip: "End the session (clears the screen; the next \(m.holdKeys) starts a new one)", action: m.onEnd)
             }
-            NotchIcon(m: m, id: "reset", icon: "arrow.clockwise", tip: "Not responding? Restart Poinky's voice, mic and Claude sessions (helpers keep working)", action: m.onReset)
             if !m.update.isEmpty {
                 NotchIcon(m: m, id: "update", icon: m.update == "ready" ? "arrow.down.circle.fill" : "arrow.down.circle",
                           tip: m.update == "ready" ? "The new version of Poinky is ready: click to restart into it" : "A new version of Poinky is available: click to see what's new and update",
@@ -382,6 +391,33 @@ struct ReportRow: View {
     static func ago(_ d: Date) -> String {
         let s = Int(Date().timeIntervalSince(d))
         return s < 60 ? "now" : s < 3600 ? "\(s / 60)m" : "\(s / 3600)h"
+    }
+}
+
+/// "What I saw": the last question's receipt in one quiet line. Click for the full receipt.
+struct ReceiptLine: View {
+    @ObservedObject var m: NotchModel
+
+    var body: some View {
+        let hot = m.hoverButton == "receipt"
+        Button { m.onReceipts() } label: {
+            HStack(spacing: 5) {
+                Image(systemName: "lock.fill").font(.system(size: 8, weight: .semibold))
+                Text("What I saw").font(.system(size: 10.5, weight: .semibold))
+                Text(m.receiptLine).font(.system(size: 10.5)).lineLimit(1).truncationMode(.tail)
+                Spacer(minLength: 4)
+                Text(ReportRow.ago(m.receiptAt)).font(.system(size: 10)).monospacedDigit()
+            }
+            .foregroundStyle(.white.opacity(hot ? 0.75 : 0.4))
+            .padding(.horizontal, 10)
+            .frame(height: NotchModel.receiptRow - 2)
+            .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Color.white.opacity(hot ? 0.07 : 0)))
+            .padding(.horizontal, 6)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .padding(.bottom, 2)
+        .notchTip(m, "receipt", "Your last question sent Claude: \(m.receiptDetail). Click to see the screenshot, every line, and earlier questions. Kept only on this Mac.")
     }
 }
 
@@ -620,6 +656,10 @@ final class NotchHome {
         let m = NotchModel()
         m.hasNotch = true; m.notchWidth = 190; m.notchHeight = 32; m.expanded = true
         m.nextReminder = Reminders.nextLine() ?? "9:00 Email Professor Lee about the lab report"
+        if let r = Receipts.latest { m.receiptLine = r.short; m.receiptDetail = r.summary; m.receiptAt = r.at }
+        else if ProcessInfo.processInfo.environment["POINKY_SHOT_RECEIPT"] != "0" {
+            m.receiptLine = "Preview: Lecture 5.pdf + selection"; m.receiptAt = Date().addingTimeInterval(-120)
+        }
         let host = NSHostingView(rootView: NotchView(m: m).frame(width: 420, height: 140).background(Color.gray.opacity(0.35)))
         let w = NSWindow(contentRect: CGRect(x: -3000, y: 0, width: 420, height: 140), styleMask: [.borderless], backing: .buffered, defer: false)
         w.contentView = host
