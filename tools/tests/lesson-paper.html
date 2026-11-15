@@ -73,6 +73,21 @@
     const al = item('a').querySelector('text').getBBox();
     check(al.y + al.height < 450 || al.y > 450, `an arrow's label sits beside the arrow, not on it (label ${Math.round(al.y)}–${Math.round(al.y + al.height)}, arrow at 450)`);
 
+    // Tables: columns fit the paper, later rows fit their columns, the header is filled.
+    SB.lessonStep({ ops: [
+      { op: 'table', id: 't', x: 40, y: 700, rows: [['', 'Plant', 'Animal'], ['Cell wall', 'yes', 'no']], color: 'green' },
+      { op: 'row', table: 't', cells: ['Makes food', '6CO2 \\to C_6H_{12}O_6 with sunlight and water', 'no'] },
+    ] }, 1);
+    await done();
+    const tb = bbox('t'), tt = T.tables.t;
+    check(tb.x + tb.width <= 790 && tt.colW.length === 3, `the table fits the paper (${Math.round(tb.x)}–${Math.round(tb.x + tb.width)})`);
+    check(item('t').querySelector('rect') != null, 'the header row is filled');
+    const cellTexts = [...item('t').children].filter(n => n.tagName === 'text' || n.classList.contains('math'));
+    const long = cellTexts.find(n => (n.textContent || '').includes('sunlight'));
+    const c1 = tt.x + tt.colW[0], c2 = c1 + tt.colW[1], lb = long && long.getBBox();
+    check(lb && lb.x >= c1 - 1 && lb.x + lb.width <= c2 + 1, `a long cell in a later row shrinks into its column (${lb && Math.round(lb.x)}–${lb && Math.round(lb.x + lb.width)} in ${Math.round(c1)}–${Math.round(c2)})`);
+    check(Math.round(tt.bottom - tt.y) === 3 * tt.rowH, 'the added row goes under the others');
+
     // Save: the page becomes a picture for the app to keep.
     const msgs = [];
     W.webkit = { messageHandlers: { sb: { postMessage: m => msgs.push(m) } } };

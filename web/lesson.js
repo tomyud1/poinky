@@ -247,6 +247,7 @@
     X.cards.appendChild(c);
     for (const k in items) delete items[k];
     for (const k in graphs) delete graphs[k];
+    for (const k in tables) delete tables[k];
     used = [];
     paperSound();
     X.report();
@@ -362,11 +363,12 @@
   const ELEMENTS = new Set('H He Li Be B C N O F Ne Na Mg Al Si P S Cl Ar K Ca Ti Cr Mn Fe Co Ni Cu Zn Br Ag Sn I Au Hg Pb U'.split(' '));
   const NOT_CHEM = new Set(['PS2', 'PS3', 'PS4', 'PS5', 'CS2', 'K2', 'B12', 'F35', 'F16', 'C4', 'U2']);
   function chemParts(word) {
-    if (NOT_CHEM.has(word) || !/\d/.test(word) || !/^([A-Z][a-z]?\d*)+$/.test(word)) return null;
-    const parts = word.match(/[A-Z][a-z]?\d*/g);
+    const coef = (/^\d+/.exec(word) || [''])[0], f = word.slice(coef.length);   // 6CO2: 6 molecules of CO2
+    if (NOT_CHEM.has(f) || !/\d/.test(f) || !/^([A-Z][a-z]?\d*)+$/.test(f)) return null;
+    const parts = f.match(/[A-Z][a-z]?\d*/g);
     if (!parts.every(p => ELEMENTS.has(p.replace(/\d+/, '')))) return null;
-    if (parts.length < 2 && !['H2', 'O2', 'N2', 'Cl2', 'O3'].includes(word)) return null;
-    return word.split(/(\d+)/).filter(Boolean);
+    if (parts.length < 2 && !['H2', 'O2', 'N2', 'Cl2', 'O3'].includes(f)) return null;
+    return (coef ? [coef + '\u200b'] : []).concat(f.split(/(\d+)/).filter(Boolean));
   }
   /** Fills a text element, writing chemical formulas with subscripts. */
   function fillText(t, str, size) {
@@ -376,7 +378,7 @@
     for (const w of words) {
       const parts = chemParts(w);
       for (const p of parts || [w]) {
-        const sub = !!parts && /^\d+$/.test(p);
+        const sub = !!parts && /^\d+$/.test(p);   // (a coefficient ends in a zero-width space, so it stays full size)
         const span = el('tspan', {}, t);
         if (sub !== low) { span.setAttribute('dy', (sub ? .28 : -.28) * size); low = sub; }
         if (sub) span.setAttribute('font-size', size * .68);
@@ -570,11 +572,11 @@
     if (o.halo) node.style.setProperty('--halo', o.halo);
     let bb = node.getBBox();
     // Too wide for the paper: shrink it to fit (never past the right margin).
-    const maxW = UNITS - 24 - (o.align === 'center' ? 0 : Math.max(0, bb.x));
-    if (o.fit !== false && bb.width > maxW + 1 && bb.x >= 0) {
-      const k = Math.max(.55, maxW / bb.width);
+    const maxW = o.maxWidth || (UNITS - 24 - (o.align === 'center' ? 0 : Math.max(0, bb.x)));
+    if ((o.fit !== false || o.maxWidth) && bb.width > maxW + 1 && (bb.x >= 0 || o.maxWidth)) {
+      const k = Math.max(o.maxWidth ? .35 : .55, maxW / bb.width);
       node.remove();
-      return writeText(g, { ...o, size: size * k, fit: false });
+      return writeText(g, { ...o, size: size * k, fit: false, maxWidth: undefined });
     }
     if (o.free !== false) {
       const dy = freeShift({ x: bb.x, y: bb.y, w: bb.width, h: bb.height });
@@ -614,7 +616,7 @@
       let size = o.size || 26;
       const tw = measure(o.text, size);
       if (!looksMath(o.text) && !o.math && tw > w - 16) size = Math.max(13, size * (w - 16) / tw);
-      await writeText(g, { x: x + w / 2, y: y + h / 2 + size * .35, text: o.text, size, align: 'center', color: o.textColor, free: false, halo: fill, math: o.math, fit: false });
+      await writeText(g, { x: x + w / 2, y: y + h / 2 + size * .35, text: o.text, size, align: 'center', color: o.textColor, free: false, halo: fill, math: o.math, fit: false, maxWidth: w - 12 });
     }
   }
 
@@ -750,6 +752,64 @@
     const f = expr();
     if (i < s.length) throw new Error('bad expression at ' + i);
     return f;
+  }
+
+  // ---------- tables: compare things side by side ----------
+  const tables = {};
+  /** One row of cells under the table's last row: lines first, then the words, cell by cell. */
+  async function tableRow(t, cells, header) {
+    const y0 = t.bottom, h = t.rowH, g = t.g;
+    const [stroke, fill] = t.theme;
+    if (header) el('rect', { x: t.x, y: y0, width: t.w, height: h, fill, rx: 4 }, g).animate([{ opacity: 0 }, { opacity: 1 }], { duration: 250, fill: 'forwards' });
+    t.bottom += h;
+    grow(t.bottom + 8);
+    claim({ x: t.x, y: y0, w: t.w, h }, t.id);
+    let d = '';
+    let cx = t.x;
+    for (let c = 0; c <= t.colW.length; c++) {
+      d += `M${cx + jit(.8)},${y0} L${cx + jit(.8)},${y0 + h} `;
+      if (c < t.colW.length) cx += t.colW[c];
+    }
+    d += `M${t.x - 2},${y0 + h + jit(.8)} L${t.x + t.w + 2},${y0 + h + jit(.8)}`;
+    await drawPath(el('path', { d, fill: 'none', stroke: header ? stroke : 'rgba(80,80,80,.55)', 'stroke-width': header ? 2.2 : 1.6, 'stroke-linecap': 'round' }, g), onScreen, 2600);
+    cx = t.x;
+    for (let c = 0; c < t.colW.length; c++) {
+      const txt = cells[c] == null ? '' : String(cells[c]);
+      if (txt) {
+        const size = t.size, center = t.align === 'center' || (t.align == null && c > 0);
+        await writeText(g, { x: center ? cx + t.colW[c] / 2 : cx + 9, y: y0 + h / 2 + size * .36, text: txt, size, align: center ? 'center' : 'left',
+          color: header ? (t.color || 'ink') : (c === 0 && t.rowHeads ? 'ink' : t.textColor), bold: header || (c === 0 && t.rowHeads), free: false, fit: false, maxWidth: t.colW[c] - 14, halo: header ? fill : undefined });
+      }
+      cx += t.colW[c];
+    }
+  }
+  async function table(o) {
+    const rows = Array.isArray(o.rows) ? o.rows.map(r => Array.isArray(r) ? r : [r]) : [];
+    const n = Math.max(1, ...rows.map(r => r.length), Array.isArray(o.cols) ? o.cols.length : 0);
+    const size = o.size || 22, x = o.x ?? 40, maxW = Math.min(o.w || UNITS - 40 - x, UNITS - 20 - x);
+    // Columns as wide as their longest cell (or as given), shrunk together to fit.
+    let colW = Array.isArray(o.cols) && o.cols.length === n && o.cols.every(v => typeof v === 'number') ? o.cols.slice()
+      : Array.from({ length: n }, (_, c) => Math.max(70, ...rows.map((r, i) => measure(String(r[c] ?? ''), size, i === 0 && o.header !== false) + 26)));
+    const tot = colW.reduce((a, b) => a + b, 0);
+    // Rows added later need room too: a comfortable width unless the teacher gave one.
+    const want = Math.min(maxW, Math.max(tot, 190 * n));
+    if (!Array.isArray(o.cols)) colW = colW.map(v => v * (o.w || want) / tot);
+    else if (tot > maxW) colW = colW.map(v => v * maxW / tot);
+    const w = colW.reduce((a, b) => a + b, 0), rowH = Math.round(size * 1.85);
+    const g = group(o);
+    const y = o.y + freeShift({ x, y: o.y, w, h: rowH * Math.max(1, rows.length) });
+    const t = tables[o.id || '_'] = tables._last = { id: o.id, g, x, y, w, colW, rowH, size, bottom: y, theme: theme(o.color) || THEME.blue,
+      color: o.color, textColor: o.textColor || 'ink', align: o.align, rowHeads: o.rowHeads !== false };
+    // The top line, then each row.
+    await drawPath(el('path', { d: `M${x - 2},${y + jit(.8)} L${x + w + 2},${y + jit(.8)}`, fill: 'none', stroke: t.theme[0], 'stroke-width': 2.2, 'stroke-linecap': 'round' }, g), onScreen, 2600);
+    for (let i = 0; i < rows.length; i++) await tableRow(t, rows[i], i === 0 && o.header !== false);
+  }
+  /** More rows under a table already drawn (one per sentence works well). */
+  async function addRows(o) {
+    const t = tables[o.table] || tables._last;
+    if (!t || !t.g.isConnected) return;
+    const rows = Array.isArray(o.rows) ? o.rows : Array.isArray(o.cells) ? [o.cells] : [];
+    for (const r of rows) await tableRow(t, Array.isArray(r) ? r : [r], false);
   }
 
   const graphs = {};
@@ -935,7 +995,7 @@
 
   async function doOp(o, k) {
     if (!paper || !paper.isConnected) return;
-    if (['text', 'math', 'graph', 'axes', 'box', 'arrow', 'line', 'dot', 'circle', 'check', 'number'].includes(o.op)) {
+    if (['text', 'math', 'graph', 'axes', 'table', 'box', 'arrow', 'line', 'dot', 'circle', 'check', 'number'].includes(o.op)) {
       const t = opTop(o);
       if (toTop && t != null) { yShift = t > 80 ? 40 - t : 0; toTop = false; }
       // Drawing that already starts near the top again doesn't need moving up any more.
@@ -945,6 +1005,8 @@
     switch (o.op) {
       case 'text': case 'math': return writeText(group(o), o);
       case 'graph': case 'axes': return graph(o);
+      case 'table': return table(o);
+      case 'row': case 'rows': return addRows(o);
       case 'plot': return plot(o);
       case 'point': return point(o);
       case 'box': return box(o);
@@ -1004,7 +1066,7 @@
   };
   /** Still drawing (for tests and tools). */
   SB.lessonBusy = () => running || queue.length > 0;
-  SB._lessonTest = { compileFn, parseTex, items };
+  SB._lessonTest = { compileFn, parseTex, items, tables };
   SB.lessonStop = () => {
     token++;
     queue = [];
