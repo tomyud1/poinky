@@ -25,6 +25,7 @@ final class CallController: NSObject, NSMenuDelegate {
     private let typeBox = TypeBox()               // typing to Poinky instead of talking (⌃⌥T)
     private let away = AwayNotifier()             // away from the Mac: helpers' questions go to your phone (opt-in)
     private var typeHotKey: HotKey?
+    private var helpersHotKey: HotKey?   // ⌃⌥H: the Helpers window
     private var typedAfterStart: (text: String, helper: Int?)?   // typed while no session was running
     private var pendingLine: String?              // a short line to say once a session is up
     private var agentReports: [(id: Int, text: String)] = []   // finished agents the user hasn't heard about yet
@@ -323,6 +324,12 @@ final class CallController: NSObject, NSMenuDelegate {
             MainActor.assumeIsolated {
                 self?.ptt.cancel()   // ⌃⌥T starts with ⌃⌥: that wasn't talking
                 self?.openTypeBox()
+            }
+        }
+        helpersHotKey = HotKey(spec: config.helpersHotkey) { [weak self] in
+            MainActor.assumeIsolated {
+                self?.ptt.cancel()   // ⌃⌥H starts with ⌃⌥: that wasn't talking
+                self?.openHelpers()
             }
         }
         hotKey = HotKey(spec: config.hotkey) { [weak self] in
@@ -846,7 +853,10 @@ final class CallController: NSObject, NSMenuDelegate {
         ask(question)
     }
 
-    @objc func openHelpers() { helperWindows.showList() }
+    /// ⌃⌥H or the menu: the Helpers window, on the helper under the mouse if there is one.
+    @objc func openHelpers() {
+        if let id = overlay.pointedHelper, agents.agents.contains(where: { $0.id == id }) { helperWindows.show(id) } else { helperWindows.showList() }
+    }
 
     /// "Undo what Mint did": puts back the files it changed in its last run, unless one of them changed
     /// after it finished (maybe you did that): then it's left for its window, where you can confirm.
@@ -924,7 +934,7 @@ final class CallController: NSObject, NSMenuDelegate {
             let hex = HelperWindows.colors[a.name.components(separatedBy: " ")[0]] ?? "#34c98e"
             typeBox.open(helper: (id, a.name, NSColor(hex: hex)))
         } else {
-            typeBox.open()
+            typeBox.open(helpers: agents.agents.filter { $0.status == .running || $0.status == .queued }.map(\.name))
         }
     }
 
@@ -2259,7 +2269,7 @@ final class CallController: NSObject, NSMenuDelegate {
         return "voice \(c.phononVoice) at speed \(String(format: "%.2f", c.voiceSpeed)) (engine \(c.voiceEngine)\(c.voiceEngine == "phonon" && !PhononVoice.isInstalled ? ", not installed yet: Apple's voice is speaking" : "")); buddy \(c.buddy ? "on" : "off")"
             + (c.buddyAutoHide > 0 ? ", auto-hides after \(Int(c.buddyAutoHide)) s" : "") + "; sounds \(c.sounds ? "on at \(Int((c.soundVolume * 100).rounded()))% volume" : "off")"
             + "; teacher \(c.artistEnabled ? "on" : "off"); hold to talk \(PushToTalk.displayString(c.pushToTalk))"
-            + "; hands-free call \(HotKey.displayString(c.hotkey)); hide buddy \(HotKey.displayString(c.buddyHotkey)); type instead of talking \(HotKey.displayString(c.typeHotkey))"
+            + "; hands-free call \(HotKey.displayString(c.hotkey)); hide buddy \(HotKey.displayString(c.buddyHotkey)); type instead of talking \(HotKey.displayString(c.typeHotkey)); Helpers window \(HotKey.displayString(c.helpersHotkey))"
             + "; pause before answering (calls) \(c.silenceSeconds) s; language \(c.language); memory \(c.memoryEnabled ? "on" : "off")"
             + "; models (effort): talker \(c.model(for: .talker)) (\(c.talkerEffort.isEmpty ? "auto" : c.talkerEffort)), teacher \(c.model(for: .artist)) (\(c.artistEffort.isEmpty ? "auto" : c.artistEffort)), guide \(c.model(for: .guide)), doer \(c.model(for: .doer)), helpers \(c.agentModel.isEmpty ? "Claude Code default" : c.agentModel) (\(c.agentEffort.isEmpty ? "default" : c.agentEffort))"
     }
@@ -2617,7 +2627,7 @@ final class CallController: NSObject, NSMenuDelegate {
         let hold = PushToTalk.displayString(config.pushToTalk)
         if hold != "Off" { add("Hold \(hold) to talk, let go to send", nil) }
         add("Type to Poinky…  (\(HotKey.displayString(config.typeHotkey)))", #selector(openTypeBox))
-        add("Helpers…", #selector(openHelpers))
+        add("Helpers…  (\(HotKey.displayString(config.helpersHotkey)))", #selector(openHelpers))
         switch (state, mode) {
         case (.idle, _):
             add("Start Hands-Free Call  (\(shortcut))", #selector(toggleCall))
@@ -2706,12 +2716,14 @@ final class CallController: NSObject, NSMenuDelegate {
         away.settings(cfg)
         if cfg.checkForUpdates != config.checkForUpdates { Updater.shared.autoCheck(cfg.checkForUpdates) }
         let hotkeyChanged = cfg.hotkey != config.hotkey || cfg.buddyHotkey != config.buddyHotkey || cfg.typeHotkey != config.typeHotkey
+            || cfg.helpersHotkey != config.helpersHotkey
         config = cfg
         ScreenCapture.excludedBundleIDs = Set(cfg.excludedApps)
         if hotkeyChanged {
             hotKey = nil
             buddyHotKey = nil
             typeHotKey = nil
+            helpersHotKey = nil
             registerHotKey()
         }
         ptt.configure(cfg.pushToTalk)

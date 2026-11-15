@@ -27,6 +27,18 @@ enum HelperTalk {
     /// Speaking about a helper by name ("how's Mint doing?", "stop Coral", "tell Violet to also add a test",
     /// "Mint, also add a test"): its name and what you meant. Nil when it isn't clearly about one of `names`.
     static func byName(_ text: String, names: [String]) -> (name: String, intent: Intent)? {
+        // Typed "@Mint add tests" (or "@mint: stop"): the same as "Mint, add tests".
+        var text = text
+        if let r = text.range(of: "^\\s*@[A-Za-z]+[,:]?\\s+", options: .regularExpression) {
+            let name = text[r].trimmingCharacters(in: CharacterSet(charactersIn: "@,: \t\n"))
+            if let n = names.first(where: { $0.caseInsensitiveCompare(name) == .orderedSame }) {
+                let rest = String(text[r.upperBound...])
+                if plain(rest).split(separator: " ").count == 1, !isStop(plain(rest)), !isPause(plain(rest)), !isResume(plain(rest)), !isUndo(plain(rest)), !isStatus(plain(rest)) {
+                    return (n, .message(sentence(rest.trimmingCharacters(in: .whitespacesAndNewlines))))   // "@Mint /review": one word is fine when typed
+                }
+                text = "\(n), " + rest
+            }
+        }
         let t = plain(text)
         let words = t.split(separator: " ").map(String.init)
         for name in names {

@@ -210,6 +210,7 @@ private struct GeneralTab: View {
                 Toggle("Buddy at your cursor (captions appear next to it)", isOn: $model.config.buddy)
                 LabeledContent("Hide / show the buddy") { HotkeyRecorder(spec: $model.config.buddyHotkey) }
                 LabeledContent("Type instead of talking") { HotkeyRecorder(spec: $model.config.typeHotkey) }
+                LabeledContent("Helpers window") { HotkeyRecorder(spec: $model.config.helpersHotkey) }
                 Picker("Hide the buddy", selection: $model.config.buddyAutoHide) {
                     Text("Never (always at your cursor)").tag(0.0); Text("Right after it answers").tag(3.0)
                     Text("After 10 seconds idle").tag(10.0); Text("After 30 seconds idle").tag(30.0)

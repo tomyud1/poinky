@@ -5,6 +5,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var controller: CallController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        EditMenu.install()   // ⌘C / ⌘V / ⌘A / ⌘Z in the type box and the Helpers window
         // Developer check: `open -n -g Poinky.app --args --read-app <out.txt> ["Menu > Item"]`
         // writes what the doer would read about the front app, then quits.
         let args = CommandLine.arguments

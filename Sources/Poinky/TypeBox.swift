@@ -17,11 +17,13 @@ final class TypeBox: NSObject, NSTextViewDelegate, NSWindowDelegate {
     var isOpen: Bool { panel?.isVisible == true }
 
     /// Opens the box near the mouse. `helper`: the helper it types to, with its name and color.
-    func open(helper: (id: Int, name: String, color: NSColor)? = nil) {
+    /// `helpers`: the names of helpers at work (the placeholder says "@Mint" reaches one).
+    func open(helper: (id: Int, name: String, color: NSColor)? = nil, helpers: [String] = []) {
         if panel == nil { build() }
         guard let panel, let text else { return }
         self.helper = helper?.id
-        text.placeholder = helper.map { "Tell \($0.name) something…" } ?? "Ask Poinky…"
+        text.placeholder = helper.map { "Tell \($0.name) something…" }
+            ?? (helpers.first.map { "Ask Poinky, or @\($0) to tell a helper…" } ?? "Ask Poinky…")
         dot?.color = helper?.color ?? NSColor(red: 0.25, green: 0.56, blue: 1, alpha: 1)
         if helper == nil, text.string.isEmpty { text.string = draft }
         resize()
@@ -202,6 +204,9 @@ extension TypeBox {
             log("for a helper: placeholder \(box.text?.placeholder ?? "")")
             box.text?.insertText("also add a test", replacementRange: NSRange(location: NSNotFound, length: 0))
             key(36)
+            box.open(helpers: ["Mint", "Coral"])
+            log("with helpers at work: placeholder \(box.text?.placeholder ?? "")")
+            box.close()
             box.open()
             box.text?.insertText("a draft", replacementRange: NSRange(location: NSNotFound, length: 0))
             key(53)
@@ -266,5 +271,32 @@ extension NSColor {
     convenience init(hex: String) {
         let v = UInt32(hex.trimmingCharacters(in: CharacterSet(charactersIn: "#")), radix: 16) ?? 0x34c98e
         self.init(srgbRed: CGFloat((v >> 16) & 0xff) / 255, green: CGFloat((v >> 8) & 0xff) / 255, blue: CGFloat(v & 0xff) / 255, alpha: 1)
+    }
+}
+
+/// A menu bar app has no menus of its own, so ⌘C, ⌘V, ⌘X, ⌘A and ⌘Z did nothing in the type box and the
+/// Helpers window (pasting an error is half of what they're for). This hidden main menu gives them the
+/// standard Edit keys, and ⌘W closes a window. Nothing shows: the app has no menu bar.
+enum EditMenu {
+    @MainActor static func install() {
+        guard NSApp.mainMenu?.items.contains(where: { $0.title == "Edit" }) != true else { return }
+        let main = NSApp.mainMenu ?? NSMenu()
+        func menu(_ title: String, _ items: [(String, Selector, String, NSEvent.ModifierFlags)]) {
+            let m = NSMenu(title: title)
+            for (t, sel, key, mods) in items {
+                let i = NSMenuItem(title: t, action: sel, keyEquivalent: key)
+                i.keyEquivalentModifierMask = mods
+                m.addItem(i)
+            }
+            let top = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+            top.submenu = m
+            main.addItem(top)
+        }
+        if main.items.isEmpty { main.addItem(NSMenuItem(title: "Poinky", action: nil, keyEquivalent: "")) }
+        menu("Edit", [("Undo", Selector(("undo:")), "z", [.command]), ("Redo", Selector(("redo:")), "z", [.command, .shift]),
+                      ("Cut", #selector(NSText.cut(_:)), "x", [.command]), ("Copy", #selector(NSText.copy(_:)), "c", [.command]),
+                      ("Paste", #selector(NSText.paste(_:)), "v", [.command]), ("Select All", #selector(NSText.selectAll(_:)), "a", [.command])])
+        menu("Window", [("Close", #selector(NSWindow.performClose(_:)), "w", [.command])])
+        NSApp.mainMenu = main
     }
 }
