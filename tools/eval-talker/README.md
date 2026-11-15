@@ -70,6 +70,27 @@ Per-run detail: `python3 tools/eval-talker/run.py --rescore before,before-extra 
 `offer-rewrite`, `offer-helper`, `offer-remind`: when the talker ends with an offer ("Want me to swap it in?"), it writes the action ready in `<offer say="…">…</offer>` and does nothing yet (see Offer.swift). Haiku, 2 runs each: the rewrite and the reminder were offered with the exact `<do>` / `<remind>` ready every time (1.0–1.6 s to first words); for "why is this crashing?" it explained and sketched but didn't offer a fix (the check only requires a prepared helper when it does offer). `writer-punchier` also carried the offer (4 of 4).
 For a selected sentence in an email, Haiku often puts the greeting it sees above it ("Hi Sam,") into the new text, which a swap would then repeat: 0 of 4 runs clean with only the prompt line, 1 of 2 after the rewrite hint also says so (`answerShapeHint`). Still open.
 
+## Continuity across a talker swap (`continuity.py`)
+A 12-question study session (BIO 110 lecture open in Preview). Question 2: "my exam is on Thursday and it covers chapters 3 to 5"; questions 3–11 are about the lecture; then the talker is swapped for a fresh one and asked "so which chapters should I review tonight?". **before** = the old recap (last 8 exchanges, clipped to 200/300 characters); **after** = `SessionSummary` (real prompt, Haiku, updated after every answer) + the last 5 exchanges (`CallController.recapLines`). "Scope" = the answer names chapter 4 or the range 3 to 5 (only question 2 says so; "chapter 5" alone doesn't count, since the open PDF is Lecture 5). Since v5 one more question comes between the swap and the last one, so the key-facts line isn't sent again with it.
+
+```
+python3 tools/eval-talker/continuity.py --runs 2 --label mine          # ~26 Haiku calls
+python3 tools/eval-talker/continuity.py --reuse mine --reuse-summary   # only the last question again (4 calls)
+python3 tools/eval-talker/continuity.py --rescore continuity-v1 continuity-v2 continuity-v3 continuity-v4
+```
+
+| run | before: scope | after: scope |
+|---|---|---|
+| v1: first summary prompt (free-form lines) | 0/2 | 0/2: the summary kept the lecture's content and dropped the exam |
+| v2: fixed lines (Goal, Facts never dropped, Covered = topics only), v1's answers | 0/2 | 2/2 |
+| v3: same prompt, whole session again | 0/2 | 0/2: says "your exam is Thursday", but "review chapter 3 tonight" (takes the open lecture for chapter 3) |
+| v4: v3 + recap header "what the user told you here still holds" | 0/2 | 1/2 |
+| v5: + Facts/Goal/Open (≤400 characters) first in the message, "Still true from earlier in this session" | 0/5 | 5/5 |
+| v6: + the user's own words pinned (`SessionSummary.lastingFacts`, no model) | | 5/5 |
+| v7: pinned words with v1's summary, the one that had lost the fact | | 5/5 |
+
+The old recap can't carry it at all (question 2 is the 9th exchange back). In the recap block alone the fast talker often ignored the fact; placed right before the question it used it every time, and pinning keeps it even when the summary loses it.
+
 ## Known gaps
 - "Short version" summaries sometimes still list every item.
 - The talker still writes math symbols when it explains math itself (Phonon reads them poorly); the teacher route avoids most of it.

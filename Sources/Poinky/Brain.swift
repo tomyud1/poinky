@@ -14,10 +14,14 @@ protocol Brain: AnyObject {
     /// Nobody wants the reply being written now (you interrupted or asked something else):
     /// end it soon so the next question doesn't wait behind it. Keeps the session.
     func cancelCurrent()
+    /// How many tokens the last answer had to read (the conversation so far), 0 if unknown. The talker is
+    /// swapped for a fresh one when this gets large (`CallController.talkerRotateTokens`).
+    var contextTokens: Int { get }
 }
 
 extension Brain {
     func cancelCurrent() {}
+    var contextTokens: Int { 0 }
 }
 
 /// Runs `op`, but gives up after `seconds` (for system calls that can hang, like ScreenCaptureKit

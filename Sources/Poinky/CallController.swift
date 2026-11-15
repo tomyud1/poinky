@@ -97,8 +97,15 @@ final class CallController: NSObject, NSMenuDelegate {
     private var freshTalker: Brain?
     private var freshTalkerSince: TimeInterval = 0
     private var needsRecap = false
+    private var swappedTalker = false   // this session's talker was swapped: the summary's key facts go with each question
     private var sentOnce: [String: String] = [:]   // context that rarely changes: sent again only when it does
-    static let talkerRotateAfter: Int = ProcessInfo.processInfo.environment["POINKY_ROTATE_AFTER"].flatMap(Int.init) ?? 10
+    // Swap when the talker's conversation gets this big (Claude Code reports it with each answer), or after
+    // this many questions (a fallback, and for the API brain, which doesn't report it and drops old screenshots).
+    static let talkerRotateAfter: Int = ProcessInfo.processInfo.environment["POINKY_ROTATE_AFTER"].flatMap(Int.init) ?? 24
+    static let talkerRotateTokens: Int = ProcessInfo.processInfo.environment["POINKY_ROTATE_TOKENS"].flatMap(Int.init) ?? 70_000
+    /// What happened this session in a few lines, kept up to date in the background (`SessionSummary`): the
+    /// recap after a swap, and the daily note, are built from it plus the last exchanges.
+    private lazy var summary = SessionSummary { [weak self] in self.flatMap { Self.makeSummarizer($0.config) } }
 
     private struct ArtistJob { let text: String; let snapshot: Snapshot; var aside: String? = nil }
     // A question about a part you clicked on a 3D model: the teacher's steps on that model are an aside
@@ -540,9 +547,10 @@ final class CallController: NSObject, NSMenuDelegate {
         askedAt = nil
         if config.memoryEnabled, !sessionExchanges.isEmpty {
             if quitting { DailyNotes.append(DailyNotes.plainNote(sessionExchanges)) }
-            else { Self.writeDailyNote(sessionExchanges, config: config) }
+            else { Self.writeDailyNote(sessionExchanges, config: config, summary: summary.full) }
         }
         sessionExchanges.removeAll()
+        summary.stop()
         callID += 1
         turn += 1
         talkTask?.cancel()
@@ -568,6 +576,7 @@ final class CallController: NSObject, NSMenuDelegate {
         freshTalker = nil
         talkerTurns = 0
         needsRecap = false
+        swappedTalker = false
         sentOnce.removeAll()
         artistBusy = false
         artistWaiting = nil
@@ -1071,8 +1080,10 @@ final class CallController: NSObject, NSMenuDelegate {
 
     /// A session ended: a cheap model writes 1–4 lines about it into today's notes (in the background;
     /// the exchanges themselves are the fallback). Read back at the start of the next sessions.
-    static func writeDailyNote(_ exchanges: [(user: String, assistant: String)], config: AppConfig) {
-        let text = exchanges.map { "User: \($0.user)\nPoinky: \($0.assistant)" }.joined(separator: "\n\n")
+    static func writeDailyNote(_ exchanges: [(user: String, assistant: String)], config: AppConfig, summary: String = "") {
+        var text = exchanges.map { "User: \($0.user)\nPoinky: \($0.assistant)" }.joined(separator: "\n\n")
+        // A long session: the running summary also covers what came before the last 40 exchanges.
+        if !summary.isEmpty { text = "A running summary of the whole session:\n\(summary)\n\nIts last exchanges:\n\n" + text }
         let brain: Brain
         switch config.brain {
         case .claudeCode:
@@ -1119,7 +1130,45 @@ final class CallController: NSObject, NSMenuDelegate {
         Timeline.log("talker.swap", ["after": talkerTurns])
         talkerTurns = 0
         needsRecap = true
+        swappedTalker = true
         sentOnce.removeAll()
+    }
+
+    /// What a fresh talker gets after a swap: the running summary and the last exchanges in full (all of
+    /// `history` if there's no summary yet).
+    private func recapLines() -> [String] {
+        guard !history.isEmpty else { return [] }
+        let gist = summary.full
+        var lines = ["(This session's earlier messages were cleared to keep you fast; old screenshots are gone. So follow-ups still make sense:)"]
+        let recent = gist.isEmpty ? history : Array(history.suffix(5))
+        if !gist.isEmpty { lines.append("The session so far, in short (what the user told you here still holds: answer with it):\n" + gist) }
+        lines.append(recent.count < history.count || !gist.isEmpty ? "The last exchanges, oldest first:" : "What was said, oldest first:")
+        for h in recent { lines.append("- User: \(Recall.clip(h.user, 500)) / You: \(Recall.clip(h.assistant, 1000))") }
+        Timeline.log("talker.recap", ["summary": gist.count, "exchanges": recent.count])
+        return lines
+    }
+
+    /// After each answer: the summary takes in the exchange, in the background (see `SessionSummary`).
+    private func updateSummary(_ you: String, _ poinky: String, note: String?) {
+        summary.pin(from: you)
+        var now: [String] = []
+        let drawn = overlay.sceneDescription(scale: 1)
+            .replacingOccurrences(of: #" at x=-?\d+ y=-?\d+ w=\d+ h=\d+"#, with: "", options: .regularExpression)
+        if !drawn.hasPrefix("Nothing") { now.append(drawn) }
+        let helpers = agents.agents.suffix(6).map { "\($0.name) \"\($0.title)\" (\($0.status.rawValue))" }
+        if !helpers.isEmpty { now.append("Helpers: " + helpers.joined(separator: "; ")) }
+        summary.add(SessionSummary.exchange(user: you, poinky: poinky, also: note), context: now.joined(separator: "\n"))
+    }
+
+    /// The summarizer: the talker's model with its default (fast) effort, no tools, its own small session.
+    static func makeSummarizer(_ config: AppConfig) -> Brain? {
+        switch config.brain {
+        case .claudeCode:
+            return ClaudeCodeBrain(model: config.model(for: .talker), claudePath: config.claudePath, systemPrompt: SessionSummary.prompt)
+        case .api:
+            let key = config.apiKey.isEmpty ? (ProcessInfo.processInfo.environment["ANTHROPIC_API_KEY"] ?? "") : config.apiKey
+            return key.isEmpty ? nil : APIBrain(model: config.model(for: .talker), apiKey: key, systemPrompt: SessionSummary.prompt, maxTokens: 600)
+        }
     }
 
     /// True when `text` is new to this talker (or changed since it last saw it under `key`).
@@ -1312,7 +1361,9 @@ final class CallController: NSObject, NSMenuDelegate {
                 }
                 self.logExchange(proactive ? "" : question, said, note: note?.isEmpty == true ? nil : note, history: !proactive)
                 self.talkerTurns += 1
-                if self.talkerTurns >= Self.talkerRotateAfter { self.prepareFreshTalker() }
+                if self.talkerTurns >= Self.talkerRotateAfter || talker.contextTokens >= Self.talkerRotateTokens {
+                    self.prepareFreshTalker()
+                }
             } catch {
                 guard myTurn == self.turn, !(error is CancellationError) else { return }
                 Timeline.log("error", ["what": error.localizedDescription, "turn": myTurn])
@@ -1340,6 +1391,8 @@ final class CallController: NSObject, NSMenuDelegate {
         return nil
     }
 
+    static let keyFactsHeader = "Still true from earlier in this session (use it when it matters for the answer): "
+
     static let formatReminder = "(Reply only with the tags: start with <say>, then any of <visual>, <draw>, <agent>, <do>, <search>, <recall>, <remind>… Nothing outside them, no markdown.)"
 
     /// "Now: Sunday, 8 November 2026, 6:42 PM (Asia/Jerusalem)", so "what time is it?", "is it late?",
@@ -1361,13 +1414,15 @@ final class CallController: NSObject, NSMenuDelegate {
         lines.append(contentsOf: snap.notes)
         lines.append(contentsOf: BrainQuestion.focusNotes(snap))
         lines.append(overlay.sceneDescription(scale: snap.scale))
+        // After a swap: what the user told this session (exam dates, deadlines, names…), right before the question,
+        // so the fresh talker answers with it (in the recap block alone it was often ignored). Again when it changes.
+        if swappedTalker, !proactive, case let key = summary.keyFacts, !key.isEmpty, sendOnce("keyFacts", key) {
+            lines.insert(Self.keyFactsHeader + key, at: 0)
+        }
         // The first question of a session: how the last one ended, if it was recent ("and the other one?").
         if needsRecap {
             needsRecap = false
-            if !history.isEmpty {
-                lines.append("(This session's earlier messages were cleared to keep you fast; old screenshots are gone. What was said, oldest first, so follow-ups still make sense:)")
-                for h in history { lines.append("- User: \(Recall.clip(h.user, 200)) / You: \(Recall.clip(h.assistant, 300))") }
-            }
+            lines.append(contentsOf: recapLines())
         }
         if !carriedOver, !proactive {
             carriedOver = true
@@ -1482,6 +1537,7 @@ final class CallController: NSObject, NSMenuDelegate {
 
     /// Keeps an exchange for this session (`history`) and, if the setting is on, in the conversation log.
     private func logExchange(_ you: String, _ poinky: String, note: String? = nil, history keep: Bool = true) {
+        if !poinky.isEmpty || keep { updateSummary(you, poinky, note: note) }
         if keep {
             history.append((you, poinky))
             if history.count > 8 { history.removeFirst() }
