@@ -1183,9 +1183,15 @@ final class CallController: NSObject, NSMenuDelegate {
                 self.lastSnapshot = snap
                 self.replyScale = snap.scale
                 // Clearly a "explain / show me" question: start the teacher now, alongside the talker.
-                if sketchNow {
+                // "Is this right?" about selected or marked work with math in it: the teacher checks it (the fast
+                // talker answers without a thinking step and can get a check wrong).
+                let checkNow = !sketchNow && !proactive && self.artist != nil
+                    && Self.wantsWorkChecked(question, work: self.frontContext.selection + "\n" + (snap.focus?.text ?? ""))
+                if sketchNow || checkNow {
                     self.teacherStartedTurn = myTurn
-                    self.requestVisual("Explain this to the user (2D lesson, or a 3D model if they asked for 3D). Started in parallel with the talker; the talker only says a short hand-over line.")
+                    self.requestVisual(checkNow
+                        ? "Check the user's work (the selected or marked text) step by step: say plainly whether it's right, show exactly which step went wrong and the fix. Started in parallel with the talker; the talker only says a short hand-over line."
+                        : "Explain this to the user (2D lesson, or a 3D model if they asked for 3D). Started in parallel with the talker; the talker only says a short hand-over line.")
                 }
                 let q = BrainQuestion(text: self.talkerText(question, snap, proactive: proactive), snapshot: snap)
                 _ = try await talker.ask(q) { delta in self.received(delta, turn: myTurn) }
@@ -1224,6 +1230,8 @@ final class CallController: NSObject, NSMenuDelegate {
             self.speaker.endTurn()      // → finishedSpeaking() once the audio is done
         }
     }
+
+    static let formatReminder = "(Reply only with the tags: start with <say>, then any of <visual>, <draw>, <agent>, <do>, <search>, <recall>, <remind>… Nothing outside them, no markdown.)"
 
     /// "Now: Sunday, 8 November 2026, 6:42 PM (Asia/Jerusalem)", so "what time is it?", "is it late?",
     /// "what did I do this morning?" get real answers. A few tokens per question.
@@ -1278,7 +1286,8 @@ final class CallController: NSObject, NSMenuDelegate {
         if !earlier.isEmpty, sendOnce("earlier", earlier.joined()) || aboutHelpers {
             lines.append("Earlier agents (to continue one, `<agent resume=\"KEY\">what to do now</agent>`; it remembers its work):\n" + earlier.joined(separator: "\n"))
         }
-        lines.append("If you start an agent now, it will be called \(agents.nextName).")
+        let next = agents.nextNames(3)
+        lines.append("If you start an agent now, it will be called \(next[0]) (several: \(next.joined(separator: ", ")), in that order).")
         let scheduled = Reminders.summary()
         let aboutTime = ["remind", "schedul", "alarm", "every ", "tomorrow", "later", "timer"].contains { q.contains($0) }
         if !scheduled.isEmpty, sendOnce("reminders", scheduled) || aboutTime { lines.append(scheduled) }
@@ -1303,10 +1312,12 @@ final class CallController: NSObject, NSMenuDelegate {
             agentReports.removeAll()
         }
         if teacherStartedTurn == turn {
-            lines.append("(The teacher is ALREADY preparing a narrated sketch for this question. Say ONE short hand-over line, mark what it's about, and do NOT write <visual>.)")
+            lines.append("(The teacher is ALREADY preparing a narrated sketch for this question. Say ONE short hand-over line in your own voice and in the user's language, like \"Sure, let me show you.\" (never mention a teacher), mark what it's about, and do NOT write <visual>.)")
         } else if artistBusy {
             lines.append("(The teacher is still drawing your last visual request.)")
         }
+        // Last, where a model that answers without a thinking step still sees it: the shape of the reply.
+        lines.append(Self.formatReminder)
         return lines.joined(separator: "\n")
     }
 
@@ -1732,6 +1743,16 @@ final class CallController: NSObject, NSMenuDelegate {
     }
 
     /// Questions that deserve a sketch right away (so the teacher can start with the talker).
+    /// "Is this right?" / "check my answer" about work that has math in it (digits with =, ², ×…).
+    static func wantsWorkChecked(_ q: String, work: String) -> Bool {
+        let s = q.lowercased()
+        let asks = ["is this right", "is this correct", "is that right", "is that correct", "is it right", "is it correct",
+                    "am i right", "did i get", "check this", "check my", "is my answer", "where did i go wrong", "any mistakes",
+                    "זה נכון", "צדקתי", "תבדוק"]
+        guard asks.contains(where: { s.contains($0) }) else { return false }
+        return work.range(of: #"\d\s*[=+×÷^²³√<>≤≥−-]|[=²³√≤≥]\s*\d"#, options: .regularExpression) != nil
+    }
+
     static func wantsSketch(_ q: String, marked: Bool) -> Bool {
         let s = q.lowercased()
         // "How do I…" / "where do I…" questions get a step-by-step guide instead.
@@ -1743,6 +1764,11 @@ final class CallController: NSObject, NSMenuDelegate {
         let strong = ["explain", "how does", "how do ", "how is ", "how are", "how it works", "show me", "draw", "sketch",
                       "diagram", "in 3d", "3d model", "teach me", "visualize", "what's the difference",
                       "what is the difference", "compare"]
+            // Checking their work (math, science): the teacher checks carefully; the fast talker can slip.
+            + ["check my work", "check my answer", "is my answer", "did i solve", "did i get it right", "where did i go wrong"]
+            // The same asks in other languages people talk to Poinky in (Hebrew, Spanish, French, German).
+            + ["תסביר", "הסבר", "תסבירי", "איך עובד", "איך זה עובד", "תראה לי", "תראי לי", "תצייר", "מה ההבדל",
+               "explica", "cómo funciona", "explique", "comment ça marche", "erklär", "wie funktioniert"]
         if strong.contains(where: { s.contains($0) }) { return true }
         // Marked something and asked what/why about it.
         let soft = ["what does", "what is", "what's", "what are", "why ", "mean"]
