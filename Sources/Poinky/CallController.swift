@@ -1129,6 +1129,7 @@ final class CallController: NSObject, NSMenuDelegate {
             artistGen += 1
             artistBusy = false
             artistWaiting = nil
+            artistAside = nil   // (its job won't finish: what it showed goes back once you've been answered)
             overlay.setArtistBusy(false)
             old.stop()
             if let fresh = try? BrainFactory.make(config: config, role: .artist) {
