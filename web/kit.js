@@ -156,7 +156,12 @@
     let t0 = performance.now(), last = t0;
     const cam = { az: 32 * DEG, el: 20 * DEG, dist: 10, target: new T.Vector3(), baseAz: 32 * DEG, sway: true, spin: 0 };
     let lastInteract = -1e9, camTween = null, focused = false, focusCount = 0;
-    let stepAt = 0, focusWhole = null, lastRoom = -1e9;   // when the current step began; the whole model's framing while zoomed in
+    let stepAt = 0, focusWhole = null, lastRoom = -1e9;
+    // Redrawing only when something changes (a still model costs no battery): the camera or a part moved,
+    // something animates, or code ran in the last few seconds (labels fade in, parts settle).
+    const swayFor = opts.swayFor ?? 20;
+    let swaying = false, renders = 0, wakeUntil = 0;
+    const lastCam = { p: new THREE.Vector3(1e9, 0, 0), q: new THREE.Quaternion(), w: 0, h: 0 };   // when the current step began; the whole model's framing while zoomed in
     let building = false, viewChosen = false;   // building: the model's first code is still arriving
     let clock = 0;                       // seconds since start (for things added later)
     let fitted = false, shadow = null, floor = true;   // floor: the soft shadow under the model (off for things in space)
@@ -737,7 +742,7 @@
         const L = { text, tag, line, dot, target, temp: !!o.temp, note: o._note ?? curNote, born: clock,
                     side: o.side, anchor: null, x: null, y: null,
                     delay: clock + (fitted ? 0.5 : 0.9 + labels.length * 0.15) };
-        labels.push(L);
+        labels.push(L); wakeUntil = Math.max(wakeUntil, L.delay + 1);
         if (o.temp && curNote != null && o._note == null) (noteTemps[curNote] = noteTemps[curNote] || []).push([String(text ?? ''), { ...o }]);
         return L;
       },
@@ -980,7 +985,7 @@
       /** Run more code in this same scene (a narrated step or a follow-up question). Throws the first error
           after running every statement that works. */
       run(code, note) {
-        stepAt = clock;
+        stepAt = clock; wakeUntil = clock + 3;
         if (note != null) {
           saveView(curNote);
           // You were looking back at an earlier step: return to where the lesson is before it moves on.
@@ -1012,7 +1017,7 @@
       writer() {
         let buf = '', errs = [];
         return {
-          feed(text) { building = true; buf += text; const r = splitStatements(buf, false); buf = r.rest; if (r.stmts.length) errs.push(...runAll(r.stmts)); },
+          feed(text) { building = true; wakeUntil = clock + 3; buf += text; const r = splitStatements(buf, false); buf = r.rest; if (r.stmts.length) errs.push(...runAll(r.stmts)); },
           end() {
             const r = splitStatements(buf, true); buf = '';
             if (r.stmts.length) errs.push(...runAll(r.stmts));
@@ -2058,9 +2063,14 @@
         if (u >= 1) camTween = null;
       }
       let az = cam.baseAz;
+      swaying = false;
       const idle = (t - lastInteract) > 5;
       if (cam.spin && !reduceMotion) { cam.baseAz += cam.spin / 60; az = cam.baseAz; }
-      else if (cam.sway && idle && !reduceMotion) az = cam.baseAz + Math.sin(t * 0.35) * 0.32;
+      else if (cam.sway && idle && !reduceMotion) {
+        // The gentle sway settles after a while with nothing new (then the model can stop redrawing).
+        const quiet = t - Math.max(stepAt, lastInteract, 0) - swayFor, amp = 0.32 * Math.max(0, Math.min(1, 1 - quiet / 3));
+        if (amp > 0) { az = cam.baseAz + Math.sin(t * 0.35) * amp; swaying = true; }
+      }
       const k = reduceMotion ? 0.3 : 1;   // glides settle in a few frames instead of a second
       cam.az += (az - cam.az) * Math.min(1, 0.08 / k);
       cam.target.lerp(cam.goalTarget, Math.min(1, 0.05 / k));
@@ -2113,6 +2123,7 @@
     function fadeLabel(L) {
       if (L.gone) return;
       L.gone = true;                                   // updateLabels hides it (the CSS fades it) and leaves its slot free
+      wakeUntil = Math.max(wakeUntil, clock + 1);
       setTimeout(() => kit.remove(L), 400);
     }
     let needRoom = false;
@@ -2166,6 +2177,7 @@
     function frame(now) {
       const t = (now - t0) / 1000, dt = Math.min(0.05, (now - last) / 1000); last = now;
       clock = t;
+      const hadWork = anims.length || intros.length || timers.length;   // before they run: the last step of one still needs drawing
       for (const fn of anims.slice()) { try { fn(t, dt); } catch (e) {} }   // a copy: finished ones remove themselves
       for (let i = intros.length - 1; i >= 0; i--) {
         const a = intros[i], u = Math.min(1, Math.max(0, (t - a.t0) / a.dur));
@@ -2198,7 +2210,12 @@
         c.cap.lookAt(c.cap.position.clone().sub(n));
       }
       placeCamera(t);
-      renderer.render(scene, camera);
+      const still = !hadWork && !camTween && !drag && !swaying && t > wakeUntil &&
+        camera.position.distanceToSquared(lastCam.p) < 1e-12 && Math.abs(camera.quaternion.dot(lastCam.q)) > 1 - 1e-12 &&
+        lastCam.w === W() && lastCam.h === H();
+      if (still) { requestAnimationFrame(frame); return; }
+      lastCam.p.copy(camera.position); lastCam.q.copy(camera.quaternion); lastCam.w = W(); lastCam.h = H();
+      renderer.render(scene, camera); renders++;
       updateLabels(t);
       // Zoomed in, but what this step labels is outside the picture: pull back a little at a time
       // (never past the whole model) until it fits.
@@ -2272,6 +2289,7 @@
       return w.text;
     }
     kit.pick = pick;   // for tests: kit.pick(x, y) clicks there
+    kit.renders = () => renders;   // for tests: how many frames were drawn
     // Resting the pointer on a part shows its name in a small tip (unless its label is already showing).
     const tip = document.createElement('div'); tip.className = 'hover-name'; document.body.appendChild(tip);
     let tipPart = null, tipTimer = 0;
