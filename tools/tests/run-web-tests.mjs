@@ -34,7 +34,7 @@ const send = (method, params = {}) => new Promise(r => { const i = ++id; pending
 await send('Page.enable');
 await send('Runtime.enable');
 let failed = false;
-for (const f of readdirSync(here).filter(f => f.endsWith('.html')).sort()) {
+for (const f of readdirSync(here).filter(f => f.endsWith('.html') && (!process.argv[2] || f.includes(process.argv[2]))).sort()) {
   pageErrors = [];
   await send('Page.navigate', { url: 'file://' + join(here, f) });
   let r = null;

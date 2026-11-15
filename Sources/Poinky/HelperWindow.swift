@@ -85,24 +85,45 @@ final class HelperWindows: NSObject, NSWindowDelegate, WKNavigationDelegate {
 
     // MARK: - What the page shows
 
+    /// A line for the list: the first line, without Markdown marks.
+    private static func plainLine(_ s: String) -> String {
+        HelperStream.clip((s.components(separatedBy: "\n").first { !$0.trimmingCharacters(in: .whitespaces).isEmpty } ?? "")
+            .replacingOccurrences(of: "`", with: "").replacingOccurrences(of: "**", with: "")
+            .replacingOccurrences(of: "^#+\\s*", with: "", options: .regularExpression), 90)
+    }
+
     private func reloadPast() {
         let mine = Set((agents?.agents ?? []).map(\.chat.place))
         past = PastHelper.list(in: AgentManager.logDir, limit: 60, excluding: mine)
     }
 
-    /// The list on the left: this run's helpers (working first, then newest), then earlier ones.
+    /// The list on the left: this run's helpers (the ones that need you first, then working, waiting for
+    /// a spot, then finished, newest first), then earlier ones. Each with what it's doing now and where.
     private func items() -> [[String: Any]] {
         let all = agents?.agents ?? []
-        let live = all.filter { $0.status == .running || $0.status == .queued }
-        let finished = Array(all.filter { $0.status != .running && $0.status != .queued }.reversed())
-        var out: [[String: Any]] = (live + finished).map { a in
-            ["key": "a\(a.id)", "name": a.name, "title": a.title, "color": Self.color(a.name), "status": a.status.rawValue,
-             "waiting": !a.asks.isEmpty, "paused": a.paused, "ago": a.finished.map { CallController.ago($0) } ?? ""]
+        func rank(_ a: AgentManager.Agent) -> Int {
+            if a.status == .running, !a.asks.isEmpty { return 0 }
+            if a.status == .running { return 1 }
+            return a.status == .queued ? 2 : 3
+        }
+        let ordered = all.enumerated().sorted { x, y in
+            let (rx, ry) = (rank(x.element), rank(y.element))
+            if rx != ry { return rx < ry }
+            return rx == 3 ? x.offset > y.offset : x.offset < y.offset
+        }.map(\.element)
+        var out: [[String: Any]] = ordered.map { a in
+            let live = a.status == .running || a.status == .queued
+            let line = !a.asks.isEmpty ? a.asks[0].bubble : live ? a.latest : a.summary
+            return ["key": "a\(a.id)", "name": a.name, "title": a.title, "color": Self.color(a.name), "status": a.status.rawValue,
+                    "waiting": !a.asks.isEmpty, "paused": a.paused, "ago": a.finished.map { CallController.ago($0) } ?? "",
+                    "line": Self.plainLine(line), "dir": a.dir.lastPathComponent,
+                    "elapsed": (a.finished ?? Date()).timeIntervalSince(a.started)]
         }
         let mine = Set(all.map(\.chat.place))
         for p in past where !mine.contains(p.chat.place) {
             out.append(["key": "f" + p.chat.path, "name": p.name, "title": p.title, "color": Self.color(p.name),
-                        "status": p.status, "waiting": false, "paused": false, "ago": CallController.ago(p.started), "earlier": true])
+                        "status": p.status, "waiting": false, "paused": false, "ago": CallController.ago(p.started), "earlier": true,
+                        "line": Self.plainLine(p.summary), "dir": p.dir.lastPathComponent])
         }
         return out
     }
@@ -126,7 +147,8 @@ final class HelperWindows: NSObject, NSWindowDelegate, WKNavigationDelegate {
         } else if key.hasPrefix("f"), let p = pastHelper(key) {
             let d: [String: Any] = ["name": p.name, "title": p.title, "color": Self.color(p.name), "status": p.status,
                                     "entries": HelperEntry.read(p.chat).compactMap { try? JSONSerialization.jsonObject(with: Data($0.json.utf8)) },
-                                    "resumable": true]
+                                    "resumable": true, "terminal": !p.session.isEmpty,
+                                    "files": HelperChanges.files(HelperEntry.read(p.chat)).map { Self.short($0, in: p.dir) }]
             run("HW.init(\(Self.json(d)))")
             window?.title = "\(p.name) — \(p.title)"
         } else {
@@ -149,6 +171,9 @@ final class HelperWindows: NSObject, NSWindowDelegate, WKNavigationDelegate {
             "now": a.latest,
             "elapsed": (a.finished ?? Date()).timeIntervalSince(a.started),
             "resumable": true,
+            "files": HelperChanges.files(a.entries).map { Self.short($0, in: a.dir) },
+            "terminal": !a.session.isEmpty,
+            "cost": a.cost ?? 0,
         ]
         if entries {
             d["name"] = a.name
@@ -157,6 +182,13 @@ final class HelperWindows: NSObject, NSWindowDelegate, WKNavigationDelegate {
             d["entries"] = a.entries.compactMap { try? JSONSerialization.jsonObject(with: Data($0.json.utf8)) }
         }
         return d
+    }
+
+    /// A file's path as shown: inside its folder relative to it, else with ~ for the home folder.
+    static func short(_ path: String, in dir: URL) -> String {
+        if path.hasPrefix(dir.path + "/") { return String(path.dropFirst(dir.path.count + 1)) }
+        let home = NSHomeDirectory()
+        return path.hasPrefix(home + "/") ? "~" + path.dropFirst(home.count) : path
     }
 
     /// The same colors as the helpers on screen (web/helpers.js).
@@ -210,6 +242,33 @@ final class HelperWindows: NSObject, NSWindowDelegate, WKNavigationDelegate {
                 case .failed(let why):
                     self.hint("Couldn’t undo: \(why)", warn: true)
                     self.pushSelected()
+                }
+            }
+        case "stopAll":
+            for x in agents.agents where x.status == .running || x.status == .queued { agents.stop(id: x.id) }
+        case "copy":
+            guard let text = msg["text"] as? String, !text.isEmpty else { return }
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(text, forType: .string)
+            hint("Copied.", warn: false)
+        case "terminal":
+            let p = a.map { agents.past($0) } ?? pastHelper(key)
+            guard let p, !p.session.isEmpty else { hint("It has no Claude Code session to open yet.", warn: true); return }
+            guard let exe = ClaudeCodeBrain.findClaude(explicit: agents.lastConfig.claudePath) else { hint("Claude Code isn’t installed.", warn: true); return }
+            let live = a.map { $0.status == .running || $0.status == .queued } ?? false
+            let dir = p.worktree.map { URL(fileURLWithPath: $0) }.flatMap { FileManager.default.fileExists(atPath: $0.path) ? $0 : nil } ?? p.dir
+            if HelperChanges.openInTerminal(claude: exe, dir: dir, session: p.session, fork: live, name: p.name) != nil {
+                hint(live ? "Opened a copy of its session in Terminal (it keeps working here)." : "Opened its session in Terminal.", warn: false)
+            } else { hint("Couldn’t open Terminal.", warn: true) }
+        case "diff":
+            let entries = a?.entries ?? pastHelper(key).map { HelperEntry.read($0.chat) } ?? []
+            guard let dir = a?.dir ?? pastHelper(key)?.dir else { return }
+            let files = HelperChanges.files(entries), folder = HelperChanges.folder(entries, dir: dir)
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                let d = HelperChanges.diff(files: files, in: folder)
+                DispatchQueue.main.async {
+                    guard let self, self.selected == key else { return }
+                    self.run("HW.diff(\(Self.str(d)))")
                 }
             }
         case "folder": if let dir = a?.dir ?? pastHelper(key)?.dir { NSWorkspace.shared.open(dir) }

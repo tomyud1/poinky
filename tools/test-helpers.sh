@@ -219,6 +219,8 @@ if [ "${1:-}" = "--screen" ] || [ "${2:-}" = "--screen" ]; then
   expect "$L" "follow-ups: \[\"Also make the README example use \\\$100.\"\]" "typing in it sends the helper a message"
   expect "$L" "window after typing: \[\"Also make the README" "what you typed shows in it"
   expect "$L" "window at the end: .*\"pill\":\"Done\".* Done" "it ends with Done and the summary"
+  expect "$L" "window changes: 2 files: tipsplit.py, test_tipsplit.py" "it shows which files it changed"
+  expect "$L" "window diff: Not in a git repository.*tipsplit.py" "⌘D shows the changes (outside a repo: which files)"
   expect "$L" "typed to the finished helper \\(box said \"Ask Mint to do more" "a finished helper can be asked for more"
   expect "$L" "continue Mint \\(session kept\\): #2 Mint" "it continues its own session, with its name"
   expect "$L" "window after continuing: .*\"pill\":\"Done\".*\"list\":\\[\"Mint[^\"]*\"\\]" "one window for all of it (the list shows it once)"
@@ -234,6 +236,7 @@ if [ "${1:-}" = "--screen" ] || [ "${2:-}" = "--screen" ]; then
   expect "$L" "sent \"Why does this fail\?\\\\nTypeError: x is undefined\" to Poinky" "Return sends it to Poinky"
   expect "$L" "sent \"also add a test\" to #3" "opened on a helper, it types to that helper"
   expect "$L" "draft kept: \"a draft\"" "Esc closes it and keeps what you were typing"
+  expect "$L" "with helpers at work: placeholder Ask Poinky, or @Mint to tell a helper" "with helpers at work, it says @Mint reaches one"
   fi
 fi
 

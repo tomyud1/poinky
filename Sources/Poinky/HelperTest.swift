@@ -290,6 +290,12 @@ extension HelperTest {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
                         hw.evaluateForTest(state + " + ' ' + (document.querySelector('.end .head span') || {}).textContent") { r in log("window at the end: \(r.map { "\($0)" } ?? "nil")") }
                         hw.snapshotForTest(to: URL(fileURLWithPath: outDir + "/window-done.png"))
+                        // What it changed: the bar, then the diff (⌘D), from the app.
+                        hw.evaluateForTest("(() => { const r = document.getElementById('changes').hidden ? 'none' : document.getElementById('chN').textContent + ': ' + document.getElementById('chFiles').textContent; document.body.dispatchEvent(new KeyboardEvent('keydown', {key: 'd', metaKey: true, bubbles: true})); return r; })()") { r in log("window changes: \(r.map { "\($0)" } ?? "nil")") }
+                    }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                        hw.evaluateForTest("document.getElementById('diff').hidden ? 'closed' : document.getElementById('diffBody').textContent.slice(0, 200)") { r in log("window diff: \(r.map { "\($0)" } ?? "nil")") }
+                        hw.evaluateForTest("(() => { document.body.dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape', bubbles: true})); return document.getElementById('diff').hidden; })()") { _ in }
                     }
                     DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
                         hw.evaluateForTest("(() => { const b = document.getElementById('box'); b.value = 'Now also update the README.'; b.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', bubbles: true})); return b.placeholder; })()") { r in log("typed to the finished helper (box said \"\(r ?? "")\")") }
@@ -572,9 +578,71 @@ extension HelperTest {
         check(r0?.model == "claude-opus-5-5" && r0?.planFirst == true && r0?.resumeKey == nil, "talker tags: a model and plan first for one task (\(String(describing: r0)))")
         check(r1?.resumeKey == "3f2a9c1b" && r1?.task == "Also update the README.", "talker tags: continue an earlier helper by its key")
         check(ev2.undos == ["Coral"], "talker tags: undo (\(ev2.undos))")
+        // Typed to a helper by name: "@Mint add tests".
+        for (said, name, intent) in [("@Mint add a test for 4 people", "Mint", HelperTalk.Intent.message("Add a test for 4 people")),
+                                     ("@coral: stop", "Coral", .stop), ("@Mint /review", "Mint", .message("/review")),
+                                     ("@Mint how's it going?", "Mint", .status)] as [(String, String, HelperTalk.Intent)] {
+            let got = HelperTalk.byName(said, names: names)
+            check(got?.name == name && got?.intent == intent, "typed \"\(said)\" → \(got.map { "\($0.name) \($0.intent)" } ?? "not about a helper")")
+        }
+        check(HelperTalk.byName("@Violet add tests", names: names) == nil, "typed \"@Violet …\" with no Violet: not about a helper")
+        changesChecks(check)
+        editMenuChecks(check)
         askChecks(check)
         lines.append(fails == 0 ? "ALL OK" : "\(fails) FAILED")
         try? lines.joined(separator: "\n").write(toFile: out, atomically: true, encoding: .utf8)
         DispatchQueue.main.async { NSApp.terminate(nil) }
+    }
+
+    /// What a helper changed (files from its steps, their diff in a scratch git repo), and the Terminal script.
+    static func changesChecks(_ check: (Bool, String) -> Void) {
+        let fm = FileManager.default
+        let repo = fm.temporaryDirectory.appendingPathComponent("poinky-changes-\(UUID().uuidString.prefix(6))").resolvingSymlinksInPath()
+        defer { try? fm.removeItem(at: repo) }
+        try? fm.createDirectory(at: repo, withIntermediateDirectories: true)
+        func sh(_ args: [String]) { let p = Process(); p.executableURL = URL(fileURLWithPath: "/usr/bin/git"); p.arguments = ["-C", repo.path] + args
+            p.standardOutput = FileHandle.nullDevice; p.standardError = FileHandle.nullDevice; try? p.run(); p.waitUntilExit() }
+        try? "def add(a, b):\n    return a - b\n".write(to: repo.appendingPathComponent("calc.py"), atomically: true, encoding: .utf8)
+        try? "notes\n".write(to: repo.appendingPathComponent("notes.txt"), atomically: true, encoding: .utf8)
+        sh(["init", "-q"]); sh(["add", "-A"]); sh(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "start"])
+        try? "def add(a, b):\n    return a + b\n".write(to: repo.appendingPathComponent("calc.py"), atomically: true, encoding: .utf8)
+        try? "def test_add():\n    assert add(1, 2) == 3\n".write(to: repo.appendingPathComponent("test_calc.py"), atomically: true, encoding: .utf8)
+        let p = { (f: String) in repo.appendingPathComponent(f).path }
+        let entries = [HelperEntry(k: "task", text: "t", detail: repo.path, kind: "Mint"),
+                       HelperEntry(k: "step", text: "Reading calc.py", detail: p("calc.py"), kind: "read"),
+                       HelperEntry(k: "step", text: "Editing calc.py", detail: p("calc.py"), kind: "edit"),
+                       HelperEntry(k: "step", text: "Writing test_calc.py", detail: p("test_calc.py"), kind: "edit"),
+                       HelperEntry(k: "step", text: "Editing calc.py", detail: p("calc.py"), kind: "edit"),
+                       HelperEntry(k: "step", text: "Editing notes.txt", detail: p("notes.txt"), kind: "edit")]
+        let files = HelperChanges.files(entries)
+        check(files == [p("calc.py"), p("test_calc.py"), p("notes.txt")], "changes: the files it edited, once each, in order (\(files.map { ($0 as NSString).lastPathComponent }))")
+        check(HelperWindows.short(p("calc.py"), in: repo) == "calc.py", "changes: shown relative to its folder")
+        let d = HelperChanges.diff(files: files, in: repo)
+        let c = HelperChanges.counts(d)
+        check(d.contains("-    return a - b") && d.contains("+    return a + b"), "changes: the diff of an edited file")
+        check(d.contains("+++ b/test_calc.py") && d.contains("+    assert add(1, 2) == 3"), "changes: a new file in full")
+        check(d.contains("No changes now") && d.contains("notes.txt"), "changes: a file with no changes now is named, not hidden")
+        check(c.added == 3 && c.removed == 1, "changes: +\(c.added) −\(c.removed)")
+        let nogit = HelperChanges.diff(files: ["/tmp/x.txt"], in: URL(fileURLWithPath: "/"))
+        check(nogit.hasPrefix("# Not in a git repository"), "changes: not in a repo, it says so")
+        // A worktree that's gone: its files are shown in your folder.
+        let wt = [HelperEntry(k: "worktree", text: repo.path, detail: "/tmp/gone-worktree-xyz"),
+                  HelperEntry(k: "step", text: "e", detail: "/tmp/gone-worktree-xyz/calc.py", kind: "edit")]
+        check(HelperChanges.files(wt) == [p("calc.py")], "changes: from a worktree that's gone, the same file in your folder")
+        let script = HelperChanges.terminalScript(claude: "/usr/local/bin/claude", dir: URL(fileURLWithPath: "/Users/x/My Project"), session: "3f2a-9c1b", fork: true)
+        check(script.contains("cd '/Users/x/My Project'") && script.contains("exec '/usr/local/bin/claude' --resume 3f2a-9c1b --fork-session"), "terminal: resumes its session in its folder (a copy while it works)")
+        let odd = HelperChanges.terminalScript(claude: "claude", dir: URL(fileURLWithPath: "/x"), session: "a'b; rm", fork: false)
+        check(odd.contains("--resume 'a'\\''b; rm'") && !odd.contains("--fork-session"), "terminal: an odd session id is quoted")
+    }
+
+    /// ⌘C / ⌘V / ⌘A / ⌘Z work in the type box and the Helpers window (a menu bar app has no Edit menu of its own).
+    static func editMenuChecks(_ check: (Bool, String) -> Void) {
+        EditMenu.install()
+        let keys = Dictionary((NSApp.mainMenu?.items ?? []).flatMap { $0.submenu?.items ?? [] }
+            .filter { !$0.keyEquivalent.isEmpty }.map { ($0.keyEquivalent + ($0.keyEquivalentModifierMask.contains(.shift) ? "⇧" : ""), $0.action) }, uniquingKeysWith: { a, _ in a })
+        let want: [(String, Selector)] = [("c", #selector(NSText.copy(_:))), ("v", #selector(NSText.paste(_:))), ("x", #selector(NSText.cut(_:))),
+                                          ("a", #selector(NSText.selectAll(_:))), ("z", Selector(("undo:"))), ("z⇧", Selector(("redo:"))),
+                                          ("w", #selector(NSWindow.performClose(_:)))]
+        for (k, sel) in want { check(keys[k] == sel, "edit menu: ⌘\(k.uppercased()) → \(NSStringFromSelector(sel))") }
     }
 }

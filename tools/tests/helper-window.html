@@ -62,7 +62,7 @@ const run = () => {
     HW.add(end); HW.status({ status: 'done', waiting: false });
     check(q('.end .head span').textContent === 'Done' && /All 4 tests pass/.test(q('.end .note').textContent), 'done: its summary');
     check(qa('.note').filter(n => !n.closest('.end') && /All 4 tests pass/.test(n.textContent)).length === 0, 'the summary is shown once');
-    check(q('.end .meta').textContent === 'Worked 2 min · $0.42 of usage', `time and usage (${q('.end .meta').textContent})`);
+    check(q('.end .meta span').textContent === 'Worked 2 min · $0.42 of usage' && q('.end .copy'), `time and usage, and Copy summary (${q('.end .meta').textContent})`);
     check(q('#pill').textContent === 'Done' && q('#stop').hidden && box.disabled, 'finished: Done, no Stop, the box is off');
 
     // Undo: a run with a checkpoint offers it, asks first (naming the files), and shows it's done.
@@ -91,9 +91,53 @@ const run = () => {
     q('#pause').click();
     check(JSON.stringify(w.HW_OUT.slice(-1)[0]) === '{"type":"resume"}', 'Go on tells the app');
 
+    // The overview on the left: who needs you first, what each is doing, where.
+    HW.list([
+      { key: 'a2', name: 'Coral', title: 'Add dark mode', color: '#ff7a59', status: 'running', waiting: true, line: 'Can I run npm install?', dir: 'web-app', elapsed: 300 },
+      { key: 'a1', name: 'Mint', title: 'Fix rounding', color: '#34c98e', status: 'running', line: 'Running the tests', dir: 'tipsplit', elapsed: 125 },
+      { key: 'a3', name: 'Violet', title: 'Docs', color: '#9b6bff', status: 'done', line: 'Updated the README.', dir: 'docs', ago: '2 min ago' },
+      { key: 'f/x.chat.jsonl', name: 'Amber', title: 'Yesterday', status: 'done', earlier: true, line: 'Did it.', dir: 'api' }], 'a1');
+    const rows = qa('.it');
+    check(rows.length === 4 && rows[0].classList.contains('need') && /Needs you/.test(rows[0].textContent), 'the helper that needs you is first, marked "Needs you"');
+    check(/tipsplit · Running the tests/.test(rows[1].querySelector('.l').textContent) && /2 min/.test(rows[1].querySelector('small').textContent), `each row: its folder, what it's doing, how long (${rows[1].querySelector('.l').textContent} / ${rows[1].querySelector('small').textContent})`);
+    check(!q('#stopAll').hidden, 'two at work: "Stop all" is offered');
+    q('#stopAll').click();
+    check(JSON.stringify(w.HW_OUT.slice(-1)[0]) === '{"type":"stopAll"}', 'Stop all tells the app');
+    const key = (k, o = {}) => d.body.dispatchEvent(new w.KeyboardEvent('keydown', Object.assign({ key: k, bubbles: true, cancelable: true }, o)));
+    q('#box').blur();
+    key('ArrowDown');
+    check(JSON.stringify(w.HW_OUT.slice(-1)[0]) === '{"type":"select","key":"a3"}', `↓ picks the next helper (${JSON.stringify(w.HW_OUT.slice(-1)[0])})`);
+    key('ArrowUp');
+    check(JSON.stringify(w.HW_OUT.slice(-1)[0]) === '{"type":"select","key":"a2"}', '↑ the one before');
+    key('4', { metaKey: true });
+    check(JSON.stringify(w.HW_OUT.slice(-1)[0]) === '{"type":"select","key":"f/x.chat.jsonl"}', '⌘4 jumps to the 4th');
+
+    // What it changed: a bar with the files, ⌘D shows the diff, Esc goes back.
+    HW.init({ name: 'Mint', title: 'Fix rounding', status: 'running', elapsed: 10, terminal: true, files: ['tipsplit.py', 'tests/test_tipsplit.py'], entries: [{ k: 'task', text: 't' }] });
+    check(!q('#changes').hidden && q('#chN').textContent === '2 files' && q('#chFiles').textContent === 'tipsplit.py, test_tipsplit.py', `"Changed 2 files: tipsplit.py, test_tipsplit.py" (${q('#changes').textContent})`);
+    check(!q('#term').hidden, 'a helper with a session can be opened in Terminal');
+    q('#box').blur(); key('t', { metaKey: true });
+    check(JSON.stringify(w.HW_OUT.slice(-1)[0]) === '{"type":"terminal"}', '⌘T opens it in Terminal');
+    key('d', { metaKey: true });
+    check(!q('#diff').hidden && JSON.stringify(w.HW_OUT.slice(-1)[0]) === '{"type":"diff"}', '⌘D asks the app for the diff');
+    const r = HW.diff('diff --git a/tipsplit.py b/tipsplit.py\nindex 1..2 100644\n--- a/tipsplit.py\n+++ b/tipsplit.py\n@@ -1,3 +1,3 @@\n def split(t, n):\n-    return t / n\n+    return round(t / n, 2)\n+# fixed\n# No changes now (committed, undone, or deleted since):\n#   notes.txt');
+    check(r.files === 1 && r.add === 2 && r.del === 1 && /1 file · \+2 −1/.test(q('#diffHead').textContent), `the diff: 1 file, +2 −1 (${q('#diffHead').textContent})`);
+    check(q('#diffBody .a') && q('#diffBody .r') && q('#diffBody .f').textContent === 'tipsplit.py' && /No changes now/.test(q('#diffBody .c').textContent), 'added and removed lines colored, the file named, notes shown');
+    key('Escape');
+    check(q('#diff').hidden, 'Esc goes back from the diff');
+    key('/');
+    check(d.activeElement === q('#box') && q('#box').value === '/', '/ starts a command in the box (like /review)');
+    q('#box').value = ''; q('#box').blur();
+    key('.', { metaKey: true });
+    check(JSON.stringify(w.HW_OUT.slice(-1)[0]) === '{"type":"stop"}', '⌘. stops it');
+    HW.add({ k: 'end', kind: 'done', text: 'Fixed the rounding: shares add up.' });
+    q('.end .copy').click();
+    check(JSON.stringify(w.HW_OUT.slice(-1)[0]) === '{"type":"copy","text":"Fixed the rounding: shares add up."}', 'Copy summary hands its summary to the app');
+
     // A past helper shown again in full.
     HW.init({ name: 'Coral', title: 'x', color: '#ff7a59', status: 'failed', entries: [{ k: 'task', text: 't' }, { k: 'end', kind: 'failed', text: 'It stopped while: Running the tests' }] });
     check(q('#name').textContent === 'Coral' && qa('.e').length === 2 && q('#pill').textContent === 'Stopped with a problem', 'opening it again redraws everything');
+    check(q('#changes').hidden && q('#term').hidden, 'one with no changed files and no session: no changes bar, no Terminal');
   } catch (e) { check(false, 'error: ' + e.message + ' ' + (e.stack || '').split('\n')[1]); }
   done();
 };
