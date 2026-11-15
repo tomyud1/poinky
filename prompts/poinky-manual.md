@@ -29,6 +29,7 @@ Use this when the user asks how Poinky works, what it can do, or how to change s
 - `buddyAutoHide`: seconds after Poinky finishes before the buddy hides (0 = never, 3 = right after it answers). It comes back when you hold ⌃⌥. Settings → General → "Hide the buddy".
 - `sounds`: true/false (interface sounds). `soundVolume`: 0–1 (how loud they are; Poinky's voice is separate).
 - `artistEnabled`: true/false (the teacher: lessons and 3D).
+- `paperLook`: "auto" (a chalkboard when the screen is dark, else paper), "paper", "chalkboard". Lessons can be saved: the paper's Save button (one page as a picture) and "Save all" (every page of the session as one PDF), or by asking.
 - `silenceSeconds`: hands-free calls, how long a pause ends a question (0.5–2.5).
 - `pushToTalk`: "ctrl+option", "ctrl+shift", "option+cmd" or "off".
 - `memoryEnabled`: true/false.

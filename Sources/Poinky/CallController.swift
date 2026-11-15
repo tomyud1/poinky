@@ -2318,6 +2318,7 @@ final class CallController: NSObject, NSMenuDelegate {
         if let v = flag("sounds") { cfg.sounds = v }
         if let v = num("soundVolume") { cfg.soundVolume = min(1, max(0, v)); if v > 0 { cfg.sounds = true } }
         if let v = flag("artistEnabled") { cfg.artistEnabled = v }
+        if let v = obj["paperLook"] as? String, ["auto", "paper", "chalkboard"].contains(v) { cfg.paperLook = v }
         if let v = num("silenceSeconds") { cfg.silenceSeconds = min(2.5, max(0.5, v)) }
         if let v = obj["pushToTalk"] as? String, ["ctrl+option", "ctrl+shift", "option+cmd", "off"].contains(v) { cfg.pushToTalk = v }
         if let v = flag("memoryEnabled") { cfg.memoryEnabled = v }

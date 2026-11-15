@@ -240,7 +240,12 @@
     X.report();
   }
   function grow(bottom) {
-    if (bottom > contentBottom + 1) { contentBottom = bottom; if (bottom + 30 <= H) label(); }
+    if (bottom > contentBottom + 1) {
+      const first = !contentBottom;
+      contentBottom = bottom;
+      if (bottom + 30 <= H) label();
+      if (first) saveAllButton();   // this page now counts toward "Save all N"
+    }
     if (bottom + 30 > H) setHeight(bottom + 30);
   }
   /** After erasing: the paper shrinks to what's left on it. */
