@@ -168,11 +168,14 @@ def find_claude():
     return shutil.which("claude")
 
 
-def no_thinking_body():
-    """The CLAUDE_CODE_EXTRA_BODY ClaudeCodeBrain sends for Haiku on Automatic effort (read from the source)."""
+def no_thinking_body(model="haiku"):
+    """The CLAUDE_CODE_EXTRA_BODY ClaudeCodeBrain sends on Automatic effort (`noThinkingBody(for:)`)."""
     src = open(os.path.join(ROOT, "Sources/Poinky/ClaudeCodeBrain.swift"), encoding="utf-8").read()
-    m = re.search(r'\?\? #"(\{"thinking".*?)"#', src)
-    return m.group(1) if m else None
+    if "static func noThinkingBody(for" not in src:
+        return None
+    m = model.lower()
+    kind = "disabled" if "haiku" in m else "between_tools" if "sonnet" in m else None
+    return kind and '{"thinking":{"type":"%s"},"context_management":{"edits":[]}}' % kind
 
 
 def run_once(sc, jpg, model, workdir, prompt, keep_thinking=False):
@@ -184,7 +187,7 @@ def run_once(sc, jpg, model, workdir, prompt, keep_thinking=False):
             "--disable-slash-commands", "--setting-sources", "", "--no-session-persistence",
             "--system-prompt", prompt, "--settings", '{"alwaysThinkingEnabled":false}']
     env = dict(os.environ, MAX_THINKING_TOKENS="0", CLAUDE_CODE_DISABLE_AUTO_MEMORY="1")
-    body = None if keep_thinking or "haiku" not in model else no_thinking_body()
+    body = None if keep_thinking else no_thinking_body(model)
     if body:
         env["CLAUDE_CODE_EXTRA_BODY"] = body
     p = subprocess.Popen(args, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=workdir, env=env)
