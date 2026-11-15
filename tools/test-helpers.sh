@@ -43,7 +43,7 @@ run A POINKY_TEST_FOLLOWUP="2|Also add a test for 4 people." "$BIN" --helper-tes
   fixture:fix-bug fixture:todo-blocked fixture:crash fixture:two-turns
 expect "$TMP/A.txt" "start 4: #4 Amber queued" "the 4th waits in line"
 expect "$TMP/A.txt" "#3 Violet FINISHED failed" "a crash counts as failed"
-expect "$TMP/A.txt" "#1 Mint FINISHED done .*followUps=1: All 4 tests pass.*" "a follow-up reaches a working helper"
+expect "$TMP/A.txt" "#1 Mint FINISHED done .*followUps=1 tokens=[0-9/]*: All 4 tests pass.*" "a follow-up reaches a working helper"
 expect "$TMP/A.txt" "Also handled: Also add a test for 4 people" "the follow-up is folded into its work"
 expect "$TMP/A.txt" "#2 Coral FINISHED done .*checklist=4 blocked=5" "to-do list and refusals are tracked"
 expect "$TMP/A.txt" "#2 Coral FINISHED done .*tokens=[1-9][0-9]*/[1-9][0-9]*:" "tokens are counted while it works (written / its conversation)"
