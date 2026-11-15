@@ -23,6 +23,28 @@ enum SpokenText {
         return tidy(s)
     }
 
+    /// For Phonon only, after `normalize`: a sentence that ends in a number has it in words.
+    /// Phonon reads digits right before the end of the text as the start of something more:
+    /// "We need 7." came out as "we need 7 point", "the sum is 58." as "58 dawn" (26 of 120
+    /// such sentences over 3 voices; 0 of 120 spelled out). Only short numbers (up to 3 digits,
+    /// and a run of them like "3 point 1 4" or "4 8 1 5"): years, ports and times were fine.
+    static func phononEnding(_ s: String) -> String {
+        replace(s, #"(?<![\d.,:/$€£#-])\b(\d{1,3}(?: (?:\d{1,3}|point))*)([.!?,;:…"'”’)\]]*\s*)$"#) { g in
+            let spoken = g[1].split(separator: " ").map { t in Int(t).map(spell) ?? String(t) }
+            return spoken.joined(separator: " ") + g[2]
+        }
+    }
+
+    /// 0–999 in words: 58 → "fifty-eight", 250 → "two hundred fifty".
+    static func spell(_ n: Int) -> String {
+        let ones = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven",
+                    "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen"]
+        let tens = ["", "", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety"]
+        if n < 20 { return ones[max(0, n)] }
+        if n < 100 { return tens[n / 10] + (n % 10 == 0 ? "" : "-" + ones[n % 10]) }
+        return ones[n / 100] + " hundred" + (n % 100 == 0 ? "" : " " + spell(n % 100))
+    }
+
     // MARK: Markdown leftovers
 
     private static func markdown(_ s: String) -> String {

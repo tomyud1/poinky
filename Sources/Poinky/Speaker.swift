@@ -241,7 +241,8 @@ final class Speaker {
         // What's heard is said the way a person would say it ("x squared", not "x caret 2");
         // the caption (and the step it starts) keeps the text as written.
         let normalized = SpokenText.normalize(part, language: usingPhonon ? "en" : (voice?.language ?? language))
-        let spoken = normalized.contains(where: { $0.isLetter || $0.isNumber }) ? normalized : part
+        var spoken = normalized.contains(where: { $0.isLetter || $0.isNumber }) ? normalized : part
+        if usingPhonon { spoken = SpokenText.phononEnding(spoken) }
         Self.logSpeech(caption?.0 ?? "+", spoken)
         if let p = phonon, p.isRunning {
             speakWithPhonon(p, caption: caption, spoken: spoken, gen: gen)
