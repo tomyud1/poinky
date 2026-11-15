@@ -50,6 +50,24 @@ Without the thinking step Haiku followed the reply format less well (the first f
 
 Per-run detail: `python3 tools/eval-talker/run.py --rescore before,before-extra after,after2,after3,after-fix,after-fix2,after-fix3,after-fix4,after-fix5,after-fix6,after-fix7,after-fix8`.
 
+## Continuity across a talker swap (`continuity.py`)
+A 12-question study session (BIO 110 lecture open in Preview). Question 2: "my exam is on Thursday and it covers chapters 3 to 5"; questions 3–11 are about the lecture; then the talker is swapped for a fresh one and asked "so which chapters should I review tonight?". **before** = the old recap (last 8 exchanges, clipped to 200/300 characters); **after** = `SessionSummary` (real prompt, Haiku, updated after every answer) + the last 5 exchanges (`CallController.recapLines`). "Scope" = the answer says chapters 3 to 5.
+
+```
+python3 tools/eval-talker/continuity.py --runs 2 --label mine          # ~26 Haiku calls
+python3 tools/eval-talker/continuity.py --reuse mine --reuse-summary   # only the last question again (4 calls)
+python3 tools/eval-talker/continuity.py --rescore continuity-v1 continuity-v2 continuity-v3 continuity-v4
+```
+
+| run | before: scope | after: scope |
+|---|---|---|
+| v1: first summary prompt (free-form lines) | 0/2 | 0/2: the summary kept the lecture's content and dropped the exam |
+| v2: fixed lines (Goal, Facts never dropped, Covered = topics only), v1's answers | 0/2 | 2/2 |
+| v3: same prompt, whole session again | 0/2 | 0/2: says "your exam is Thursday", but "review chapter 3 tonight" (takes the open lecture for chapter 3) |
+| v4: v3 + recap header "what the user told you here still holds" | 0/2 | 1/2 (the other: chapter 3 first, then "whatever's in chapter 5") |
+
+The old recap can't carry it at all (question 2 is the 9th exchange back). The fact always survives in the summary now; the fast talker doesn't always use it.
+
 ## Known gaps
 - "Short version" summaries sometimes still list every item.
 - The talker still writes math symbols when it explains math itself (Phonon reads them poorly); the teacher route avoids most of it.
