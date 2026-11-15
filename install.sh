@@ -163,18 +163,13 @@ rm -rf "$DEST/Poinky.app"
 cp -R "$SRC/build/Poinky.app" "$DEST/"
 open "$DEST/Poinky.app"
 
-say "Done! Poinky is in $DEST and lives in your notch."
+say "Done! Poinky is open. The first time, a short welcome walks you through the rest."
 echo
-echo "Next:"
+note "It asks for each permission with a plain reason, checks that Claude Code is signed in,"
+note "and has you ask your first question. After that: hold Control + Option, ask, let go."
 if [ "$CLAUDE_NEEDS_LOGIN" = 1 ]; then
-  note "1. Open Terminal, run  claude  once and sign in."
-else
-  note "1. Make sure Claude Code is signed in (run  claude  in Terminal), or add an API key in Poinky's settings."
+  note "Claude Code still needs you to sign in: the welcome has a Sign in button."
 fi
-note "2. Hold Control + Option, ask about anything on your screen, let go."
-note "3. macOS asks for permissions as Poinky needs them:"
-note "     - Microphone and Speech Recognition: click Allow."
-note "     - Screen Recording: turn Poinky on in System Settings > Privacy & Security > Screen & System Audio Recording, then reopen Poinky."
-note "     - Accessibility: only when you ask it to click or type for you."
+note "Poinky lives in your notch (or the menu bar). Replay the welcome from Settings > General."
 [ "$VOICE" = 1 ] && [ "$VOICE_OK" = 0 ] && note "(Natural voice not installed: add it in Settings → Voice → Install.)"
 echo "Update later by running the same install command. Remove with:  ... | bash -s -- --uninstall"

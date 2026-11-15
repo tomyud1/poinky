@@ -198,6 +198,12 @@ final class WelcomeModel: ObservableObject {
 
     /// Opened to fix one thing (a permission, Claude Code) instead of as the tour: one page, then Done.
     @Published var fixing = false
+    /// The natural voice isn't installed and you speak English (the only language it has).
+    var wantsVoice: Bool {
+        let cfg = AppConfig.load()
+        return cfg.voiceEngine == "phonon" && cfg.language.lowercased().hasPrefix("en")
+            && (!PhononVoice.isInstalled || PhononInstaller.shared.state != .idle)
+    }
 
     func go(_ p: Page) {
         page = p
@@ -536,7 +542,7 @@ private struct ClaudePage: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(headline).font(.headline)
                     Text(detail).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                    HStack(spacing: 10) {
+                    if hasButtons { HStack(spacing: 10) {
                         switch model.claude {
                         case .missing:
                             Button("Install Claude Code") { model.installClaude() }.buttonStyle(.borderedProminent)
@@ -550,18 +556,22 @@ private struct ClaudePage: View {
                         default: EmptyView()
                         }
                     }
-                    .padding(.top, 4)
+                    .padding(.top, 4) }
                 }
+                Spacer(minLength: 0)
             }
             .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .background(RoundedRectangle(cornerRadius: 10).fill(Color.secondary.opacity(0.08)))
             if model.claude != .checking, !isReady {
                 Button("I have an Anthropic API key instead") { model.onOpenSettings("claude") }.buttonStyle(.link).font(.callout)
             }
+            if !model.fixing, model.wantsVoice { VoiceRow() }
         }
     }
 
     private var isReady: Bool { if case .ready = model.claude { return true }; return false }
+    private var hasButtons: Bool { !isReady && model.claude != .checking }
 
     @ViewBuilder private var icon: some View {
         switch model.claude {
@@ -588,6 +598,37 @@ private struct ClaudePage: View {
         case .ready: return "All set."
         case .unsure: return "I couldn't tell if it's signed in. If your first question doesn't get an answer, click Sign in."
         }
+    }
+}
+
+/// The natural voice, if it isn't installed yet (English only): it downloads in the background while
+/// you finish the tour. Same installer as Settings → Voice.
+private struct VoiceRow: View {
+    @ObservedObject var installer = PhononInstaller.shared
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: installer.state == .done ? "checkmark.circle.fill" : "waveform.circle")
+                .font(.title2).foregroundStyle(installer.state == .done ? .green : .secondary).frame(width: 26)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("A more natural voice (optional)").font(.headline)
+                switch installer.state {
+                case .running:
+                    ProgressView(value: installer.progress)
+                    Text(installer.step.isEmpty ? "Downloading…" : installer.step).font(.caption).foregroundStyle(.secondary)
+                case .done:
+                    Text("Installed. I'll use it from your next question.").font(.callout).foregroundStyle(.secondary)
+                case .failed:
+                    Text("The download didn't finish. You can try again here or in Settings → Voice.").font(.callout).foregroundStyle(.secondary)
+                case .idle:
+                    Text("Sounds much more human than the built-in voice. A 75 MB download that runs on this Mac; it keeps going while you finish.")
+                        .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            Spacer(minLength: 8)
+            if installer.state == .idle { Button("Install") { installer.start() } }
+            if case .failed = installer.state { Button("Try again") { installer.start() } }
+        }
+        .padding(.horizontal, 14)
     }
 }
 
