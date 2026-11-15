@@ -473,6 +473,7 @@ final class AgentManager {
                     s += ". To-do: \(a.checklist.filter { $0.state == .done }.count) of \(a.checklist.count) done"
                 }
                 if !a.blocked.isEmpty { s += ". Wasn't allowed to: " + a.blocked.suffix(3).joined(separator: "; ") }
+                if let c = a.liveCost, c.dollars >= 0.01 { s += ". Usage so far: about $" + String(format: "%.2f", c.dollars) + (c.estimated ? " (an estimate from its tokens)" : "") }
                 if let ask = a.asks.first {
                     s += ask.kind == .question ? ". WAITING for the user to answer its question: \(ask.currentQuestion?.text ?? ask.detail)"
                                                : ". WAITING for the user's OK to: \(ask.detail)"

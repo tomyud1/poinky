@@ -14,7 +14,7 @@ bad()  { printf "  \033[31mFAIL\033[0m %s\n" "$1"; fail=1; }
 expect() { grep -qE "$2" "$1" && pass "$3" || { bad "$3"; sed 's/^/       /' "$1" | grep -v " event " | head -40; }; }
 
 echo "1. Parser"
-swiftc -O -o "$TMP/parser" Sources/Poinky/HelperEvents.swift Sources/Poinky/HelperAsk.swift Sources/Poinky/HelperTranscript.swift tools/tests/helper-events/main.swift 2>"$TMP/swiftc.log" || { cat "$TMP/swiftc.log"; exit 1; }
+swiftc -O -o "$TMP/parser" Sources/Poinky/HelperEvents.swift Sources/Poinky/HelperCost.swift Sources/Poinky/HelperAsk.swift Sources/Poinky/HelperTranscript.swift tools/tests/helper-events/main.swift 2>"$TMP/swiftc.log" || { cat "$TMP/swiftc.log"; exit 1; }
 "$TMP/parser" tools/helper-runs | grep -E "ok|FAIL" ; "$TMP/parser" tools/helper-runs >/dev/null || fail=1
 
 echo "1b. Helper choreography in a browser (many at once: no overlaps, one hand-off and one report at a time)"
