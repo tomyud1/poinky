@@ -285,6 +285,11 @@ final class CallController: NSObject, NSMenuDelegate {
         if wantsPhonon(config) { try? phonon.start() }
         PhononInstaller.shared.onInstalled = { [weak self] in self?.voiceInstalled() }
         WelcomeWindowController.shared.model.onTourDone = { [weak self] in self?.firstRun.tourFinished() }
+        firstRun.sayInSession = { [weak self] line in
+            guard let self, self.state == .ready, !self.ptt.isDown, Self.secondsSinceTyping() >= 2, !self.typeBox.isOpen else { return false }
+            self.sayQuick(line, said: "")
+            return true
+        }
         // Updating from the old Kokoro voice: it's replaced by Phonon, which installs itself in the
         // background (~75 MB; Apple's voice speaks until it's ready).
         if config.voiceEngine == "phonon", !PhononVoice.isInstalled,

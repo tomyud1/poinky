@@ -18,6 +18,8 @@ final class FirstRun: NSObject, AVSpeechSynthesizerDelegate {
     private let menuIconFrame: () -> CGRect?
     private let isFree: () -> Bool
     private let sessionIdle: () -> Bool
+    /// A session is open and resting (e.g. the tour's first question): say a line in it. False if it can't now.
+    var sayInSession: (String) -> Bool = { _ in false }
 
     private var helloPending = false
     private var homePending = false
@@ -90,6 +92,12 @@ final class FirstRun: NSObject, AVSpeechSynthesizerDelegate {
 
     private func tryNext() {
         guard running == nil, helloPending || homePending else { return }
+        // The tour's first question left a session open: say hello in it rather than wait for it to end.
+        if helloPending, !isFree() {
+            let cfg = AppConfig.load()
+            let line = FirstRunWords.greeting(name: Self.userName(), keys: Self.spokenKeys(cfg))
+            if sayInSession(line) { helloPending = false; Timeline.log("firstrun.hello", ["named": Self.userName() != nil, "inSession": true]); return }
+        }
         guard isFree() else {
             waitTries += 1
             // Up to ~10 minutes; after that "I live here" waits for the next session to end.

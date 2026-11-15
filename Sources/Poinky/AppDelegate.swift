@@ -95,7 +95,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let page = args.contains("--welcome") ? .hello : quiet ? nil : WelcomeModel.pageToResume(configExisted: configExisted) {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { WelcomeWindowController.shared.show(at: page) }
         }
-        if args.contains("--firstrun-hello") { c.testFirstRunHello() }   // FirstRun.swift
+        // FirstRun.swift: the hello that follows the tour (`--firstrun-hello [secs]`, e.g. after an --ask's answer).
+        if let i = args.firstIndex(of: "--firstrun-hello") {
+            let secs = args.indices.contains(i + 1) ? Double(args[i + 1]) ?? 0 : 0
+            DispatchQueue.main.asyncAfter(deadline: .now() + secs) { c.testFirstRunHello() }
+        }
         // Developer checks for video explainers (see CallController+Video.swift).
         if let i = args.firstIndex(of: "--video"), i + 1 < args.count { c.devVideo(topic: args[i + 1]) }
         if let i = args.firstIndex(of: "--play-video"), i + 1 < args.count { c.devPlayVideo(dir: args[i + 1]) }
