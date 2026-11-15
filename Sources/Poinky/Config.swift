@@ -38,6 +38,7 @@ struct AppConfig: Codable {
     var sounds = true                  // soft interface sounds
     var soundVolume = 0.7              // their loudness, 0–1 (Poinky's voice has its own)
     var menuBarIcon = false            // also show ✨ in the menu bar (always shown on screens without a notch)
+    var homeShown = false              // the first-run "I live here" moment was shown (FirstRun.swift)
     var buddyHotkey = "ctrl+option+b"  // hides / shows the buddy
     var typeHotkey = "ctrl+option+t"   // opens a box to type to Poinky (or to the helper under the mouse)
     var helpersHotkey = "ctrl+option+h" // opens the Helpers window (on the helper under the mouse)
@@ -103,6 +104,7 @@ struct AppConfig: Codable {
         sounds = try c.decodeIfPresent(Bool.self, forKey: .sounds) ?? d.sounds
         soundVolume = try c.decodeIfPresent(Double.self, forKey: .soundVolume) ?? d.soundVolume
         menuBarIcon = try c.decodeIfPresent(Bool.self, forKey: .menuBarIcon) ?? d.menuBarIcon
+        homeShown = try c.decodeIfPresent(Bool.self, forKey: .homeShown) ?? true   // missing: someone who used Poinky before it existed
         buddyHotkey = try c.decodeIfPresent(String.self, forKey: .buddyHotkey) ?? d.buddyHotkey
         typeHotkey = try c.decodeIfPresent(String.self, forKey: .typeHotkey) ?? d.typeHotkey
         helpersHotkey = try c.decodeIfPresent(String.self, forKey: .helpersHotkey) ?? d.helpersHotkey

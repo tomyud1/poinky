@@ -86,6 +86,9 @@ final class Overlay: NSObject, WKNavigationDelegate {
 
     func setBuddy(_ on: Bool) { js("SB.buddyOn(\(on))") }
     func showBuddy(_ on: Bool) { js("SB.buddyShow(\(on))") }
+    /// First run ("I live here", FirstRun.swift): the buddy flies to its home, facing it, then tucks in.
+    func homeGo(_ p: CGPoint, facing f: CGPoint) { js("SB.homeGo(\(Int(p.x)), \(Int(p.y)), \(Int(f.x)), \(Int(f.y)))") }
+    func homeEnd() { js("SB.homeEnd()") }
 
     func hide() {
         setMarking(false)

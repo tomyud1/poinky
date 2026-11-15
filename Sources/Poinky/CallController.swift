@@ -20,6 +20,16 @@ final class CallController: NSObject, NSMenuDelegate {
     let overlay = Overlay()
     private lazy var helperScreen = HelperScreen(overlay: overlay, agents: agents)   // helpers (agents) on screen
     private let home = NotchHome()            // the status + controls at the notch
+    /// First-run moments: hello after the tour, "I live here" after the first session (FirstRun.swift).
+    private lazy var firstRun = FirstRun(
+        overlay: overlay, phonon: phonon, notch: home.model,
+        menuIconFrame: { [weak self] in self?.statusItem.isVisible == true ? self?.statusItem.button?.window?.frame : nil },
+        isFree: { [weak self] in
+            guard let self else { return false }
+            return self.state == .idle && !self.ptt.isDown && !Self.screenLocked() && Self.secondsSinceTyping() >= 3
+                && !WelcomeWindowController.shared.isOpen && !self.typeBox.isOpen && !self.video.window.isOpen
+        },
+        sessionIdle: { [weak self] in self?.state == .idle })
     let agents = AgentManager()       // background Claude Code agents
     private let helperWindows = HelperWindows()   // each helper's own window (its transcript and a box to type to it)
     private let typeBox = TypeBox()               // typing to Poinky instead of talking (⌃⌥T)
@@ -274,6 +284,7 @@ final class CallController: NSObject, NSMenuDelegate {
         // Load the local voice in the background now, so the first call doesn't wait for it.
         if wantsPhonon(config) { try? phonon.start() }
         PhononInstaller.shared.onInstalled = { [weak self] in self?.voiceInstalled() }
+        WelcomeWindowController.shared.model.onTourDone = { [weak self] in self?.firstRun.tourFinished() }
         // Updating from the old Kokoro voice: it's replaced by Phonon, which installs itself in the
         // background (~75 MB; Apple's voice speaks until it's ready).
         if config.voiceEngine == "phonon", !PhononVoice.isInstalled,
@@ -392,8 +403,12 @@ final class CallController: NSObject, NSMenuDelegate {
         endCall(quietly: true)
     }
 
+    /// `--firstrun-hello` (tests): the hello that follows the tour's Done.
+    func testFirstRunHello() { firstRun.tourFinished() }
+
     func startSession(_ newMode: Mode) {
         guard state == .idle else { return }
+        firstRun.interrupt("session")
         mode = newMode
         Timeline.log("session.start", ["mode": "\(newMode)"])
         state = .starting
@@ -557,6 +572,7 @@ final class CallController: NSObject, NSMenuDelegate {
         history.removeAll()
         mergeNext = false
         stopWatchers()
+        if !quitting { firstRun.sessionEnded() }
         if !quietly, config.sounds {
             // After the audio engine stopped (and echo cancellation let go of the speakers).
             let volume = Float(config.soundVolume)
@@ -647,6 +663,7 @@ final class CallController: NSObject, NSMenuDelegate {
     /// A quick tap of the talk keys: stop Claude (nothing is sent).
     private func pushTap() {
         WelcomeWindowController.shared.model.did(.tapped)   // the first-run tour's "tap to stop" tip
+        firstRun.interrupt("tap")
         // A video being made: a tap cancels it (holding to ask something else doesn't).
         if video.job?.status == .cooking, !video.window.isOpen {
             if state == .speaking || state == .thinking { turn += 1; speaker.stop(); stopLesson(); state = restingState }
@@ -2731,6 +2748,7 @@ final class CallController: NSObject, NSMenuDelegate {
         NSLog("Poinky: reset")
         Timeline.log("reset")
         endCall(quietly: true)
+        firstRun.interrupt("reset")
         phonon.stop()
         audio.stop()
         finishingPush = false

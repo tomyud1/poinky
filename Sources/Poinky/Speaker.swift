@@ -13,7 +13,7 @@ final class Speaker {
 
     private let synth = AVSpeechSynthesizer()
     private weak var audio: AudioIO?
-    private var voice: AVSpeechSynthesisVoice?
+    private(set) var voice: AVSpeechSynthesisVoice?
     private var rate: Float = AVSpeechUtteranceDefaultSpeechRate
     private var language = "en-US"
     private var otherVoices: [String: AVSpeechSynthesisVoice?] = [:]   // by language, for sentences in another one

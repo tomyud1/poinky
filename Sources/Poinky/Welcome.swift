@@ -40,6 +40,8 @@ final class WelcomeModel: ObservableObject {
     var typeKeys = "⌃⌥T"
 
     var onFinish: () -> Void = {}
+    /// The tour ended with Done or Skip (not the close button): the buddy says hello (FirstRun).
+    var onTourDone: () -> Void = {}
     var onOpenSettings: (String) -> Void = { _ in }
 
     /// The next permission to ask for (one at a time); nil when the needed ones are allowed.
@@ -234,7 +236,7 @@ final class WelcomeModel: ObservableObject {
         if let n = Page(rawValue: page.rawValue + 1) { go(n) } else { finish() }
     }
     func back() { if let p = Page(rawValue: page.rawValue - 1) { go(p) } }
-    func finish() { Self.markDone(); onFinish() }
+    func finish() { Self.markDone(); onFinish(); if !fixing { onTourDone() } }
 }
 
 @MainActor
