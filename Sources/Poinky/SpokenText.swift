@@ -332,6 +332,34 @@ enum SpokenText {
     }
 }
 
+/// How much longer to wait after a sentence than after any other, as a person would: after a
+/// heading or a line that ends in a colon ("There are three steps:"), and after each item of a
+/// list ("First, …", "2. …", "- …"), so the items don't run together. The usual gap is ~0.27 s.
+enum SentencePause {
+    static let afterHeading = 0.3
+    static let afterItem = 0.22
+    private static let ordinals = ["first", "second", "third", "fourth", "fifth", "sixth", "seventh", "eighth",
+                                   "ninth", "tenth", "finally", "lastly", "firstly", "secondly", "thirdly"]
+
+    static func after(_ sentence: String) -> Double {
+        let s = sentence.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let last = s.last else { return 0 }
+        if last == ":" || s.hasPrefix("#") { return afterHeading }
+        if [",", ";", "—", "-"].contains(last) { return 0 }         // an early first piece: the sentence goes on
+        if isItem(s) { return afterItem }
+        return 0
+    }
+
+    /// "1. Open Settings.", "2) …", "- …", "• …", "Step 3: …", "First, …", "Second …", "Finally, …"
+    static func isItem(_ s: String) -> Bool {
+        if SpokenText.replace(s, #"^(?:\d{1,2}[.)]\s|[-•*–]\s|(?i:step)\s+\d{1,2}\b)"#, { _ in "\u{1}" }).hasPrefix("\u{1}") { return true }
+        let word = s.prefix { $0.isLetter }.lowercased()
+        guard ordinals.contains(word) else { return false }
+        let rest = s.dropFirst(word.count)
+        return rest.first == "," || (rest.first == " " && word != "first" && word != "second")   // "Second, …", "Finally …"; not "First time …"
+    }
+}
+
 /// Where a streaming reply can be cut into sentences for the voice. The first piece may end at a
 /// comma (once it has a few words), so speech starts sooner. A period doesn't end a sentence
 /// after "e.g.", "Dr.", "vs." or a list number, or when the next word starts in lowercase

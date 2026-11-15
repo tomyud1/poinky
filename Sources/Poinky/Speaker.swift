@@ -276,10 +276,12 @@ final class Speaker {
                 return
             }
             // A few milliseconds of silence close the sentence: it flushes the resampler's tail and
-            // marks where the sentence ends, for the captions.
-            if let tail = AVAudioPCMBuffer(pcmFormat: self.format24k, frameCapacity: 240), let d = tail.floatChannelData?[0] {
-                d.initialize(repeating: 0, count: 240)
-                tail.frameLength = 240
+            // marks where the sentence ends, for the captions. After a heading or a list item it's
+            // longer (the next caption still shows when the voice goes on).
+            let n = 240 + Int(self.pauseAfterSentence() * PhononVoice.sampleRate)
+            if let tail = AVAudioPCMBuffer(pcmFormat: self.format24k, frameCapacity: AVAudioFrameCount(n)), let d = tail.floatChannelData?[0] {
+                d.initialize(repeating: 0, count: n)
+                tail.frameLength = AVAudioFrameCount(n)
                 self.schedule(tail, gen: gen, wholeSentence: true, endsCaption: self.segments.isEmpty)
             }
             self.synthesizing = false
@@ -435,7 +437,7 @@ final class Speaker {
         if pcm.frameLength == 0 {   // end of this sentence (or part of one)
             // A few silent milliseconds close it, like Phonon's: they flush the resampler and mark
             // where it ends, so the next caption shows when it's heard, not when it was made.
-            let n = AVAudioFrameCount(pcm.format.sampleRate / 100)
+            let n = AVAudioFrameCount(pcm.format.sampleRate * (0.01 + pauseAfterSentence()))
             if let tail = AVAudioPCMBuffer(pcmFormat: pcm.format, frameCapacity: n) {
                 tail.frameLength = n
                 for b in UnsafeMutableAudioBufferListPointer(tail.mutableAudioBufferList) { if let d = b.mData { memset(d, 0, Int(b.mDataByteSize)) } }
@@ -450,6 +452,12 @@ final class Speaker {
         schedule(pcm, gen: gen, wholeSentence: false, text: caption?.0, tag: caption?.1)
     }
     private var appleCaption: (String, Int?)?
+
+    /// The extra pause once the sentence being made ends (none between two parts of one sentence).
+    private func pauseAfterSentence() -> Double {
+        guard segments.isEmpty, let m = making else { return 0 }
+        return SentencePause.after(m.0)
+    }
     private var appleSpoken = ""                       // the part Apple's voice is saying
     private var appleSilence: [AVAudioPCMBuffer] = []  // its silence since the last sound
 
@@ -528,6 +536,7 @@ final class Speaker {
                 waitingCaptions.append((text, tag))
             }
         }
+        if Self.speechWav != nil { record(out) }
         audioEndsAt = max(Date(), audioEndsAt).addingTimeInterval(Double(out.frameLength) / out.format.sampleRate)
         let endsSentence = endsCaption ?? wholeSentence
         buffersPlaying += 1
@@ -555,6 +564,23 @@ final class Speaker {
         guard let path = speechLog, let data = "\(caption)\t\(spoken)\n".data(using: .utf8) else { return }
         if let h = FileHandle(forWritingAtPath: path) { h.seekToEndOfFile(); h.write(data); try? h.close() }
         else { FileManager.default.createFile(atPath: path, contents: data) }
+    }
+
+    /// Tests: `POINKY_SPEECH_WAV=file.f32` appends what's played (float32 mono at the rate in
+    /// file.f32.rate), with the silence of any wait for audio (the player ran dry), so pauses can be
+    /// measured and the words transcribed.
+    private static let speechWav = ProcessInfo.processInfo.environment["POINKY_SPEECH_WAV"]
+    private func record(_ pcm: AVAudioPCMBuffer) {
+        guard let path = Self.speechWav, let d = pcm.floatChannelData?[0] else { return }
+        let rate = pcm.format.sampleRate
+        var samples: [Float] = []
+        let dry = -audioEndsAt.timeIntervalSinceNow
+        if audioEndsAt != .distantPast, dry > 0.005 { samples = Array(repeating: 0, count: Int(dry * rate)) }
+        samples += UnsafeBufferPointer(start: d, count: Int(pcm.frameLength))
+        let data = samples.withUnsafeBufferPointer { Data(buffer: $0) }
+        if let h = FileHandle(forWritingAtPath: path) { h.seekToEndOfFile(); h.write(data); try? h.close() }
+        else { FileManager.default.createFile(atPath: path, contents: data) }
+        try? "\(Int(rate))".write(toFile: path + ".rate", atomically: true, encoding: .utf8)
     }
 
     private func checkDone() {
