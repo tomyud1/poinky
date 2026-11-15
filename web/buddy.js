@@ -216,13 +216,22 @@
   }
 
   // The sentence being spoken right now (captions arrive as the whole answer so far).
+  // A sentence ends at . ! ? … before a capital, a digit or another script's letter, but not
+  // after "e.g." / "Dr." and the like (the voice doesn't pause there either). Markdown marks go.
+  const ABBREV = /(?:^|\s)(?:e\.g|i\.e|vs|etc|mr|mrs|ms|dr|prof|st|approx|fig|cf)\.$/i;
   function latestSentence(t) {
-    t = String(t).trim();
-    const parts = t.split(/(?<=[.!?…])\s+/).filter(Boolean);
+    t = String(t).replace(/\*\*(.+?)\*\*/g, '$1').replace(/__(.+?)__/g, '$1').replace(/`/g, '').trim();
+    const raw = t.split(/(?<=[.!?…]["'”’)\]]*)\s+(?=["'“‘(]?[\p{Lu}\p{Lo}\d])/u).filter(Boolean);
+    const parts = [];
+    for (const p of raw) {
+      if (parts.length && ABBREV.test(parts[parts.length - 1])) parts[parts.length - 1] += ' ' + p;
+      else parts.push(p);
+    }
     let s = parts.pop() || t;
     if (s.length < 14 && parts.length) s = parts.pop() + ' ' + s;
     return s.length > 220 ? '…' + s.slice(-220) : s;
   }
+  SB.captionSentence = latestSentence;   // for tools/tests/captions.html
 
   // ---------- captions go to the bubble ----------
   const caption0 = SB.caption, fade0 = SB.fadeCaptions, apply0 = SB.apply;

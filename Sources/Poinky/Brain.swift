@@ -412,44 +412,11 @@ struct TalkParser {
             if final { sayClosed = true }
             return []
         }
-        var out: [String] = []
-        var start = sayEmitted
-        var i = sayEmitted
-        let enders: Set<Character> = [".", "!", "?", "…", "\n"]
-        // The very first piece can also end at a comma (once it has a few words), so the
-        // voice starts right away instead of waiting for a whole sentence.
-        let softEnders: Set<Character> = [",", ";", ":", "—"]
-        while i < chars.count {
-            let first = sayEmitted == 0 && out.isEmpty && start == 0
-            if first, softEnders.contains(chars[i]),
-               String(chars[start...i]).split(separator: " ").count >= 3,
-               i + 1 < chars.count, chars[i + 1].isWhitespace {
-                out.append(String(chars[start...i]))
-                start = i + 1
-                i += 1
-                continue
-            }
-            if enders.contains(chars[i]) {
-                var j = i + 1
-                while j < chars.count, "\"')]”’".contains(chars[j]) { j += 1 }
-                // A sentence ends at punctuation followed by a space (or the end, once </say> arrived).
-                if j < chars.count, chars[j].isWhitespace {
-                    out.append(String(chars[start..<j]))
-                    start = j
-                    i = j
-                    continue
-                }
-            }
-            i += 1
-        }
-        if closed || final {
-            // The block ended: its last words are a sentence too. (More blocks may follow.)
-            if start < chars.count { out.append(String(chars[start...])) }
-            start = chars.count
-            if final { sayClosed = true }
-        }
+        // Sentence ends, abbreviations and the early first piece: SentenceSplit (SpokenText.swift).
+        let (out, start) = SentenceSplit.split(chars, from: sayEmitted, first: sayEmitted == 0, closed: closed || final)
+        if final { sayClosed = true }
         sayEmitted = start
-        return out.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        return out
     }
 
     static func between(_ s: String, _ open: String, _ close: String) -> String? {

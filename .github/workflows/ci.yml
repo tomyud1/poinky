@@ -14,7 +14,7 @@ jobs:
 
       - name: Check the scripts
         run: |
-          for f in install.sh build.sh phonon/install.sh tools/test-helpers.sh; do bash -n "$f"; done
+          for f in install.sh build.sh phonon/install.sh tools/test-helpers.sh tools/test-voice.sh; do bash -n "$f"; done
           python3 -m py_compile phonon/phonon_server.py tools/fake-helper.py
           node --check web/lesson.js
           node --check web/buddy.js
@@ -38,6 +38,9 @@ jobs:
                    Contents/Resources/phonon/install.sh Contents/Resources/phonon/phonon_server.py; do
             test -s "$APP/$f" || { echo "missing from the app: $f"; exit 1; }
           done
+
+      - name: Test what the voice hears (spoken-text normalizer, sentence splitting)
+        run: tools/test-voice.sh
 
       - name: Test helpers (parser, waiting line, follow-ups, stop; no tokens)
         run: tools/test-helpers.sh
