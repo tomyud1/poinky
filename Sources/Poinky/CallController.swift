@@ -431,6 +431,7 @@ final class CallController: NSObject, NSMenuDelegate {
                 }
             }
             listener.silenceSeconds = config.silenceSeconds
+            speaker.prepareVoices(languages: Locale.preferredLanguages)   // a Hebrew word in an English answer starts at once
             do {
                 talker = try BrainFactory.make(config: config, role: .talker)
                 artist = config.artistEnabled ? try BrainFactory.make(config: config, role: .artist) : nil
@@ -1432,6 +1433,7 @@ final class CallController: NSObject, NSMenuDelegate {
             Timeline.log("firstToken", ["turn": myTurn, "after": askedAt.map { ((ProcessInfo.processInfo.systemUptime - $0) * 1000).rounded() / 1000 } ?? -1])
         }
         handle(parser.feed(delta))
+        speaker.prepareVoices(for: delta)   // another script is coming: load its voice now
         // A search is coming: start its session now, while the talker finishes the reply.
         if !lookupReply, searcher == nil, WebSearcher.available(config), parser.text.contains("<search") {
             searcher = WebSearcher(config: config)

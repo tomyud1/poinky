@@ -2,6 +2,8 @@
 
 Protocol (stdin/stdout, one JSON object per line):
   in : {"id": 1, "text": "...", "voice": "Easton", "speed": 1.0}   speak (queued in order)
+       optional "tail": ms of silence kept after the speech (default 200; less when another voice
+       goes on with the same sentence)
        {"cancel": 7}                                                 drop every request with id <= 7
   out: {"ready": true, "voices": [...], "sr": 24000}                once, after loading and warming up
        {"id": 1, "bytes": N}  then N bytes of little-endian float32 mono audio   (one per ~80 ms chunk)
@@ -57,7 +59,8 @@ class SilenceTrimmer:
     LEAD_IN = 60 * 24             # 60 ms kept before the first sound
     TAIL = 200 * 24               # 200 ms kept after the last one: the gap before the next sentence
 
-    def __init__(self) -> None:
+    def __init__(self, tail_ms: float | None = None) -> None:
+        self.tail = self.TAIL if tail_ms is None else int(max(0.0, min(400.0, tail_ms)) * 24)
         self.held = np.zeros(0, dtype=np.float32)   # silence at the end of what we've seen so far
         self.threshold = None
         self.started = False
@@ -93,7 +96,7 @@ class SilenceTrimmer:
         return x[:cut]
 
     def finish(self) -> np.ndarray:
-        return self.held[: self.TAIL] if self.started else self.held[:0]
+        return self.held[: self.tail] if self.started else self.held[:0]
 
 
 def main() -> None:
@@ -164,7 +167,8 @@ def main() -> None:
                 current_delta = delta
             t0 = time.perf_counter()
             first = None
-            trim = SilenceTrimmer()
+            tail = req.get("tail")
+            trim = SilenceTrimmer(float(tail) if isinstance(tail, (int, float)) else None)
             with tts.stream(text, voice=voice) as audio:
                 for chunk in audio:
                     if is_cancelled(rid):
@@ -174,9 +178,9 @@ def main() -> None:
                         if first is None:
                             first = time.perf_counter() - t0
                         send({"id": rid, "bytes": len(data)}, data)
-            tail = np.ascontiguousarray(trim.finish(), dtype="<f4").tobytes()
-            if tail and not is_cancelled(rid):
-                send({"id": rid, "bytes": len(tail)}, tail)
+            rest = np.ascontiguousarray(trim.finish(), dtype="<f4").tobytes()
+            if rest and not is_cancelled(rid):
+                send({"id": rid, "bytes": len(rest)}, rest)
             if not is_cancelled(rid):
                 send({"id": rid, "end": True,
                       "ttfa_ms": round((first or 0) * 1000, 1),
