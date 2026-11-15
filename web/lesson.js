@@ -560,9 +560,14 @@
   const unescapeTex = s => s.replace(/\f/g, '\\f').replace(/\t/g, '\\t').replace(/\x08/g, '\\b').replace(/\r/g, '\\r')
     .replace(/\n(?=[a-zA-Z])/g, '\\n');
 
+  /** Chemical formulas inside math (6CO2 + 6H2O -> C6H12O6) get their subscripts too: H2O → H_{2}O. */
+  const chemTex = str => str.replace(/(^|[^\\A-Za-z0-9_^])([A-Za-z0-9]+)(?![A-Za-z0-9])/g, (m, pre, w) => {
+    const p = chemParts(w);
+    return p ? pre + p.map(x => /^\d+$/.test(x) ? `_{${x}}` : x.replace('\u200b', '')).join('') : m;
+  });
   function parseTex(src) {
     let i = 0;
-    const s = unescapeTex(src).replace(/->/g, '→').replace(/-/g, '−').replace(/<=/g, '≤').replace(/>=/g, '≥').replace(/!=/g, '≠')
+    const s = chemTex(unescapeTex(src)).replace(/->/g, '→').replace(/-/g, '−').replace(/<=/g, '≤').replace(/>=/g, '≥').replace(/!=/g, '≠')
       .replace(/(\S)\s*\*\s*(?=\S)/g, '$1 · ').replace(/'/g, '′');
     function group(stop) {
       const out = [];
@@ -743,10 +748,11 @@
     let bb = node.getBBox();
     // Too wide for the paper: shrink it to fit (never past the right margin).
     const maxW = o.maxWidth || (UNITS - 24 - (o.align === 'center' ? 0 : Math.max(0, bb.x)));
-    if ((o.fit !== false || o.maxWidth) && bb.width > maxW + 1 && (bb.x >= 0 || o.maxWidth)) {
-      const k = Math.max(o.maxWidth ? .35 : .55, maxW / bb.width);
+    if ((o.fit !== false || o.maxWidth) && bb.width > maxW + 1 && (bb.x >= 0 || o.maxWidth) && (o.fitTries || 0) < 3) {
+      // Math with sub- and superscripts doesn't shrink in proportion: check again after shrinking.
+      const k = Math.max(o.maxWidth ? .35 : .55, maxW / bb.width * (o.fitTries ? .97 : 1));
       node.remove();
-      return writeText(g, { ...o, size: size * k, fit: false, maxWidth: undefined });
+      return writeText(g, { ...o, size: size * k, fit: false, maxWidth: o.maxWidth && isMath ? o.maxWidth : undefined, fitTries: (o.fitTries || 0) + 1 });
     }
     if (o.free !== false) {
       const dy = freeShift({ x: bb.x, y: bb.y, w: bb.width, h: bb.height });

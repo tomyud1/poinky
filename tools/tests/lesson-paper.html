@@ -45,6 +45,10 @@
     check(pw.includes('10') && pw.includes('2x'), `unbraced powers take the whole number and e^(2x) its parentheses (${pw.join('|')})`);
     check(pw.some(t => t.includes('−')), 'math uses a real minus sign');
     check(item('pw').querySelector('path') != null, 'a square root draws its sign');
+    const chem = T.parseTex('6CO2 + 6H2O -> C6H12O6 + x^2');
+    const flat = JSON.stringify(chem);
+    check(/"sub":\[\{"t":"text","s":"12"/.test(flat.replace(/\s/g, '')) || flat.includes('"12"') && flat.includes('"sub"'), 'chemical formulas inside math get subscripts (C6H12O6)');
+    check(!/"sub"[^\]]*"6"\}\],"sup"/.test(flat) && flat.includes('"sup"'), 'a coefficient stays full size and x^2 is still a power');
     const ch = item('ch').querySelector('text'), spans = [...ch.querySelectorAll('tspan')];
     check(spans.some(s => s.textContent === '2' && +s.getAttribute('font-size') < 24) && !spans.some(s => s.textContent === '5' && s.getAttribute('font-size')), 'H2O gets a small 2, "PS5" stays as it is');
     check(!hit(bbox('ch'), bbox('dup')), 'text drawn on the same spot moves below instead of on top');
