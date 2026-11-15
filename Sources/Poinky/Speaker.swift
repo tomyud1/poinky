@@ -151,6 +151,8 @@ final class Speaker {
         let s = sentence.trimmingCharacters(in: .whitespacesAndNewlines)
         guard turnActive, !s.isEmpty else { return }
         spokenText += " " + s
+        let said = SpokenText.normalize(s)
+        if said != s { spokenText += " " + said }    // the echo check hears the spoken words
         queue.append((s, tag))
         pump()
     }
@@ -200,17 +202,22 @@ final class Speaker {
         making = (text, tag)
         synthesizing = true
         let gen = generation
+        // What's heard is said the way a person would say it ("x squared", not "x caret 2");
+        // the caption (and the step it starts) keeps the text as written.
+        let normalized = SpokenText.normalize(text)
+        let spoken = normalized.contains(where: { $0.isLetter || $0.isNumber }) ? normalized : text
+        Self.logSpeech(text, spoken)
         if let p = phonon, p.isRunning {
-            speakWithPhonon(p, text, tag: tag, gen: gen)
+            speakWithPhonon(p, text, spoken: spoken, tag: tag, gen: gen)
             return
         }
-        speakWithApple(text, tag: tag, gen: gen)
+        speakWithApple(text, spoken: spoken, tag: tag, gen: gen)
     }
 
     /// Streams the sentence: chunks are played as they're generated, starting once a little is
     /// buffered. The next sentence is asked for as soon as this one is generated, while it plays.
     /// Its first audio waits at the gate (see `holdNext`) when a 3D step needs time on screen.
-    private func speakWithPhonon(_ p: PhononVoice, _ text: String, tag: Int?, gen: Int) {
+    private func speakWithPhonon(_ p: PhononVoice, _ text: String, spoken: String, tag: Int?, gen: Int) {
         var waiting: [AVAudioPCMBuffer] = []
         var waitingSeconds = 0.0
         var started = false, atGate = false, ended = false, endOK = true
@@ -223,7 +230,7 @@ final class Speaker {
         let finish: () -> Void = { [weak self] in
             guard let self, gen == self.generation else { return }
             if !started {
-                if !endOK { self.speakWithApple(text, tag: tag, gen: gen) } else { self.synthesizing = false; self.pump() }
+                if !endOK { self.speakWithApple(text, spoken: spoken, tag: tag, gen: gen) } else { self.synthesizing = false; self.pump() }
                 return
             }
             // A few milliseconds of silence close the sentence: it flushes the resampler's tail and
@@ -242,7 +249,7 @@ final class Speaker {
             waiting.removeAll()
             if ended { finish() }
         }
-        p.speak(text, voice: phononVoice, speed: voiceSpeed, onChunk: { [weak self] buf in
+        p.speak(spoken, voice: phononVoice, speed: voiceSpeed, onChunk: { [weak self] buf in
             guard let self, gen == self.generation else { return }
             if started { play(buf); return }
             waiting.append(buf)
@@ -342,9 +349,9 @@ final class Speaker {
     }
     private let format24k = AVAudioFormat(standardFormatWithSampleRate: PhononVoice.sampleRate, channels: 1)!
 
-    private func speakWithApple(_ text: String, tag: Int?, gen: Int) {
+    private func speakWithApple(_ text: String, spoken: String, tag: Int?, gen: Int) {
         appleCaption = (text, tag)
-        let u = AVSpeechUtterance(string: text)
+        let u = AVSpeechUtterance(string: spoken)
         u.voice = voice
         u.rate = rate
         synth.write(u) { [weak self] buffer in
@@ -399,6 +406,14 @@ final class Speaker {
             }
         }
         if !audio.player.isPlaying { audio.player.play() }
+    }
+
+    /// Tests: `POINKY_SPEECH_LOG=file` appends "caption ⇥ what the voice was given" for every sentence.
+    private static let speechLog = ProcessInfo.processInfo.environment["POINKY_SPEECH_LOG"]
+    private static func logSpeech(_ caption: String, _ spoken: String) {
+        guard let path = speechLog, let data = "\(caption)\t\(spoken)\n".data(using: .utf8) else { return }
+        if let h = FileHandle(forWritingAtPath: path) { h.seekToEndOfFile(); h.write(data); try? h.close() }
+        else { FileManager.default.createFile(atPath: path, contents: data) }
     }
 
     private func checkDone() {
