@@ -81,6 +81,8 @@ enum ScreenCapture {
     @MainActor static var excludedBundleIDs: Set<String> = []
     /// Poinky's own windows that screenshots should still show (a video playing full screen).
     @MainActor static var includedWindowNumbers: Set<Int> = []
+    /// The welcome tour's window while it's open: its sample problem is what your first question is about.
+    @MainActor static var tourWindowNumber: Int?
 
     /// The whole screen, minus our own overlay and any excluded apps.
     private static func filter(for screen: NSScreen) async throws -> SCContentFilter {
@@ -93,7 +95,7 @@ enum ScreenCapture {
         let mine = content.applications.filter {
             $0.processID == ProcessInfo.processInfo.processIdentifier || excluded.contains($0.bundleIdentifier)
         }
-        let include = await MainActor.run { includedWindowNumbers }
+        let include = await MainActor.run { includedWindowNumbers.union(tourWindowNumber.map { [$0] } ?? []) }
         let keep = content.windows.filter { include.contains(Int($0.windowID)) }
         return SCContentFilter(display: display, excludingApplications: mine, exceptingWindows: keep)
     }

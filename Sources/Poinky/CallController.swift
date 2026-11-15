@@ -637,6 +637,7 @@ final class CallController: NSObject, NSMenuDelegate {
 
     /// A quick tap of the talk keys: stop Claude (nothing is sent).
     private func pushTap() {
+        WelcomeWindowController.shared.model.did(.tapped)   // the first-run tour's "tap to stop" tip
         // A video being made: a tap cancels it (holding to ask something else doesn't).
         if video.job?.status == .cooking, !video.window.isOpen {
             if state == .speaking || state == .thinking { turn += 1; speaker.stop(); stopLesson(); state = restingState }
@@ -919,6 +920,7 @@ final class CallController: NSObject, NSMenuDelegate {
     /// ⌃⌥T: the box to type in, for the helper under the mouse if there is one.
     @objc func openTypeBox() {
         if typeBox.isOpen { typeBox.close(); return }
+        WelcomeWindowController.shared.model.did(.typed)
         if let id = overlay.pointedHelper, let a = agents.agents.first(where: { $0.id == id }),
            a.status == .running || a.status == .queued {
             let hex = HelperWindows.colors[a.name.components(separatedBy: " ")[0]] ?? "#34c98e"
@@ -1136,7 +1138,7 @@ final class CallController: NSObject, NSMenuDelegate {
         let myTurn = turn
         lastActivity = ProcessInfo.processInfo.systemUptime
         if buddyHidden { setBuddyHidden(false) }
-        if !proactive { lastQuestion = question }
+        if !proactive { lastQuestion = question; WelcomeWindowController.shared.model.did(.asked) }
         // A background update (a helper's report) is built from helper output, which can contain text from
         // web pages or files: like a lookup reply, it may only speak and mark, never act.
         lookupReply = proactive
@@ -1478,6 +1480,7 @@ final class CallController: NSObject, NSMenuDelegate {
     }
 
     private func finishedSpeaking() {
+        WelcomeWindowController.shared.model.did(.answered)
         // Steps whose line was never heard (e.g. the voice failed) still get drawn.
         for tag in pendingSteps.keys.sorted() {
             for step in pendingSteps[tag] ?? [] { play(step) }
@@ -2638,12 +2641,15 @@ final class CallController: NSObject, NSMenuDelegate {
         add("Clear Drawings", #selector(clearAll))
         add("Settings…", #selector(openSettings), key: ",")
         add("Get More Apple Voices…", #selector(openVoiceSettings))
+        add("Welcome Tour…", #selector(openWelcome))
+        add("Start Fresh (if Poinky seems stuck)", #selector(resetEverything))
         menu.addItem(.separator())
         let quit = NSMenuItem(title: "Quit Poinky", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         menu.addItem(quit)
     }
 
     @objc private func endSessionFromMenu() { endCall() }
+    @objc private func openWelcome() { WelcomeWindowController.shared.show() }
 
     @objc private func pickBrain(_ sender: NSMenuItem) {
         guard let raw = sender.representedObject as? String, let kind = BrainKind(rawValue: raw) else { return }

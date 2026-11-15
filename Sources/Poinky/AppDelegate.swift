@@ -77,9 +77,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             HelperTest.run(out: args[i + 1], dir: args[i + 2], tasks: Array(args[(i + 3)...]))
             return
         }
+        if let i = args.firstIndex(of: "--welcome-shot"), i + 1 < args.count {
+            WelcomeWindowController.shared.snapshot(outDir: args[i + 1])
+            return
+        }
+        // The first-run tour opens for a new install (no settings yet) or one left halfway; `--welcome` forces it.
+        let configExisted = FileManager.default.fileExists(atPath: AppConfig.fileURL.path)
         let c = CallController()
         c.setup()
         controller = c
+        let quiet = args.contains { ["--ask", "--video", "--play-video"].contains($0) }
+        if let page = args.contains("--welcome") ? .hello : quiet ? nil : WelcomeModel.pageToResume(configExisted: configExisted) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { WelcomeWindowController.shared.show(at: page) }
+        }
         // Developer checks for video explainers (see CallController+Video.swift).
         if let i = args.firstIndex(of: "--video"), i + 1 < args.count { c.devVideo(topic: args[i + 1]) }
         if let i = args.firstIndex(of: "--play-video"), i + 1 < args.count { c.devPlayVideo(dir: args[i + 1]) }
