@@ -92,6 +92,10 @@ Still open: the first-run tutorial; rerunning `phonon/install.sh` when an update
 - Show clearly what each question sends.
 - Blur secure fields, password managers and banking apps before anything leaves the Mac (OCR + AX, on device).
 
+## 7b. How the voice sounds (status: spoken-text normalizer, sentence splitting, other-language voices done on `up/voice`)
+Done: `SpokenText` (math, symbols, paths, links, dates, markdown, emoji said the way a person would; English voices only), `SentenceSplit` (no cuts after e.g./Dr./list numbers), whole sentences and other-script parts in another language go to Apple's voice for it, captions keep whole sentences. Test: `tools/test-voice.sh`; the voice itself was checked by synthesizing through `phonon_server.py` and transcribing the WAVs with SpeechAnalyzer.
+Open: Phonon sometimes adds a syllable or repeats the last words of a sentence that ends in a number ("is 12 is 12"); Hebrew/Arabic words inside an English sentence switch voices mid-sentence (a short gap while Apple's voice starts); pauses between list items.
+
 ## 8. Later
 - Approve helpers from the phone (`AwayNotifier` is the start).
 - The user's connectors (calendar, email) through helpers.
