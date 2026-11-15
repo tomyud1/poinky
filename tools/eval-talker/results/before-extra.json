@@ -1,0 +1,142 @@
+[
+ {
+  "id": "homework-check",
+  "who": "student",
+  "said": "is this right",
+  "checks": [
+   [
+    "says it's not right",
+    true
+   ],
+   [
+    "points at the factoring step",
+    true
+   ],
+   [
+    "no agent",
+    true
+   ]
+  ],
+  "generic": [
+   [
+    "has <say>",
+    true
+   ],
+   [
+    "spoken style (no markdown/URL/emoji)",
+    true
+   ],
+   [
+    "<draw> is valid JSON",
+    true
+   ],
+   [
+    "nothing outside the tags",
+    true
+   ]
+  ],
+  "passed": true,
+  "say": "Not quite, Alex. Steps one and two are fine, but (x − 2)(x − 3) multiplies out to x² − 5x + 6, not x² − 4x + 3. The right factoring is (x − 1)(x − 3), so the answers are x = 1 and x = 3, and x = 2 is wrong.",
+  "tags": [
+   "draw",
+   "say"
+  ],
+  "raw": "<say>Not quite, Alex. Steps one and two are fine, but (x − 2)(x − 3) multiplies out to x² − 5x + 6, not x² − 4x + 3. The right factoring is (x − 1)(x − 3), so the answers are x = 1 and x = 3, and x = 2 is wrong.</say>\n<draw>{\"items\":[{\"type\":\"underline\",\"id\":\"wrong\",\"x\":390,\"y\":251,\"w\":118,\"find\":\"(x − 2)(x − 3) = 0\",\"label\":\"should be (x − 1)\"}]}</draw>",
+  "first_token": 5.120105028152466,
+  "first_sentence": 5.127621173858643,
+  "total": 5.7095654010772705,
+  "input_tokens": 13517,
+  "run": 0
+ },
+ {
+  "id": "office-timer",
+  "who": "office",
+  "said": "set a timer for 25 minutes",
+  "checks": [
+   [
+    "<remind> at 14:35",
+    true
+   ],
+   [
+    "short",
+    true
+   ]
+  ],
+  "generic": [
+   [
+    "has <say>",
+    true
+   ],
+   [
+    "spoken style (no markdown/URL/emoji)",
+    true
+   ],
+   [
+    "nothing outside the tags",
+    true
+   ]
+  ],
+  "passed": true,
+  "say": "Okay, I'll ping you at 2:35.",
+  "tags": [
+   "remind",
+   "say"
+  ],
+  "raw": "<say>Okay, I'll ping you at 2:35.</say>\n<remind at=\"2026-11-15 14:35\">Your 25-minute timer is up.</remind>",
+  "first_token": 1.987178087234497,
+  "first_sentence": 2.0032761096954346,
+  "total": 2.2005410194396973,
+  "input_tokens": 13424,
+  "run": 0
+ },
+ {
+  "id": "recall-yesterday",
+  "who": "student",
+  "said": "what did you tell me yesterday about my thesis outline",
+  "checks": [
+   [
+    "recalls",
+    true
+   ],
+   [
+    "recall has topic + time words",
+    true
+   ],
+   [
+    "doesn't invent an answer",
+    true
+   ]
+  ],
+  "generic": [
+   [
+    "has <say>",
+    true
+   ],
+   [
+    "spoken style (no markdown/URL/emoji)",
+    true
+   ],
+   [
+    "<draw> is valid JSON",
+    true
+   ],
+   [
+    "nothing outside the tags",
+    true
+   ]
+  ],
+  "passed": true,
+  "say": "Let me check.",
+  "tags": [
+   "draw",
+   "recall",
+   "say"
+  ],
+  "raw": "<say>Let me check.</say>\n<recall>thesis outline yesterday</recall>\n<draw>{\"items\":[]}</draw>",
+  "first_token": 1.6685829162597656,
+  "first_sentence": 1.6801559925079346,
+  "total": 1.8191020488739014,
+  "input_tokens": 13424,
+  "run": 0
+ }
+]
