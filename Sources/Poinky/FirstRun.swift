@@ -98,8 +98,10 @@ final class FirstRun: NSObject, AVSpeechSynthesizerDelegate {
             let line = FirstRunWords.greeting(name: Self.userName(), keys: Self.spokenKeys(cfg))
             if sayInSession(line) { helloPending = false; Timeline.log("firstrun.hello", ["named": Self.userName() != nil, "inSession": true]); return }
         }
-        guard isFree() else {
-            waitTries += 1
+        // "I live here" after a session that ended by itself (15 idle minutes): only once you're back at the Mac.
+        let away = !helloPending && Self.secondsSinceAnyInput() > 90
+        guard isFree(), !away else {
+            if !away { waitTries += 1 }
             // Up to ~10 minutes; after that "I live here" waits for the next session to end.
             if waitTries > 600 { waitTries = 0; helloPending = false; homePending = false; Timeline.log("firstrun.gaveUp"); return }
             later(1)
@@ -343,6 +345,11 @@ final class FirstRun: NSObject, AVSpeechSynthesizerDelegate {
 
     static func userName() -> String? {
         FirstRunWords.userName(in: (try? String(contentsOf: Identity.userURL, encoding: .utf8)) ?? "")
+    }
+
+    /// Seconds since any key, click or mouse move (no permission needed).
+    static func secondsSinceAnyInput() -> Double {
+        CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: CGEventType(rawValue: ~0)!)
     }
 
     private static func screenWithMouse() -> NSScreen {
