@@ -621,7 +621,7 @@ footer.off .composer{opacity:.55}
       const row = it => {
         const live = it.status === 'running' || it.status === 'queued';
         const tag = it.waiting ? 'Needs you' : it.paused ? 'Paused' : it.status === 'queued' ? 'Waiting' : live ? ago(it.elapsed)
-          : (it.status === 'done' ? '' : it.status === 'failed' ? 'Problem · ' : 'Stopped · ') + (it.ago || '');
+          : (it.status === 'done' ? '' : it.status === 'failed' ? 'Problem · ' : 'Stopped · ') + (it.ago || '') + (it.cost >= 0.01 ? ' · $' + it.cost.toFixed(2) : '');
         const where = it.dir && it.line ? `${it.dir} · ` : it.dir || '';
         return `<div class="it${it.key === selected ? ' on' : ''}${live ? ' live' : ''}${it.waiting ? ' need' : ''}" data-key="${esc(it.key)}" style="--accent-row:${esc(it.color || '#34c98e')}"><span class="d" style="background:${esc(it.color || '#34c98e')};color:${esc(it.color || '#34c98e')}"></span>` +
           `<div class="t"><div class="n">${esc(it.name)}<small class="${it.waiting ? 'wait' : ''}">${esc(tag)}</small></div><div class="s">${esc(it.title || '')}</div>` +

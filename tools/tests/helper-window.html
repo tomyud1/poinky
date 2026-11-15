@@ -95,11 +95,12 @@ const run = () => {
     HW.list([
       { key: 'a2', name: 'Coral', title: 'Add dark mode', color: '#ff7a59', status: 'running', waiting: true, line: 'Can I run npm install?', dir: 'web-app', elapsed: 300 },
       { key: 'a1', name: 'Mint', title: 'Fix rounding', color: '#34c98e', status: 'running', line: 'Running the tests', dir: 'tipsplit', elapsed: 125 },
-      { key: 'a3', name: 'Violet', title: 'Docs', color: '#9b6bff', status: 'done', line: 'Updated the README.', dir: 'docs', ago: '2 min ago' },
+      { key: 'a3', name: 'Violet', title: 'Docs', color: '#9b6bff', status: 'done', line: 'Updated the README.', dir: 'docs', ago: '2 min ago', cost: 0.42 },
       { key: 'f/x.chat.jsonl', name: 'Amber', title: 'Yesterday', status: 'done', earlier: true, line: 'Did it.', dir: 'api' }], 'a1');
     const rows = qa('.it');
     check(rows.length === 4 && rows[0].classList.contains('need') && /Needs you/.test(rows[0].textContent), 'the helper that needs you is first, marked "Needs you"');
     check(/tipsplit · Running the tests/.test(rows[1].querySelector('.l').textContent) && /2 min/.test(rows[1].querySelector('small').textContent), `each row: its folder, what it's doing, how long (${rows[1].querySelector('.l').textContent} / ${rows[1].querySelector('small').textContent})`);
+    check(rows[2].querySelector('small').textContent === '2 min ago · $0.42', 'a finished one: when, and its usage (' + rows[2].querySelector('small').textContent + ')');
     check(!q('#stopAll').hidden, 'two at work: "Stop all" is offered');
     q('#stopAll').click();
     check(JSON.stringify(w.HW_OUT.slice(-1)[0]) === '{"type":"stopAll"}', 'Stop all tells the app');
