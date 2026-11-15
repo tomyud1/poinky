@@ -580,6 +580,8 @@ final class AgentManager {
             if agent.entries.isEmpty {
                 FileManager.default.createFile(atPath: agent.chat.path, contents: nil)
                 record(id, HelperEntry(k: "task", text: req.task, detail: dir.path, kind: agent.name, title: req.title))
+                // Where its changes start, for "what it changed" in its window (a worktree has its own).
+                if !newWorktree, let b = HelperChanges.startPoint(dir) { record(id, HelperEntry(k: "base", id: b)) }
             }
         }
         if newWorktree, let w = worktrees[id] {

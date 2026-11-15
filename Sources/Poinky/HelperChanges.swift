@@ -28,8 +28,24 @@ enum HelperChanges {
         return dir
     }
 
-    /// The diff of those files as they are now (unified, no color). Not in a git repo: says so.
-    static func diff(files: [String], in dir: URL) -> String {
+    /// Where its changes start: your folder as it was when it started (`git stash create` keeps your
+    /// uncommitted changes out of its diff without touching anything; a clean folder: HEAD). Nil outside a repo.
+    static func startPoint(_ dir: URL) -> String? {
+        guard git(["rev-parse", "--show-toplevel"], in: dir, timeout: 3) != nil else { return nil }
+        if let s = git(["stash", "create"], in: dir, timeout: 3)?.out.trimmingCharacters(in: .whitespacesAndNewlines), !s.isEmpty { return s }
+        let h = git(["rev-parse", "HEAD"], in: dir, timeout: 3)?.out.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return h.isEmpty ? nil : h
+    }
+
+    /// The commit its changes start from: recorded when it started (`base`), or its worktree's.
+    static func base(_ entries: [HelperEntry]) -> String? {
+        entries.last(where: { $0.k == "base" })?.id ?? entries.last(where: { $0.k == "worktree" })?.id
+    }
+
+    /// The diff of those files (unified, no color): from `base` (where it started, so what it committed
+    /// counts too) when that's known, else from the last commit. Not in a git repo: says so.
+    /// Starts with "#@since-start" when it's from where it started.
+    static func diff(files: [String], in dir: URL, base: String? = nil) -> String {
         guard !files.isEmpty else { return "" }
         guard let gitTop = git(["rev-parse", "--show-toplevel"], in: dir)?.out.trimmingCharacters(in: .whitespacesAndNewlines), !gitTop.isEmpty else {
             return "# Not in a git repository, so there's no diff to show. Files it changed:\n" + files.map { "#   " + $0 }.joined(separator: "\n")
@@ -51,11 +67,13 @@ enum HelperChanges {
             let untracked = Set((git(["ls-files", "--others", "--exclude-standard", "--"] + rel, in: root)?.out ?? "")
                 .split(separator: "\n").map(String.init))
             let tracked = rel.filter { !untracked.contains($0) }
-            if !tracked.isEmpty, let d = git(["diff", "--no-color", "--no-ext-diff", "HEAD", "--"] + tracked, in: root)?.out, !d.isEmpty { parts.append(d) }
+            let from = base.flatMap { b in b.allSatisfy(\.isHexDigit) && git(["cat-file", "-e", b + "^{commit}"], in: root) != nil ? b : nil }
+            if from != nil { parts.append("#@since-start") }
+            if !tracked.isEmpty, let d = git(["diff", "--no-color", "--no-ext-diff", from ?? "HEAD", "--"] + tracked, in: root)?.out, !d.isEmpty { parts.append(d) }
             for f in rel where untracked.contains(f) {
                 if let d = git(["diff", "--no-color", "--no-ext-diff", "--no-index", "--", "/dev/null", f], in: root)?.out, !d.isEmpty { parts.append(d) }
             }
-            let shown = Set(parts.joined(separator: "\n").components(separatedBy: "\n")
+            let shown = Set(parts.filter { $0 != "#@since-start" }.joined(separator: "\n").components(separatedBy: "\n")
                 .compactMap { $0.hasPrefix("+++ b/") ? String($0.dropFirst(6)) : nil })
             let same = rel.filter { !shown.contains($0) }
             if !same.isEmpty {

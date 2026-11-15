@@ -123,6 +123,8 @@ const run = () => {
     const r = HW.diff('diff --git a/tipsplit.py b/tipsplit.py\nindex 1..2 100644\n--- a/tipsplit.py\n+++ b/tipsplit.py\n@@ -1,3 +1,3 @@\n def split(t, n):\n-    return t / n\n+    return round(t / n, 2)\n+# fixed\n# No changes now (committed, undone, or deleted since):\n#   notes.txt');
     check(r.files === 1 && r.add === 2 && r.del === 1 && /1 file · \+2 −1/.test(q('#diffHead').textContent), `the diff: 1 file, +2 −1 (${q('#diffHead').textContent})`);
     check(q('#diffBody .a') && q('#diffBody .r') && q('#diffBody .f').textContent === 'tipsplit.py' && /No changes now/.test(q('#diffBody .c').textContent), 'added and removed lines colored, the file named, notes shown');
+    HW.diff('#@since-start\ndiff --git a/a.py b/a.py\n--- a/a.py\n+++ b/a.py\n@@ -1 +1 @@\n-x\n+y');
+    check(/since it started/.test(q('#diffHead').textContent) && !/since-start/.test(q('#diffBody').textContent), `from where it started, it says so (${q('#diffHead').textContent})`);
     key('Escape');
     check(q('#diff').hidden, 'Esc goes back from the diff');
     key('/');

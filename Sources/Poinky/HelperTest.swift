@@ -627,6 +627,9 @@ extension HelperTest {
         try? "def add(a, b):\n    return a - b\n".write(to: repo.appendingPathComponent("calc.py"), atomically: true, encoding: .utf8)
         try? "notes\n".write(to: repo.appendingPathComponent("notes.txt"), atomically: true, encoding: .utf8)
         sh(["init", "-q"]); sh(["add", "-A"]); sh(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "start"])
+        try? "notes\nmine, not committed\n".write(to: repo.appendingPathComponent("notes.txt"), atomically: true, encoding: .utf8)
+        let base = HelperChanges.startPoint(repo)   // when the helper starts: your uncommitted change is part of it
+        try? "notes\n".write(to: repo.appendingPathComponent("notes.txt"), atomically: true, encoding: .utf8)
         try? "def add(a, b):\n    return a + b\n".write(to: repo.appendingPathComponent("calc.py"), atomically: true, encoding: .utf8)
         try? "def test_add():\n    assert add(1, 2) == 3\n".write(to: repo.appendingPathComponent("test_calc.py"), atomically: true, encoding: .utf8)
         let p = { (f: String) in repo.appendingPathComponent(f).path }
@@ -645,6 +648,14 @@ extension HelperTest {
         check(d.contains("+++ b/test_calc.py") && d.contains("+    assert add(1, 2) == 3"), "changes: a new file in full")
         check(d.contains("No changes now") && d.contains("notes.txt"), "changes: a file with no changes now is named, not hidden")
         check(c.added == 3 && c.removed == 1, "changes: +\(c.added) −\(c.removed)")
+        // It commits its work: from where it started, that still shows; from HEAD it doesn't.
+        sh(["add", "-A"]); sh(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "helper"])
+        let since = HelperChanges.diff(files: files, in: repo, base: base)
+        check(base != nil && since.hasPrefix("#@since-start") && since.contains("+    return a + b") && since.contains("+++ b/test_calc.py"),
+              "changes: what it committed still shows (from where it started)")
+        check(since.contains("-mine, not committed"), "changes: from where it started, your folder as it was then (\(HelperChanges.counts(since)))")
+        check(HelperChanges.diff(files: files, in: repo).contains("No changes now"), "changes: without a start point, only what isn't committed")
+        check(HelperChanges.base([HelperEntry(k: "worktree", text: "/r", detail: "/w", id: "abc123")]) == "abc123", "changes: a worktree's start point")
         let nogit = HelperChanges.diff(files: ["/tmp/x.txt"], in: URL(fileURLWithPath: "/"))
         check(nogit.hasPrefix("# Not in a git repository"), "changes: not in a repo, it says so")
         // A worktree that's gone: its files are shown in your folder.

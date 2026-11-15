@@ -331,7 +331,7 @@ final class HelperWindows: NSObject, NSWindowDelegate, WKNavigationDelegate {
             guard let dir = a?.dir ?? pastHelper(key)?.dir else { return }
             let files = HelperChanges.files(entries), folder = HelperChanges.folder(entries, dir: dir)
             DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-                let d = HelperChanges.diff(files: files, in: folder)
+                let d = HelperChanges.diff(files: files, in: folder, base: HelperChanges.base(entries))
                 DispatchQueue.main.async {
                     guard let self, self.selected == key else { return }
                     self.run("HW.diff(\(Self.str(d)))")
