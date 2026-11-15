@@ -16,3 +16,7 @@ body { font-family: ui-rounded, -apple-system, system-ui, sans-serif; }
                        100% { background: #fffdf8; box-shadow: 0 2px 8px rgba(0,0,0,.2), 0 0 0 1px rgba(0,0,0,.08); } }
 .tag.temp { background: var(--bg, #fffdf8); font-style: italic; border-left-style: dotted; }
 #err { position: absolute; left: 12px; bottom: 12px; right: 12px; font: 12px ui-monospace, Menlo, monospace; color: #b42318; }
+.hover-name { position: absolute; left: 0; top: 0; pointer-events: none; white-space: nowrap; padding: 2px 8px; border-radius: 6px;
+               background: rgba(31,35,40,.88); color: #fff; font: 600 13px ui-rounded, -apple-system, system-ui, sans-serif;
+               opacity: 0; transition: opacity .15s; }
+.hover-name.on { opacity: 1; }
