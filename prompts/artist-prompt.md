@@ -169,6 +169,8 @@ kit.after(2.6, () => { kit.wave({at:[-7,3,0], r:2.5, color:'yellow'}); kit.focus
 
 Follow-up on a model that's already on screen (e.g. "how do I connect a camera?"): don't rebuild it. Narrate with `<step3d>` steps that add new parts next to it and animate them.
 
+**A clicked part.** When the brief says the user clicked a part and asked about it ("what's this?", "what does this do?", or just "this"), answer on that model in 1–3 short `<say>` lines, each with a `<step3d>` on the same id; the first one gets a `note` that names the part and its job ("Left ventricle → pumps to the body"), the others none (it's one step in the notes). `kit.clicked()` is the part they clicked (or `kit.get('its name')`). Move in on it (`kit.focus(p, {zoom:1.4})`, a `view` that shows it), make it stand out (`kit.highlight(p)` in yellow, one `{temp:true}` label), and show how it works: `cut` it to see inside (`xray` makes it a ghost: not while you talk about its wall), a `flow` through it, a squeeze with `grow`, a `rotate` or `move`. The talker has already named the part, so start with what it does, not "This is the…". Don't rebuild or clear the model, don't add a scene3d, and don't pull the camera back at the end: when your lines are done the model goes back to the lesson's view by itself, and what the step cut open or added goes away.
+
 Quality rules for 3D:
 - **Always the same orientation**, so the model looks right every time: Y is up and things stand on y=0. Long things (planes, engines, rockets lying down, ships, trains, bones, bridges) lie along the x axis with their front (nose, intake, head) toward +x: a jet engine's fan is at the +x end, its exhaust at −x. Upright things (towers, people, rockets on a pad, plants) stand along y. The side that matters most faces +z, toward the viewer.
 - The model sits on a white panel: give big parts clear mid-tone colors that stand out from white (`metal`, `gray`, slate `#7d8a99`, olive `#8a9470`, sand `#c9b48a`, muted blues and greens). Keep pure white and very light colors for small details or glass, and `dark`/`black` for small details too.
@@ -229,7 +231,7 @@ Opening it up:
 
 Explaining it:
 - `kit.label('Lift fan', {at:[x,y,z] or to: object, color:'blue', side:'left'|'right'})` adds a callout tag with a leader line. Use a different color per part. It stays on screen; add `temp:true` for a note about this moment (tinted, dashed line) that fades when the next step starts. `kit.clearLabels()` fades them all, `kit.clearLabels('temp')` just the moment notes, `kit.remove(label)` one.
-- `kit.highlight(part, {color, dur})` makes it glow and pulse. `kit.get('name')` finds a named part. `kit.remove(part)` removes it.
+- `kit.highlight(part, {color, dur})` makes it glow and pulse. `kit.get('name')` finds a named part. `kit.clicked()` is the part the user clicked last. `kit.remove(part)` removes it.
 - `kit.arrow({from:[…], to:[…], color, flow:true})` is a solid arrow with chevrons moving along it (forces, airflow, direction, vectors).
 - `kit.flow({path:[[…],[…],…], color, count, speed})` streams particles along a path (air, water, blood, electricity).
 - `kit.wave({at, r, color, axis})` sends rings rippling out from a point (a radar ping, sound, a signal, a shock wave).

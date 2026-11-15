@@ -8,7 +8,18 @@ import WebKit
 final class Overlay: NSObject, WKNavigationDelegate {
     struct SceneItem { let id: String; let type: String; let label: String; let box: [Int]? }
     /// The part of a 3D model you clicked last (its name shows on the model), so "what's this?" knows.
-    private var picked: (id: String, name: String, at: Date)?
+    private var picked: (id: String, name: String, part: String, at: Date)?
+    /// Whether the last click on a part was already asked about (one click → one step about it).
+    private var pickAsked = false
+    /// The part you clicked in the last `within` seconds and haven't asked about yet: the model's id, the
+    /// part's name as shown, and its name in the teacher's code (for `kit.get`).
+    func freshPick(within: TimeInterval = 120) -> (id: String, name: String, part: String)? {
+        guard let p = picked, !pickAsked, Date().timeIntervalSince(p.at) < within,
+              scene.contains(where: { $0.id == p.id && $0.type == "scene3d" }) else { return nil }
+        return (p.id, p.name, p.part)
+    }
+    func markPickAsked() { pickAsked = true }
+    var lastPickName: String { picked?.name ?? "" }
 
     /// You finished drawing a mark (⌥ + click / drag).
     var onMarkAdded: (() -> Void)?
@@ -42,7 +53,9 @@ final class Overlay: NSObject, WKNavigationDelegate {
         let lines = scene.map { item -> String in
             var s = "- \(item.type) id=\"\(item.id)\""
             if !item.label.isEmpty { s += " “\(item.label)”" }
-            if let p = picked, p.id == item.id, Date().timeIntervalSince(p.at) < 120 { s += " (the user just clicked its part “\(p.name)”)" }
+            if let p = picked, p.id == item.id, Date().timeIntervalSince(p.at) < 120 {
+                s += p.name.isEmpty ? " (the user just clicked one of its parts, `\(p.part)` in the code)" : " (the user just clicked its part “\(p.name)”)"
+            }
             if let b = item.box, b.count == 4 {
                 let px = b.map { Int((CGFloat($0) * scale).rounded()) }
                 s += " at x=\(px[0]) y=\(px[1]) w=\(px[2]) h=\(px[3])"
@@ -285,8 +298,12 @@ final class Overlay: NSObject, WKNavigationDelegate {
 
     /// Runs more code inside an existing 3D model (a narrated step or a follow-up addition).
     /// note: its line in the notes beside the model (nil: the step adds none).
-    func run3d(id: String, code: String, note: String? = nil) {
-        js("SB.run3d(\(jsString(id)), \(jsString(code)), \(note.map(jsString) ?? "null"))")
+    func run3d(id: String, code: String, note: String? = nil, aside: Bool = false) {
+        js("SB.run3d(\(jsString(id)), \(jsString(code)), \(note.map(jsString) ?? "null"), \(aside))")
+    }
+    /// A step about a clicked part was heard: the model goes back to the lesson's view.
+    func end3dAside(id: String) {
+        js("SB.end3dAside(\(jsString(id)))")
     }
 
     /// More code of a 3D model that's still being written: it runs statement by statement as it arrives.
@@ -396,7 +413,8 @@ final class Overlay: NSObject, WKNavigationDelegate {
             }
             trackMouse()
         case "picked":
-            picked = ("\(msg["id"] ?? "")", "\(msg["name"] ?? "")", Date())
+            picked = ("\(msg["id"] ?? "")", "\(msg["name"] ?? "")", "\(msg["part"] ?? "")", Date())
+            pickAsked = false
         case "error":
             onCardError?("\(msg["id"] ?? "")", "\(msg["type"] ?? "")", "\(msg["message"] ?? "")")
         case "clear":
