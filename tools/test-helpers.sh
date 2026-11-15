@@ -17,6 +17,9 @@ echo "1. Parser"
 swiftc -O -o "$TMP/parser" Sources/Poinky/HelperEvents.swift Sources/Poinky/HelperAsk.swift Sources/Poinky/HelperTranscript.swift tools/tests/helper-events/main.swift 2>"$TMP/swiftc.log" || { cat "$TMP/swiftc.log"; exit 1; }
 "$TMP/parser" tools/helper-runs | grep -E "ok|FAIL" ; "$TMP/parser" tools/helper-runs >/dev/null || fail=1
 
+echo "1a. The talker's replies: offers, and the talker eval replayed (no tokens)"
+tools/test-talker.sh | sed 's/^/  /' ; [ "${PIPESTATUS[0]}" = 0 ] || fail=1
+
 echo "1b. Helper choreography in a browser (many at once: no overlaps, one hand-off and one report at a time)"
 if [ -x "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" ] && node -e "process.exit(typeof WebSocket === 'function' ? 0 : 1)" 2>/dev/null; then
   node tools/tests/run-web-tests.mjs | sed 's/^/  /' ; [ "${PIPESTATUS[0]}" = 0 ] || fail=1

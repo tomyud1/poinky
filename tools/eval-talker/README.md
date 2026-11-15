@@ -10,6 +10,22 @@ python3 tools/eval-talker/run.py --print-prompt | --print-message coder-fix    #
 python3 tools/eval-talker/run.py --rescore before,before-extra after           # before/after table, no model calls
 ```
 
+## In CI, with no tokens: the replay
+`tools/test-talker.sh` (run by `tools/test-helpers.sh` and in CI) replays `fixtures.json`: real replies saved from earlier runs (each scenario's newest two and its newest failing one), each with the checks it failed when recorded. It scores them again with the current checks and runs them through the app's own `TalkParser` (`parse-replies.swift`, built from `Brain.swift`'s talker part, streamed in small pieces like the app gets them) and compares what both parsers found (spoken text, `<do>`, `<visual>`, helpers, reminders, `<offer>`…). So a parser, prompt-tag or check change that breaks tag parsing fails the build.
+```
+python3 tools/eval-talker/run.py --replay                         # the checks only
+tools/test-talker.sh                                              # the checks, the app's parser, and the offer tests
+python3 tools/eval-talker/run.py --record-fixtures before,before-extra after … weekly-2026-11-22   # save new fixtures (labels oldest first)
+```
+After changing a check on purpose, record the fixtures again and look at the diff.
+
+## Weekly live run (uses your Claude plan, ~25 Haiku calls, ~2 min)
+```
+POINKY_EVAL_CLAUDE=$(which claude) python3 tools/eval-talker/run.py --label weekly-$(date +%F)
+python3 tools/eval-talker/run.py --rescore after-fix8,offer1,offer2 weekly-$(date +%F)    # compare with the last one
+```
+New failures are either a real regression (fix the prompt or code) or a check that's too strict (fix the check). Then add the run to the fixtures with `--record-fixtures` so CI keeps checking those replies.
+
 ## How it mirrors the app
 - System prompt as `BrainFactory.make(.talker)`: `prompts/talker-prompt.md` + `poinky-manual.md` + the default `identity.md` (read from `Identity.swift`) + memory for a made-up user ("Alex Rivera") + `LookUp.promptSection` (read from `Recall.swift`, history and web search on).
 - Message as `CallController.talkerText`: what was said, the time (fixed: Sunday 15 Nov 2026, 2:10 PM), screenshot size, front app / document / web page / selected text (`AppContext.lines` format), cursor, the helpers list, the next helper names, the parallel-teacher line when `wantsSketch` / `wantsWorkChecked` say so (word lists read from `CallController.swift`), and the format reminder.
@@ -49,6 +65,9 @@ Without the thinking step Haiku followed the reply format less well (the first f
 | search-weather "umbrella in Boston tomorrow" | pass (2.1 s) | first run: "I can't check the forecast"; after the format reminder `<search>` (0.9 s) |
 
 Per-run detail: `python3 tools/eval-talker/run.py --rescore before,before-extra after,after2,after3,after-fix,after-fix2,after-fix3,after-fix4,after-fix5,after-fix6,after-fix7,after-fix8`.
+
+## Offers (2026-11-15)
+`offer-rewrite`, `offer-helper`, `offer-remind`: when the talker ends with an offer ("Want me to swap it in?"), it writes the action ready in `<offer say="…">…</offer>` and does nothing yet (see Offer.swift). Haiku, 2 runs each: the rewrite and the reminder were offered with the exact `<do>` / `<remind>` ready every time (1.0–1.6 s to first words); for "why is this crashing?" it explained and sketched but didn't offer a fix (the check only requires a prepared helper when it does offer). `writer-punchier` also carried the offer.
 
 ## Known gaps
 - "Short version" summaries sometimes still list every item.

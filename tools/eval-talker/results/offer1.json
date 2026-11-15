@@ -1,0 +1,241 @@
+[
+ {
+  "id": "writer-punchier",
+  "who": "writer",
+  "said": "make this paragraph punchier",
+  "checks": [
+   [
+    "replaces it for them (<do>) or reads the rewrite aloud",
+    true
+   ],
+   [
+    "the new text is shorter than the old",
+    true
+   ],
+   [
+    "<do> carries the new text",
+    true
+   ],
+   [
+    "offers to put it in",
+    true
+   ],
+   [
+    "no agent",
+    true
+   ]
+  ],
+  "generic": [
+   [
+    "has <say>",
+    true
+   ],
+   [
+    "spoken style (no markdown/URL/emoji)",
+    true
+   ],
+   [
+    "<draw> is valid JSON",
+    true
+   ],
+   [
+    "math said for the ear (no ² = ( ) symbols)",
+    true
+   ],
+   [
+    "nothing outside the tags",
+    true
+   ]
+  ],
+  "passed": true,
+  "say": "Here's a punchier version: Onboarding takes too long, and it has too many steps. We can simplify it so every new hire has a better first experience. Want me to swap it in?",
+  "tags": [
+   "draw",
+   "offer",
+   "say"
+  ],
+  "raw": "<say>Here's a punchier version: Onboarding takes too long, and it has too many steps. We can simplify it so every new hire has a better first experience. Want me to swap it in?</say>\n<offer say=\"Swapping it in.\"><do>Replace the selected text with exactly: Onboarding takes too long, and it has too many steps. We can simplify it so every new hire has a better first experience.</do></offer>\n<draw>{\"items\":[]}</draw>",
+  "first_token": 1.4688539505004883,
+  "first_sentence": 1.5980710983276367,
+  "total": 2.008692979812622,
+  "input_tokens": 14596,
+  "run": 0
+ },
+ {
+  "id": "offer-rewrite",
+  "who": "writer",
+  "said": "can you make this sound more polite",
+  "checks": [
+   [
+    "reads the new text and offers to put it in",
+    true
+   ],
+   [
+    "doesn't change it yet (no top-level <do>)",
+    true
+   ],
+   [
+    "the swap is ready: <offer> with a <do> of the same words",
+    true
+   ],
+   [
+    "the <do> says to replace the selected text",
+    true
+   ],
+   [
+    "no agent",
+    true
+   ]
+  ],
+  "generic": [
+   [
+    "has <say>",
+    true
+   ],
+   [
+    "spoken style (no markdown/URL/emoji)",
+    true
+   ],
+   [
+    "math said for the ear (no ² = ( ) symbols)",
+    true
+   ],
+   [
+    "nothing outside the tags",
+    true
+   ]
+  ],
+  "passed": true,
+  "say": "Sure. Here's a warmer version: Hi Sam, I hope the week is going well. Could you please send me the slides by tomorrow? I've asked a couple of times and I'd really appreciate it. Thanks so much. Want me to swap it in?",
+  "tags": [
+   "offer",
+   "say"
+  ],
+  "raw": "<say>Sure. Here's a warmer version: Hi Sam, I hope the week is going well. Could you please send me the slides by tomorrow? I've asked a couple of times and I'd really appreciate it. Thanks so much. Want me to swap it in?</say>\n<offer say=\"Swapping it in.\"><do>Replace the selected text with exactly: Hi Sam, I hope the week is going well. Could you please send me the slides by tomorrow? I've asked a couple of times and I'd really appreciate it. Thanks so much.</do></offer>",
+  "first_token": 1.033553123474121,
+  "first_sentence": 1.1863391399383545,
+  "total": 1.7005503177642822,
+  "input_tokens": 14610,
+  "run": 0
+ },
+ {
+  "id": "offer-helper",
+  "who": "coder",
+  "said": "why is this crashing?",
+  "checks": [
+   [
+    "explains the crash (zero people)",
+    true
+   ],
+   [
+    "doesn't start a helper unasked",
+    true
+   ],
+   [
+    "offers a fix",
+    false
+   ],
+   [
+    "the fix is ready: <offer> with an <agent> in the project",
+    true
+   ],
+   [
+    "the prepared task has the exact error",
+    true
+   ]
+  ],
+  "generic": [
+   [
+    "has <say>",
+    true
+   ],
+   [
+    "spoken style (no markdown/URL/emoji)",
+    true
+   ],
+   [
+    "<draw> is valid JSON",
+    true
+   ],
+   [
+    "math said for the ear (no ² = ( ) symbols)",
+    false
+   ],
+   [
+    "nothing outside the tags",
+    true
+   ]
+  ],
+  "passed": false,
+  "say": "Division by zero, Alex. You typed 0 for how many people, so share = total divided by 0 blows up on line 14 of tip.py. Add a check that the number is at least 1 and ask again if it isn't.",
+  "tags": [
+   "draw",
+   "say",
+   "visual"
+  ],
+  "raw": "<say>Division by zero, Alex. You typed 0 for how many people, so share = total divided by 0 blows up on line 14 of tip.py. Add a check that the number is at least 1 and ask again if it isn't.</say>\n<visual>Lesson. Main idea: a program cannot divide a number by zero, so the code must check the people count before dividing. Cover: the traceback points to line 14, share = total_with_tip / people; the user entered 0 at the \"How many people?\" prompt; fix is to validate the input and re-prompt until it is 1 or more. Relates to the Terminal window showing the ZeroDivisionError near the top.</visual>\n<draw>{\"items\":[{\"type\":\"underline\",\"id\":\"err\",\"x\":144,\"y\":241,\"w\":320,\"find\":\"ZeroDivisionError: float division by zero\",\"label\":\"the crash\"},{\"type\":\"underline\",\"id\":\"line14\",\"x\":176,\"y\":226,\"w\":242,\"find\":\"share = total_with_tip / people\",\"label\":\"line 14\"}]}</draw>",
+  "first_token": 1.8197212219238281,
+  "first_sentence": 1.9623332023620605,
+  "total": 3.314573049545288,
+  "input_tokens": 14376,
+  "run": 0
+ },
+ {
+  "id": "offer-remind",
+  "who": "office",
+  "said": "ugh, I have to call them before five",
+  "checks": [
+   [
+    "doesn't set a reminder unasked",
+    true
+   ],
+   [
+    "offers a reminder (or asks when)",
+    true
+   ],
+   [
+    "the reminder is ready: <offer> with <remind> before 5 today",
+    true
+   ],
+   [
+    "short",
+    true
+   ]
+  ],
+  "generic": [
+   [
+    "has <say>",
+    true
+   ],
+   [
+    "spoken style (no markdown/URL/emoji)",
+    true
+   ],
+   [
+    "<draw> is valid JSON",
+    true
+   ],
+   [
+    "math said for the ear (no ² = ( ) symbols)",
+    true
+   ],
+   [
+    "nothing outside the tags",
+    true
+   ]
+  ],
+  "passed": true,
+  "say": "Ugh, I hear you. It's Sunday, so you've got a few hours. Want me to remind you at 4 so you don't forget?",
+  "tags": [
+   "draw",
+   "offer",
+   "say"
+  ],
+  "raw": "<say>Ugh, I hear you. It's Sunday, so you've got a few hours. Want me to remind you at 4 so you don't forget?</say>\n<draw>{\"items\":[{\"type\":\"underline\",\"id\":\"deadline\",\"x\":768,\"y\":228,\"w\":122,\"h\":18,\"find\":\"before 5 PM today\",\"label\":\"call before 5\"}]}</draw>\n<offer say=\"Okay, reminder set for 4.\"><remind at=\"2026-11-15 16:00\">Call Brightsmile Dental at (555) 201-3344 to confirm your Monday cleaning. Their deadline is 5 PM today.</remind></offer>",
+  "first_token": 1.1312458515167236,
+  "first_sentence": 1.25325608253479,
+  "total": 2.198732852935791,
+  "input_tokens": 14372,
+  "run": 0
+ }
+]

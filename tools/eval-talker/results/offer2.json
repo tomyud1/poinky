@@ -1,0 +1,174 @@
+[
+ {
+  "id": "offer-rewrite",
+  "who": "writer",
+  "said": "can you make this sound more polite",
+  "checks": [
+   [
+    "reads the new text and offers to put it in",
+    true
+   ],
+   [
+    "doesn't change it yet (no top-level <do>)",
+    true
+   ],
+   [
+    "the swap is ready: <offer> with a <do> of the same words",
+    true
+   ],
+   [
+    "the <do> says to replace the selected text",
+    true
+   ],
+   [
+    "no agent",
+    true
+   ]
+  ],
+  "generic": [
+   [
+    "has <say>",
+    true
+   ],
+   [
+    "spoken style (no markdown/URL/emoji)",
+    true
+   ],
+   [
+    "math said for the ear (no ² = ( ) symbols)",
+    true
+   ],
+   [
+    "nothing outside the tags",
+    true
+   ]
+  ],
+  "passed": true,
+  "say": "Sure. Here's a politer version: Hi Sam, could you please send me the slides by tomorrow? I've asked a couple of times now, so I'd really appreciate it. Want me to swap it in?",
+  "tags": [
+   "offer",
+   "say"
+  ],
+  "raw": "<say>Sure. Here's a politer version: Hi Sam, could you please send me the slides by tomorrow? I've asked a couple of times now, so I'd really appreciate it. Want me to swap it in?</say>\n<offer say=\"Swapping it in.\"><do>Replace the selected text with exactly: Hi Sam, could you please send me the slides by tomorrow? I've asked a couple of times now, so I'd really appreciate it.</do></offer>",
+  "first_token": 0.8843858242034912,
+  "first_sentence": 1.0189919471740723,
+  "total": 1.474862813949585,
+  "input_tokens": 14659,
+  "run": 0
+ },
+ {
+  "id": "offer-helper",
+  "who": "coder",
+  "said": "why is this crashing?",
+  "checks": [
+   [
+    "explains the crash (zero people)",
+    true
+   ],
+   [
+    "doesn't start a helper unasked",
+    true
+   ],
+   [
+    "offers a fix",
+    false
+   ],
+   [
+    "the fix is ready: <offer> with an <agent> in the project",
+    true
+   ],
+   [
+    "the prepared task has the exact error",
+    true
+   ]
+  ],
+  "generic": [
+   [
+    "has <say>",
+    true
+   ],
+   [
+    "spoken style (no markdown/URL/emoji)",
+    true
+   ],
+   [
+    "<draw> is valid JSON",
+    true
+   ],
+   [
+    "math said for the ear (no ² = ( ) symbols)",
+    true
+   ],
+   [
+    "nothing outside the tags",
+    true
+   ]
+  ],
+  "passed": false,
+  "say": "The crash is a ZeroDivisionError on the split line: you entered 0 for how many people, so the code divides the total by zero. Add a check that asks again, or stops, when the number is less than one.",
+  "tags": [
+   "draw",
+   "say",
+   "visual"
+  ],
+  "raw": "<say>The crash is a ZeroDivisionError on the split line: you entered 0 for how many people, so the code divides the total by zero. Add a check that asks again, or stops, when the number is less than one.</say>\n<visual>Lesson. Main idea: \"Dividing by zero crashes the program\". Cover: the line share = total_with_tip / people; people is 0 from the input; dividing any number by zero has no answer, so Python stops with ZeroDivisionError; the fix is to check that people is at least 1 before dividing and ask again if not. Relates to the traceback in the Terminal window, line 14.</visual>\n<draw>{\"items\":[{\"type\":\"underline\",\"id\":\"err\",\"x\":175,\"y\":241,\"w\":300,\"find\":\"ZeroDivisionError: float division by zero\",\"label\":\"crash here\"},{\"type\":\"underline\",\"id\":\"zero\",\"x\":280,\"y\":151,\"w\":12,\"find\":\"0\",\"label\":\"you entered 0\"}]}</draw>",
+  "first_token": 0.9643917083740234,
+  "first_sentence": 1.1611659526824951,
+  "total": 2.415421724319458,
+  "input_tokens": 14422,
+  "run": 0
+ },
+ {
+  "id": "offer-remind",
+  "who": "office",
+  "said": "ugh, I have to call them before five",
+  "checks": [
+   [
+    "doesn't set a reminder unasked",
+    true
+   ],
+   [
+    "offers a reminder (or asks when)",
+    true
+   ],
+   [
+    "the reminder is ready: <offer> with <remind> before 5 today",
+    true
+   ],
+   [
+    "short",
+    true
+   ]
+  ],
+  "generic": [
+   [
+    "has <say>",
+    true
+   ],
+   [
+    "spoken style (no markdown/URL/emoji)",
+    true
+   ],
+   [
+    "math said for the ear (no ² = ( ) symbols)",
+    true
+   ],
+   [
+    "nothing outside the tags",
+    true
+   ]
+  ],
+  "passed": true,
+  "say": "Ugh, I hear you, Alex. It's Sunday afternoon, so you've got a few hours. Want me to remind you at 4 PM to call them?",
+  "tags": [
+   "offer",
+   "say"
+  ],
+  "raw": "<say>Ugh, I hear you, Alex. It's Sunday afternoon, so you've got a few hours. Want me to remind you at 4 PM to call them?</say>\n<offer say=\"Got it, reminder set.\"><remind at=\"2026-11-15 16:00\">Call Brightsmile Dental at (555) 201-3344 to confirm your Monday cleaning. They close the slot at 5.</remind></offer>",
+  "first_token": 0.8127341270446777,
+  "first_sentence": 0.9630050659179688,
+  "total": 1.5941519737243652,
+  "input_tokens": 14419,
+  "run": 0
+ }
+]

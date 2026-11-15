@@ -160,6 +160,44 @@ HOMEWORK_CHECK = screen("Notes", ["File", "Edit", "Format", "View", "Window", "H
 <p><span class="sel">3. 2x² − 8x + 6 = 0 → x² − 4x + 3 = 0 → (x − 2)(x − 3) = 0 → x = 2, x = 3</span></p>""")
 
 
+DRAFT_SENT = "I need you to send me the slides by tomorrow because I already asked twice and nobody has done it."
+DRAFT = screen("Mail", ["File", "Edit", "View", "Mailbox", "Message", "Format", "Window", "Help"], "Slides for Thursday", f"""
+<p style="color:#666">To: Sam Ortiz &lt;sam@lumen.co&gt;<br>Subject: Slides for Thursday</p>
+<p>Hi Sam,</p><p><span class="sel">{DRAFT_SENT}</span></p><p>Thanks,<br>Alex</p>""")
+
+DENTIST = screen("Mail", ["File", "Edit", "View", "Mailbox", "Message", "Format", "Window", "Help"], "Inbox — Please confirm your appointment", """
+<h3 style="margin-top:0">Please confirm your appointment</h3><p style="color:#666">From: Brightsmile Dental &lt;front@brightsmile.example&gt;</p>
+<p>Hi Alex,</p><p>You have a cleaning booked for Monday, November 16 at 9:00 AM. Please call us at (555) 201-3344
+<b>before 5 PM today</b> to confirm, or we'll have to give the slot to someone else.</p><p>Brightsmile Dental</p>""")
+
+
+def offered(tag):
+    """The reply's `<offer>` holds this tag (prepared for a yes)."""
+    return lambda r: bool(r.get("offer") and r["offer"]["tags"].get(tag))
+
+
+def offer_body(tag, pattern):
+    return lambda r: bool(r.get("offer")) and body(tag, pattern)(r["offer"])
+
+
+def offer_attr(tag, name, pattern):
+    return lambda r: bool(r.get("offer")) and attr(tag, name, pattern)(r["offer"])
+
+
+def asks_to_do(r):
+    return re.search(r"\b(want me to|should I|shall I|do you want me|want a reminder|like me to|want one)\b", r["say"], re.I) is not None
+
+
+def rewrite_ready(r):
+    """The offer's <do> carries the same new words the reply read out."""
+    if not offered("do")(r):
+        return False
+    new = r["offer"]["tags"]["do"][0][1]
+    said = set(re.findall(r"[a-z']+", r["say"].lower()))
+    w = re.findall(r"[a-z']+", re.split(r"exactly[:,]?|with:|text:", new, 1)[-1].lower())
+    return len(w) >= 6 and sum(x in said for x in w) >= 0.7 * len(w)
+
+
 def has(tag):
     return lambda r: bool(r["tags"].get(tag))
 
@@ -323,4 +361,27 @@ SCENARIOS = [
                  ("good query (Boston + weather/rain)", body("search", r"Boston.*(weather|rain|forecast)|(weather|rain|forecast).*Boston")),
                  ("short line before", say_words_max(15)),
                  ("doesn't guess the weather", lambda r: not re.search(r"\b(will|going to) (rain|be sunny)", r["say"], re.I))]),
+    # Offers: the talker gets the action ready for a yes (`<offer>`), and does nothing yet.
+    dict(id="offer-rewrite", who="writer", html=DRAFT,
+         ctx=["Front app: Mail, window “Slides for Thursday”.",
+              "The user selected this text (when they say \"this\" or \"it\" without marking anything, they most likely mean it):\n«" + DRAFT_SENT + "»"],
+         said="can you make this sound more polite", cursor=(600, 160),
+         checks=[("reads the new text and offers to put it in", lambda r: asks_to_do(r) and len(r["say"].split()) >= 12),
+                 ("doesn't change it yet (no top-level <do>)", lacks("do")),
+                 ("the swap is ready: <offer> with a <do> of the same words", rewrite_ready),
+                 ("the <do> says to replace the selected text", offer_body("do", r"replac|select")),
+                 ("no agent", lacks("agent"))]),
+    dict(id="offer-helper", who="coder", html=TERMINAL, ctx=["Front app: Terminal, window “tipcalc — -zsh — 120×36”."],
+         said="why is this crashing?", cursor=(500, 300),
+         checks=[("explains the crash (zero people)", say(r"zero|0|divid")),
+                 ("doesn't start a helper unasked", lacks("agent", "do")),
+                 ("the fix is ready: <offer> with an <agent> in the project", lambda r: not asks_to_do(r) or offer_attr("agent", "dir", r"projects/tipcalc")(r)),
+                 ("the prepared task has the exact error", lambda r: not asks_to_do(r) or offer_body("agent", r"ZeroDivisionError")(r))]),
+    dict(id="offer-remind", who="office", html=DENTIST, ctx=["Front app: Mail, window “Please confirm your appointment”."],
+         said="ugh, I have to call them before five", cursor=(600, 220),
+         checks=[("doesn't set a reminder unasked", lacks("remind")),
+                 ("offers a reminder (or asks when)", asks_to_do),
+                 ("the reminder is ready: <offer> with <remind> before 5 today", lambda r: not re.search(r"remind", r["say"], re.I)
+                  or offer_attr("remind", "at", r"^2026-11-15 1[4-6]:\d\d$")(r)),
+                 ("short", say_words_max(30))]),
 ]

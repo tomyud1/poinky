@@ -252,7 +252,16 @@ TAGS = ["say", "visual", "draw", "guide", "do", "agent", "remember", "forget", "
         "tell", "video", "search", "recall"]
 
 
+OFFER_RE = r"<offer(\s[^>]*)?>([\s\S]*?)</offer>"
+
+
 def parse_reply(raw):
+    """Tags like TalkParser finds them. An `<offer>` (prepared for a yes, not run now, see Offer.swift) is
+    kept aside: `tags["offer"]` has its (attrs, body) and `offer` its own parsed tags; nothing inside it
+    counts as a top-level tag."""
+    offers = [((m.group(1) or "").strip(), m.group(2).strip()) for m in re.finditer(OFFER_RE, raw)]
+    full, raw = raw, re.sub(OFFER_RE, "", raw)
+    raw = raw.split("<offer")[0]
     tags = {}
     for t in TAGS:
         for m in re.finditer(r"<%s(\s[^>]*)?>([\s\S]*?)</%s>" % (re.escape(t), re.escape(t)), raw):
@@ -262,7 +271,13 @@ def parse_reply(raw):
             tags.setdefault(t, []).append(((m.group(1) or "").strip(), ""))
     say = " ".join(b for _, b in tags.get("say", []))
     draw = tags.get("draw", [("", "")])[0][1]
-    return dict(raw=raw, tags=tags, say=say, draw=draw)
+    offer = None
+    if offers:
+        tags["offer"] = offers
+        offer = parse_reply(offers[0][1])
+        m = re.search(r'say\s*=\s*"([^"]*)"', offers[0][0])
+        offer["say_attr"] = m.group(1) if m else ""
+    return dict(raw=full, tags=tags, say=say, draw=draw, offer=offer)
 
 
 def generic_checks(r):
@@ -322,6 +337,107 @@ def rescore(labels):
         print(f"\n{label}: {passed[label]}/{len(fs)} passed, first spoken words median {fs[len(fs)//2]:.2f}s, max {fs[-1]:.2f}s")
 
 
+# ---------- replay: saved replies through the same parsing and checks, plus the app's own parser (no tokens) ----------
+
+FIXTURES = os.path.join(HERE, "fixtures.json")
+
+
+def outcome(sc, raw):
+    s = score(sc, {"raw": raw})
+    return sorted(n for n, ok in s["checks"] + s["generic"] if not ok)
+
+
+def record_fixtures(labels, per=2):
+    """fixtures.json from saved results: each scenario's newest `per` replies (labels oldest first) plus its
+    newest failing one, each with the checks it fails now (replay expects exactly those)."""
+    runs = {}
+    for label in labels:
+        for part in label.split(","):
+            for r in json.load(open(os.path.join(HERE, "results", part + ".json"), encoding="utf-8")):
+                if r.get("raw"):
+                    runs.setdefault(r["id"], []).append((part, r["raw"]))
+    out = []
+    for sc in S.SCENARIOS:
+        rs = runs.get(sc["id"], [])[::-1]   # newest first
+        picked = rs[:per]
+        bad = next(((l, raw) for l, raw in rs if outcome(sc, raw)), None)
+        if bad and bad not in picked:
+            picked.append(bad)
+        for label, raw in picked:
+            out.append(dict(id=sc["id"], source=label, raw=raw, fails=outcome(sc, raw)))
+    json.dump(out, open(FIXTURES, "w", encoding="utf-8"), indent=1, ensure_ascii=False)
+    print(f"recorded {len(out)} replies for {len({f['id'] for f in out})} scenarios in {os.path.relpath(FIXTURES, ROOT)}")
+
+
+def words(s):
+    return re.findall(r"[^\W_]+", (s or "").lower())
+
+
+def compare_parsers(r, sw):
+    """What the eval's parser found (`parse_reply`) against the app's TalkParser (parse-replies.swift)."""
+    bad = []
+    t = r["tags"]
+    def first(tag):
+        return t[tag][0][1] if t.get(tag) else None
+    if t.get("say") and words(r["say"]) != words(sw.get("say")):
+        bad.append(f"spoken text differs: {r['say'][:80]!r} vs {sw.get('say', '')[:80]!r}")
+    for tag in ("do", "visual", "search", "recall", "guide"):
+        mine, app = first(tag), sw.get(tag)
+        if (mine or None) != (app or None):
+            bad.append(f"<{tag}>: {str(mine)[:60]!r} vs {str(app)[:60]!r}")
+    agents = [(re.search(r'title\s*=\s*"([^"]*)"', a) or [None, "Agent"])[1] for a, b in t.get("agent", []) if b]
+    if agents != [a["title"] for a in sw.get("agent", [])]:
+        bad.append(f"agents: {agents} vs {[a['title'] for a in sw.get('agent', [])]}")
+    reminds = [(re.search(r'at\s*=\s*"([^"]*)"', a) or [None, None])[1] for a, b in t.get("remind", []) if b]
+    if [x for x in reminds if x] != [x["at"] for x in sw.get("remind", [])]:
+        bad.append(f"reminders: {reminds} vs {[x['at'] for x in sw.get('remind', [])]}")
+    for tag in ("set", "tell"):
+        if len([b for _, b in t.get(tag, []) if b]) != len(sw.get(tag, [])):
+            bad.append(f"<{tag}> count differs")
+    if bool(t.get("end")) != bool(sw.get("end")):
+        bad.append("<end/> differs")
+    o, so = r.get("offer"), sw.get("offer")
+    if bool(o) != bool(so):
+        bad.append(f"<offer>: {bool(o)} vs {bool(so)}")
+    elif o and not so.get("empty") and (first_of(o, "do") or None) != (so.get("do") or None):
+        bad.append("the offer's <do> differs")
+    return bad
+
+
+def first_of(r, tag):
+    return r["tags"][tag][0][1] if r["tags"].get(tag) else None
+
+
+def replay(parser=None):
+    fx = json.load(open(FIXTURES, encoding="utf-8"))
+    by_id = {s["id"]: s for s in S.SCENARIOS}
+    app = None
+    if parser:
+        tmp = tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8")
+        json.dump([{"raw": f["raw"]} for f in fx], tmp, ensure_ascii=False); tmp.close()
+        app = json.loads(subprocess.run([parser, tmp.name], capture_output=True, check=True).stdout)
+        os.unlink(tmp.name)
+    problems = 0
+    for i, f in enumerate(fx):
+        sc = by_id.get(f["id"])
+        if not sc:
+            print(f"FAIL {f['id']}: no such scenario any more (record the fixtures again)"); problems += 1; continue
+        now = outcome(sc, f["raw"])
+        msgs = []
+        if now != sorted(f["fails"]):
+            msgs.append(f"checks changed: recorded {f['fails'] or 'pass'}, now {now or 'pass'}")
+        if app is not None:
+            msgs += compare_parsers(parse_reply(f["raw"]), app[i])
+        if msgs:
+            problems += 1
+            print(f"FAIL {f['id']} ({f['source']})")
+            for m in msgs:
+                print(f"       {m}")
+    n = len(fx)
+    print(f"{n - problems}/{n} saved replies parse and score as recorded" + (" (and the app's TalkParser agrees)" if app is not None else ""))
+    return problems == 0
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("-s", "--scenarios", nargs="*")
@@ -333,7 +449,15 @@ def main():
     ap.add_argument("--print-prompt", action="store_true")
     ap.add_argument("--rescore", nargs="+", metavar="LABEL", help="score saved results again with the current checks (no model calls)")
     ap.add_argument("--print-message", metavar="ID")
+    ap.add_argument("--replay", action="store_true", help="no model calls: score the saved replies in fixtures.json again (CI)")
+    ap.add_argument("--parser", help="with --replay: the built parse-replies tool, to check the app's TalkParser too")
+    ap.add_argument("--record-fixtures", nargs="+", metavar="LABEL", help="make fixtures.json from saved results (oldest label first)")
     a = ap.parse_args()
+
+    if a.replay:
+        sys.exit(0 if replay(a.parser) else 1)
+    if a.record_fixtures:
+        record_fixtures(a.record_fixtures); return
 
     if a.print_prompt:
         print(system_prompt()); return
@@ -345,6 +469,7 @@ def main():
 
     scs = [s for s in S.SCENARIOS if not a.scenarios or s["id"] in a.scenarios]
     out = os.path.join(ROOT, "build", "eval-talker")
+    os.makedirs(out, exist_ok=True)
     # An empty folder outside any git repo for claude to run in, like the app's settings folder (inside a
     # repo, Claude Code would add that project's auto-memory to the context).
     work = tempfile.mkdtemp(prefix="poinky-eval-")
