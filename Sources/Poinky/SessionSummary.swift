@@ -113,6 +113,26 @@ final class SessionSummary {
         }
     }
 
+    /// The lines that matter most after a swap (Facts, Goal, Open), short enough to send with every question.
+    var keyFacts: String { Self.keyFacts(text) }
+
+    static let keyFactsMax = 400
+    static func keyFacts(_ summary: String) -> String {
+        let lines = summary.split(separator: "\n").map(String.init)
+        var out: [String] = []
+        var room = keyFactsMax
+        for label in ["Facts:", "Goal:", "Open:"] {
+            for l in lines where l.hasPrefix("- " + label) {
+                let line = String(l.dropFirst(2))
+                guard room > 40 else { break }
+                let c = line.count > room ? Recall.clip(line, room) : line
+                out.append(c)
+                room -= c.count + 1
+            }
+        }
+        return out.joined(separator: " ")
+    }
+
     static func message(summary: String, exchanges: [String], context: String) -> String {
         var s = "Current summary:\n" + (summary.isEmpty ? "(none yet: this is the start of the session)" : summary)
         s += "\n\nNewest exchanges, oldest first:\n\n" + exchanges.joined(separator: "\n\n")

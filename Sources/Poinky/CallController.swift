@@ -84,6 +84,7 @@ final class CallController: NSObject, NSMenuDelegate {
     private var freshTalker: Brain?
     private var freshTalkerSince: TimeInterval = 0
     private var needsRecap = false
+    private var swappedTalker = false   // this session's talker was swapped: the summary's key facts go with each question
     private var sentOnce: [String: String] = [:]   // context that rarely changes: sent again only when it does
     // Swap when the talker's conversation gets this big (Claude Code reports it with each answer), or after
     // this many questions (a fallback, and for the API brain, which doesn't report it and drops old screenshots).
@@ -536,6 +537,7 @@ final class CallController: NSObject, NSMenuDelegate {
         freshTalker = nil
         talkerTurns = 0
         needsRecap = false
+        swappedTalker = false
         sentOnce.removeAll()
         artistBusy = false
         artistWaiting = nil
@@ -1062,6 +1064,7 @@ final class CallController: NSObject, NSMenuDelegate {
         Timeline.log("talker.swap", ["after": talkerTurns])
         talkerTurns = 0
         needsRecap = true
+        swappedTalker = true
         sentOnce.removeAll()
     }
 
@@ -1309,6 +1312,8 @@ final class CallController: NSObject, NSMenuDelegate {
         return nil
     }
 
+    static let keyFactsHeader = "Still true from earlier in this session (use it when it matters for the answer): "
+
     static let formatReminder = "(Reply only with the tags: start with <say>, then any of <visual>, <draw>, <agent>, <do>, <search>, <recall>, <remind>… Nothing outside them, no markdown.)"
 
     /// "Now: Sunday, 8 November 2026, 6:42 PM (Asia/Jerusalem)", so "what time is it?", "is it late?",
@@ -1330,6 +1335,11 @@ final class CallController: NSObject, NSMenuDelegate {
         lines.append(contentsOf: snap.notes)
         lines.append(contentsOf: BrainQuestion.focusNotes(snap))
         lines.append(overlay.sceneDescription(scale: snap.scale))
+        // After a swap: what the user told this session (exam dates, deadlines, names…), right before the question,
+        // so the fresh talker answers with it (in the recap block alone it was often ignored). Again when it changes.
+        if swappedTalker, !proactive, case let key = summary.keyFacts, !key.isEmpty, sendOnce("keyFacts", key) {
+            lines.insert(Self.keyFactsHeader + key, at: 0)
+        }
         // The first question of a session: how the last one ended, if it was recent ("and the other one?").
         if needsRecap {
             needsRecap = false

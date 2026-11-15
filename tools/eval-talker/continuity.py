@@ -29,6 +29,7 @@ QUESTIONS = [
     "what's a good way to memorize the steps",
     "how long should I study each day",
 ]
+AFTER_SWAP = "how many pages is this lecture?"   # one question on the fresh talker before the one that needs the fact
 FINAL = "so which chapters should I review tonight?"
 CTX = S.LECTURE_CTX[:2]   # front app + document, no selection (it would make every question about one paragraph)
 
@@ -94,8 +95,27 @@ def said(reply):
     return " ".join(m.strip() for m in re.findall(r"<say>([\s\S]*?)</say>", reply)) or reply.strip()
 
 
-def message(q, recap=None):
+def key_facts(summary, limit=400):
+    """SessionSummary.keyFacts: the Facts, Goal and Open lines, at most 400 characters."""
+    out, room = [], limit
+    lines = summary.split("\n")
+    for label in ["Facts:", "Goal:", "Open:"]:
+        for l in lines:
+            if l.startswith("- " + label) and room > 40:
+                c = clip(l[2:], room)
+                out.append(c); room -= len(c) + 1
+    return " ".join(out)
+
+
+def key_facts_header():
+    m = re.search(r'static let keyFactsHeader = "((?:[^"\\]|\\.)*)"', R._controller())
+    return R.swift_literal(m.group(1))
+
+
+def message(q, recap=None, facts=None):
     text = R.message_text(dict(said=q, ctx=CTX, cursor=(520, 230)))
+    if facts:   # CallController.talkerText puts it first, right before "User said"
+        text = key_facts_header() + facts + "\n" + text
     if recap:   # the app puts it right after the scene description
         text = text.replace("Nothing is drawn on screen right now.", "Nothing is drawn on screen right now.\n" + "\n".join(recap), 1)
     return text
@@ -140,10 +160,30 @@ def parse_summary(reply):
     return "\n".join(out)
 
 
-def knows_chapters(reply):
-    """Says the exam's scope from question 2: chapters 3 to 5 (or 3, 4 and 5)."""
+NUM = {"three": 3, "four": 4, "five": 5}
+
+
+def chapters(reply):
+    """The chapter numbers an answer names ("chapters 3 to 5" → 3, 4, 5; "chapters 3 and 4" → 3, 4)."""
     s = said(reply).lower().replace("–", "-").replace("—", "-")
-    return bool(re.search(r"\b(3|three)\s*(to|through|-|and)\s*(5|five)\b|\b(3|three),\s*(4|four),?\s*and\s*(5|five)\b", s))
+    got = set()
+    for m in re.finditer(r"chapters?\s+((?:\d|three|four|five)(?:\s*(?:,\s*and|,|and|to|through|-)\s*(?:\d|three|four|five))*)", s):
+        nums = re.findall(r"\d|three|four|five|to|through|-", m.group(1))
+        prev, rng = None, False
+        for t in nums:
+            if t in ("to", "through", "-"):
+                rng = True
+                continue
+            n = int(t) if t.isdigit() else NUM[t]
+            got |= set(range(prev + 1, n + 1)) if rng and prev is not None else {n}
+            prev, rng = n, False
+    return got
+
+
+def knows_chapters(reply):
+    """Uses the exam's scope from question 2: names chapter 4 or the range 3 to 5. ("Chapter 5" alone doesn't
+    count: the open PDF is Lecture 5, and the model sometimes takes that for a chapter.)"""
+    return 4 in chapters(reply)
 
 
 def main():
@@ -151,6 +191,8 @@ def main():
     ap.add_argument("--runs", type=int, default=2, help="how many times to ask the last question per recap")
     ap.add_argument("--label", default="continuity")
     ap.add_argument("--rescore", nargs="*", help="score saved results/<label>.json again (no model calls)")
+    ap.add_argument("--facts", choices=["changed", "every"], default="changed",
+                    help="after the swap, send the key facts again with the last question (every) or not (changed: unchanged, so not resent)")
     ap.add_argument("--reuse-summary", action="store_true", help="with --reuse: also take its summary (only the last question is asked)")
     ap.add_argument("--reuse", help="take questions 1-11 and the talker's answers from results/<label>.json (only the summary and the last question are asked again)")
     a = ap.parse_args()
@@ -194,12 +236,16 @@ def main():
     print("\nSummary (%d chars):\n%s\n" % (len(summary), summary))
 
     results = {}
+    facts = key_facts(summary)
     for name, recap in [("before", old_recap(history)), ("after", new_recap(history, summary))]:
         results[name] = []
         for _ in range(a.runs):
             fresh = Session(prompt)
             time.sleep(4)
-            reply, tokens = fresh.ask(message(FINAL, recap), jpg)
+            f = facts if name == "after" else None
+            first, _ = fresh.ask(message(AFTER_SWAP, recap, f), jpg)
+            # the key facts go again only when they changed (sendOnce); --facts every sends them each time
+            reply, tokens = fresh.ask(message(FINAL, None, f if a.facts == "every" else None), jpg)
             fresh.close()
             ok = knows_chapters(reply)
             results[name].append(dict(reply=reply, ok=ok, tokens=tokens))
