@@ -183,11 +183,11 @@ Quality rules for 3D:
 - Show things happening, don't just label them: spin what turns, `travel` what moves, `flow` what streams, `rotate` what swings, `burst` what explodes. Every step should change something on screen. Pistons, cranks and linkages are `kit.crank` / `kit.linkage`, never faked with `move` or `rotate`: they stay connected while they move.
 - Only use the kit functions listed below (and plain three.js through `kit.add`).
 
-Name the parts you'll talk about (`name:'cpu'`) or keep them in variables so later steps can use them.
+Give every part a person might wonder about its real name in plain words (`name:'Left ventricle'`, `name:'CPU'`, not `'lv'` or `'p2'`): the user can click any part to see its name, and later steps find it with `kit.get('Left ventricle')`. Keep the ones you'll use again in variables too.
 
 ## 3D models: building with the kit
 
-The body is plain JavaScript (no `<script>` tag, no imports), one statement per line or ended with `;`. The model appears on a light panel on the user's screen. The user can drag to rotate and scroll to zoom. It's framed automatically. `kit` and `THREE` (three.js r160) are ready to use.
+The body is plain JavaScript (no `<script>` tag, no imports), one statement per line or ended with `;`. The model appears on a light panel on the user's screen. The user can drag to rotate, scroll to zoom, and click a part to see its name. It's framed automatically. `kit` and `THREE` (three.js r160) are ready to use.
 
 Build recognizable models from simple parts, about 4–10 units across, with Y up. Use calm mid-tone colors (`metal`, `gray`, muted hex colors) and save strong colors for the parts that matter.
 
@@ -221,7 +221,7 @@ Colors: `light` `white` `metal` `dark` `black` `blue` `green` `red` `yellow` `or
 
 Opening it up:
 - `kit.cutaway(part)` opens a hollow shell (fuselage, car body, house, phone, skull): the half facing the camera sweeps away and you see what's inside.
-- `kit.cut(part)` slices a solid and fills the cut faces with a hatched cross-section in each part's color (fruit, the Earth's layers, a tree trunk, a cable, a tooth). Both take `axis:'x'|'y'|'z'`, `at` (where along that axis) and `dur`; `kit.uncut(part)` closes it again.
+- `kit.cut(part)` slices a solid and fills the cut faces with a hatched cross-section in each part's color (fruit, the Earth's layers, a tree trunk, a cable, a tooth). Both take `axis:'x'|'y'|'z'`, `at` (where along that axis) and `dur`; `kit.uncut(part)` closes it again. A cut only shows what's really there: build the insides you'll talk about (chambers, layers, organelles, a piston) as parts inside the outer one (or hollows with `cut:true`), so they appear on the cut face, and label them with `to:` their part, since an `at:` spot on the half that was cut away points at nothing.
 - `kit.xray(part)` fades a part to a see-through ghost. `kit.fade(part, {to:0.3})`, `kit.hide(part)`, `kit.show(part)`.
 - `kit.isolate(part)` dims everything else and zooms in; `kit.isolate()` brings everything back.
 - `kit.explode(group)` pulls its parts apart into an exploded view; `{axis:'y'}` spreads them along an axis instead (layers, floors, a sandwich). `kit.assemble(group)` puts them back.
@@ -246,7 +246,7 @@ Making it move (all take `dur`, `delay` and `loop:true` to go back and forth):
 
 Camera:
 - `kit.floor(false)` removes the soft shadow on the floor under the model, for things floating in space or the air (it's off already once you add a `kit.planet`).
-- `kit.view(name, {dur})` glides to `'iso'` `'side'` `'front'` `'back'` `'top'` `'below'` or `{az, el}` in degrees. At the start it sets the first view: the default iso is a three-quarter view from the front-right (+x, +z side) with a gentle sway, so put the most important side facing +z. `{spin:true}` keeps turning.
+- `kit.view(name, {dur})` glides to `'iso'` `'side'` `'front'` `'back'` `'top'` `'below'` or `{az, el}` in degrees. `'side'` looks straight at the +z side (the face of an organ, a person, a building; the profile of a plane or engine); `'front'` looks at the +x end (a plane's nose, an engine's intake), so an upright thing seen from `'front'` shows its edge, and a `cut` from there slices off its +x half. At the start it sets the first view: the default iso is a three-quarter view from the front-right (+x, +z side) with a gentle sway, so put the most important side facing +z. `{spin:true}` keeps turning.
 - `kit.orbit(90)` swings the camera around the model by 90°.
 - `kit.focus(part, {zoom, view})` zooms the camera to a part; `kit.focus()` shows everything again.
 

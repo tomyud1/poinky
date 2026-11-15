@@ -29,6 +29,7 @@
     check(near(az0, 0), `step 1 looks from the side (${az0}°)`);
     kit.run(`kit.view({az:120, el:30, dur:0.3}); kit.label('Body', {to: kit.get('body'), color:'green'}); kit.label('Squeeze', {at:[0,1,0], temp:true});`, 1);
     await settle(120);
+    for (let t = 0; t < 3000 && !shown('Squeeze'); t += 100) await wait(100);   // new tags show after 0.5 s
     const az1 = azimuth();
     check(near(az1, 120), `step 2 swings around (${az1}°)`);
     check(!tags().includes('Air rushes in') && shown('Squeeze'), `step 1's moment note went when step 2 ran (${tags()})`);
