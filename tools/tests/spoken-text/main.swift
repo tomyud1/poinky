@@ -169,6 +169,7 @@ checkSplit("Made in the U.S. by hand. Nice.", ["Made in the U.S. by hand.", "Nic
 checkSplit("Three steps.\n1. Open it.\n2. Save it.", ["Three steps.", "1. Open it.", "2. Save it."])
 checkSplit("Wait... really? Yes!", ["Wait... really?", "Yes!"])
 checkSplit("Okay. Done.", ["Okay.", "Done."])
+checkSplit("See pp. 45 to 60 first. Then Fig. 3 shows it.", ["See pp. 45 to 60 first.", "Then Fig. 3 shows it."])
 
 // Whole sentences in another language go to Apple's voice for it
 func checkLang(_ text: String, _ want: String?, voice: String = "en-US", line: UInt = #line) {

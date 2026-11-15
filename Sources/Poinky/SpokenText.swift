@@ -320,7 +320,7 @@ enum SentenceSplit {
     private static let closers = "\"')]”’"
     /// Never the end of a sentence, whatever follows.
     private static let neverLast: Set<String> = ["e.g.", "i.e.", "vs.", "mr.", "mrs.", "ms.", "dr.", "prof.", "st.",
-                                                 "approx.", "fig.", "cf.", "jr.", "sr.", "mt.", "ft.", "inc."]
+                                                 "approx.", "fig.", "pp.", "p.", "ch.", "vol.", "eq.", "cf.", "jr.", "sr.", "mt.", "ft.", "inc."]
 
     /// Splits `chars` from `start`. `first`: nothing of this reply was spoken yet. `closed`: the
     /// text is complete, so its last words are a sentence too. Returns the pieces and where the
