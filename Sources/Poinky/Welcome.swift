@@ -453,19 +453,30 @@ private struct PageTitle: View {
     }
 }
 
-/// Keys drawn as little keycaps: "⌃⌥" → [⌃] [⌥].
+/// Keys drawn as little keycaps: "⌃⌥" → [⌃] [⌥]. `named`: with the key's name under the symbol, like on a
+/// Mac keyboard (not everyone knows ⌃ is Control).
 struct KeyCaps: View {
     let keys: String
+    var named = false
     var body: some View {
         HStack(spacing: 4) {
             ForEach(Array(Self.split(keys).enumerated()), id: \.offset) { _, k in
-                Text(k).font(.system(size: 13, weight: .semibold, design: .rounded))
-                    .padding(.horizontal, 7).padding(.vertical, 3)
-                    .background(RoundedRectangle(cornerRadius: 5).fill(Color.secondary.opacity(0.15)))
-                    .overlay(RoundedRectangle(cornerRadius: 5).stroke(Color.secondary.opacity(0.35), lineWidth: 0.5))
+                VStack(spacing: 0) {
+                    Text(k).font(.system(size: 13, weight: .semibold, design: .rounded))
+                    if named, let name = Self.names[k] {
+                        Text(name).font(.system(size: 8.5, weight: .medium)).foregroundStyle(.secondary)
+                    }
+                }
+                .padding(.horizontal, named ? 6 : 7).padding(.vertical, 3)
+                .frame(minWidth: named ? 44 : nil)
+                .background(RoundedRectangle(cornerRadius: 5).fill(Color.secondary.opacity(0.15)))
+                .overlay(RoundedRectangle(cornerRadius: 5).stroke(Color.secondary.opacity(0.35), lineWidth: 0.5))
             }
         }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(FirstRunWords.spoken(keys))
     }
+    static let names = ["⌃": "control", "⌥": "option", "⇧": "shift", "⌘": "command"]
     static func split(_ s: String) -> [String] {
         var out: [String] = [], word = ""
         for ch in s {
@@ -483,8 +494,8 @@ private struct HelloPage: View {
             PageTitle(symbol: "sparkles", title: "Hi, I'm Poinky.",
                       text: "Ask me about anything on your screen: a lecture slide, a confusing paragraph, a math problem, an email you're writing. I answer out loud and point at things or sketch on the screen while I explain.")
             HStack(spacing: 10) {
-                KeyCaps(keys: model.holdKeys)
-                Text("Hold these two keys, ask, and let go. That's all.").font(.callout)
+                KeyCaps(keys: model.holdKeys, named: true)
+                Text("Hold \(FirstRunWords.spoken(model.holdKeys)), ask, and let go. That's all.").font(.callout)
             }
             Text("This tour takes about a minute: a few permissions, then you'll ask me your first question.")
                 .font(.callout).foregroundStyle(.secondary)
@@ -556,7 +567,7 @@ private struct ClaudePage: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             PageTitle(symbol: "brain", title: "My brain is Claude",
-                      text: "I use Claude Code, which comes with a Claude subscription (Pro or Max). It runs quietly in the background; you never need to open it.")
+                      text: "I think with Claude, through Claude Code: Anthropic's free app for Claude Pro and Max plans. It runs quietly in the background; you never open it.")
             HStack(alignment: .top, spacing: 12) {
                 icon
                 VStack(alignment: .leading, spacing: 6) {
@@ -613,8 +624,8 @@ private struct ClaudePage: View {
     private var detail: String {
         switch model.claude {
         case .checking: return "This takes a second."
-        case .missing: return "The button opens Terminal and installs it (about a minute). When it asks, sign in with your Claude account in the browser, then come back here."
-        case .signedOut: return "The button opens Terminal. Choose to sign in with your Claude account, finish in the browser, then come back here."
+        case .missing: return "Click Install: a Terminal window opens and does the rest (about a minute). When your browser opens, sign in with your Claude account, then come back here."
+        case .signedOut: return "Click Sign in: a Terminal window opens. If it asks how to sign in, pick your Claude account, finish in your browser, then come back here."
         case .ready: return "All set."
         case .unsure: return "I couldn't tell if it's signed in. If your first question doesn't get an answer, click Sign in."
         }
@@ -640,7 +651,7 @@ private struct VoiceRow: View {
                 case .failed:
                     Text("The download didn't finish. You can try again here or in Settings → Voice.").font(.callout).foregroundStyle(.secondary)
                 case .idle:
-                    Text("Sounds much more human than the built-in voice. A 75 MB download that runs on this Mac; it keeps going while you finish.")
+                    Text("Sounds much more human than the built-in voice. A 75 MB download that runs on this Mac.")
                         .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -661,7 +672,7 @@ private struct TryPage: View {
             HStack(alignment: .center, spacing: 18) {
                 Sample()
                 VStack(alignment: .leading, spacing: 10) {
-                    HStack(spacing: 8) { KeyCaps(keys: model.holdKeys); Text("hold").font(.callout).foregroundStyle(.secondary) }
+                    HStack(spacing: 8) { KeyCaps(keys: model.holdKeys, named: true); Text("hold").font(.callout).foregroundStyle(.secondary) }
                     Text("“How do I solve this?”").font(.title3.italic())
                     Text("then let go").font(.callout).foregroundStyle(.secondary)
                 }
