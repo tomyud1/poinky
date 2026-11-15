@@ -290,7 +290,33 @@
     left: '', right: '', displaystyle: '', '{': '{', '}': '}', '%': '%', '$': '$', '#': '#', '_': '_', '&': '&',
   };
   /** Mathy text: a hint to draw it as math even without "math": true. */
-  const looksMath = s => /\\(frac|sqrt|cdot|times|pi|theta|alpha|Delta|int|sum|le|ge|to)\b|\^\{|_\{/.test(s);
+  const looksMath = s => /\\(frac|sqrt|cdot|times|pi|theta|alpha|Delta|int|sum|le|ge|to)\b|\^[{(\d]|_\{/.test(s);
+  // Chemical formulas in plain text (H2O, CO2, C6H12O6) get their numbers written small and low.
+  const ELEMENTS = new Set('H He Li Be B C N O F Ne Na Mg Al Si P S Cl Ar K Ca Ti Cr Mn Fe Co Ni Cu Zn Br Ag Sn I Au Hg Pb U'.split(' '));
+  const NOT_CHEM = new Set(['PS2', 'PS3', 'PS4', 'PS5', 'CS2', 'K2', 'B12', 'F35', 'F16', 'C4', 'U2']);
+  function chemParts(word) {
+    if (NOT_CHEM.has(word) || !/\d/.test(word) || !/^([A-Z][a-z]?\d*)+$/.test(word)) return null;
+    const parts = word.match(/[A-Z][a-z]?\d*/g);
+    if (!parts.every(p => ELEMENTS.has(p.replace(/\d+/, '')))) return null;
+    if (parts.length < 2 && !['H2', 'O2', 'N2', 'Cl2', 'O3'].includes(word)) return null;
+    return word.split(/(\d+)/).filter(Boolean);
+  }
+  /** Fills a text element, writing chemical formulas with subscripts. */
+  function fillText(t, str, size) {
+    const words = str.split(/(\b[A-Za-z0-9]+\b)/);
+    if (!words.some(w => chemParts(w))) { t.textContent = str; return; }
+    let low = false;
+    for (const w of words) {
+      const parts = chemParts(w);
+      for (const p of parts || [w]) {
+        const sub = !!parts && /^\d+$/.test(p);
+        const span = el('tspan', {}, t);
+        if (sub !== low) { span.setAttribute('dy', (sub ? .28 : -.28) * size); low = sub; }
+        if (sub) span.setAttribute('font-size', size * .68);
+        span.textContent = p;
+      }
+    }
+  }
   /** A JSON "\frac" arrives as a form feed + "rac" (and \t, \b, \n, \r likewise): put the backslash back. */
   const unescapeTex = s => s.replace(/\f/g, '\\f').replace(/\t/g, '\\t').replace(/\x08/g, '\\b').replace(/\r/g, '\\r')
     .replace(/\n(?=[a-zA-Z])/g, '\\n');
@@ -472,7 +498,7 @@
         'font-weight': o.bold ? 700 : 400,
       }, g);
       node.setAttributeNS('http://www.w3.org/XML/1998/namespace', 'xml:space', 'preserve');
-      node.textContent = o.text || '';
+      fillText(node, o.text || '', size);
     }
     if (o.halo) node.style.setProperty('--halo', o.halo);
     let bb = node.getBBox();
@@ -672,7 +698,7 @@
     claim({ x: x - 30, y: y - 14, w: w + 50, h: h + 44 }, o.id);
     grow(y + h + 34);
     const X = v => x + (v - xr[0]) / (xr[1] - xr[0]) * w, Y = v => y + h - (v - yr[0]) / (yr[1] - yr[0]) * h;
-    graphs[o.id || '_'] = { X, Y, xr, yr, x, y, w, h, g };
+    graphs[o.id || '_'] = { X, Y, xr, yr, x, y, w, h, g, id: o.id };
     graphs._last = graphs[o.id || '_'];
     const col = MUTED;
     // Axes cross at 0 when 0 is in range, otherwise sit on the edge.
@@ -730,6 +756,7 @@
       cur.push([gr.X(xv), gr.Y(yv)]);
     }
     if (cur.length > 1) segs.push(cur);
+    gr.pts = (gr.pts || []).concat(...segs);
     for (const seg of segs) {
       const p = el('path', { d: seg.map((q, k) => (k ? 'L' : 'M') + q[0].toFixed(1) + ',' + q[1].toFixed(1)).join(' '), fill: 'none', stroke: col,
         'stroke-width': o.width || 2.8, 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'stroke-dasharray': o.dashed ? '7 7' : undefined }, g);
@@ -759,9 +786,19 @@
     const p = el('path', { d: circlePath(px, py, 5), fill: stroke, stroke, 'stroke-width': 2 }, g);
     await drawPath(p, onScreen, 300);
     if (o.label) {
-      const size = 18, lw = measure(o.label, size);
-      const x = px + 10 + lw > UNITS - 10 ? px - 10 - lw : px + 10;
-      await writeText(g, { x, y: py - 10, text: o.label, size, color: o.color || 'red', free: false, fit: false, math: o.math });
+      // Of the four corners around the dot, the one that covers the least of the curves and other labels.
+      const size = 18, lw = measure(o.label, size), lh = size;
+      const spots = [[px + 10, py - 10], [px - 10 - lw, py - 10], [px + 10, py + 10 + lh * .8], [px - 10 - lw, py + 10 + lh * .8]];
+      const cost = ([x, y]) => {
+        const r = { x: x - 2, y: y - lh * .8, w: lw + 4, h: lh };
+        let c = (gr.pts || []).filter(([qx, qy]) => qx > r.x && qx < r.x + r.w && qy > r.y && qy < r.y + r.h).length * 40;
+        c += used.reduce((t, b) => t + (b.id === gr.id ? 0 : overlap(r, b)), 0);
+        if (r.x < 4 || r.x + r.w > UNITS - 4) c += 1e6;
+        return c;
+      };
+      const [x, y] = spots.reduce((best, sp) => cost(sp) < cost(best) ? sp : best);
+      await writeText(g, { x, y, text: o.label, size, color: o.color || 'red', free: false, fit: false, math: o.math });
+      claim({ x, y: y - lh * .8, w: lw, h: lh }, o.id);
     }
   }
 
@@ -898,6 +935,9 @@
     queue.push({ ops: (spec && spec.ops) || [], k: k || 1 });
     run();
   };
+  /** Still drawing (for tests and tools). */
+  SB.lessonBusy = () => running || queue.length > 0;
+  SB._lessonTest = { compileFn, parseTex, items };
   SB.lessonStop = () => {
     token++;
     queue = [];

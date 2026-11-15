@@ -41,12 +41,20 @@ Writing the narration:
 - Start with a headline at y≈60 (`size` 34, `bold`), e.g. "Make a question and its answer".
 - The paper grows taller as you draw lower. Keep everything above y≈900. For a long explanation, use `newpage`.
 - Clean whiteboard style: lots of space, a few boxes and arrows, short labels (1–4 words), one idea per step.
+- Lay it out like a good set of notes, top to bottom: headline, then the picture or worked example, then the result, boxed or underlined. Keep 30+ units between things; text is about 0.5 × size units wide per character (size 26: ~13 units a letter), so check that a line fits before the right margin and that nothing is drawn on top of something else.
+- Worked math: one step per line, equals signs roughly lined up (same x), the answer last and marked (`mark` underline or circle). Say what you do to get from one line to the next.
+- What the narration says must match the drawing exactly (if you say "the square root of", draw `\\sqrt{}`).
 
 ### Drawing operations (each step is a JSON array of these)
 Give every op an `id` so you can refer to it later.
 - `{"op":"text","id":"h","x":40,"y":60,"text":"…","size":22,"bold":false,"color":"ink"|"gray"|"blue"|…,"align":"left"|"center"}`: handwritten text. x,y is the start of the baseline (the center if `align:"center"`). Body text is size 22–26, labels are gray.
+- `{"op":"math","id":"f1","x":40,"y":140,"text":"\\frac{dy}{dx} = 3x^2 - 2","size":30}`: a formula, drawn properly in the same handwriting (same fields as `text`). Write it like LaTeX: `x^2`, `x^{n+1}`, `e^(2x)`, `a_1`, `H_2O`, `\\frac{a}{b}`, `\\sqrt{x}`, `\\pi`, `\\theta`, `\\Delta`, `\\cdot`, `\\times`, `\\to`, `\\le`, `\\ne`, `\\approx`, `\\int`, `\\text{words}`; `*` becomes a dot. Double every backslash (it's JSON). Use it for every equation, fraction, power or chemical formula; never place exponents or fraction bars by hand. A box's or label's text can be math too: add `"math":true`.
+- `{"op":"graph","id":"g","x":80,"y":150,"w":320,"h":220,"xrange":[-3,3],"yrange":[-1,9],"xlabel":"x","ylabel":"y"}`: axes with numbered ticks (`"grid":true` adds light grid lines). Then on it:
+  - `{"op":"plot","id":"p1","graph":"g","fn":"x^2","color":"blue","label":"y = x^2","math":true}`: a curve. `fn` is a function of x (`+ - * / ^ ( )`, `sin cos tan exp ln log sqrt abs`, `pi`, `e`, `2x`). `"from"`/`"to"` limit it, `"dashed":true` for a tangent or asymptote, `"points":[[x,y],…]` instead of `fn` joins data points.
+  - `{"op":"point","id":"pt","graph":"g","at":[1,1],"label":"(1, 1)","color":"red","guides":true}`: a dot at those coordinates (`guides` draws dashed lines down to the axes).
+  Use graphs for functions, rates, motion, growth, supply and demand, any "how does y change with x". Leave about 30 units around a graph for its numbers.
 - `{"op":"box","id":"b1","x":40,"y":160,"w":170,"h":64,"color":"blue","text":"[18]","size":26}`: a rounded box with a light fill and its text centered.
-- `{"op":"arrow","id":"a1","from":[x,y],"to":[x,y],"curve":0,"label":"…","color":"ink"}`: `curve` bends it (e.g. 60 or −60 for a looping arrow back).
+- `{"op":"arrow","id":"a1","from":[x,y],"to":[x,y],"curve":0,"label":"…","color":"ink"}`: `curve` bends it (e.g. 60 or −60 for a looping arrow back). The label is placed beside the arrow for you; don't add a separate text for it.
 - `{"op":"line","id":"l1","points":[[x,y],[x,y],…],"dashed":false}`
 - `{"op":"dot","id":"n1","x":…,"y":…,"r":14,"color":"purple","text":""}`: a node or bubble (circles for networks and graphs).
 - `{"op":"check","x":…,"y":…}` is a check mark. `{"op":"number","x":…,"y":…,"n":1}` is a circled step number.
