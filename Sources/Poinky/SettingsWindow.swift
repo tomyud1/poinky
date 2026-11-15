@@ -17,6 +17,8 @@ final class SettingsModel: ObservableObject {
     @Published var tab = "general"
     /// Plays a sample with the local voice (provided by the app, which owns the voice helper).
     var previewVoice: ((String, Double) -> Void)?
+    /// "Start Fresh" (Settings → General → Why isn't it working?): the app's `resetEverything`.
+    var startFresh: (() -> Void)?
 
     private var loading = false
     private var saveWork: DispatchWorkItem?

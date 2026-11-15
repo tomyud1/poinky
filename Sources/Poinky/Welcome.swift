@@ -5,7 +5,7 @@ import SwiftUI
 
 /// The first-run tour (about a minute): what Poinky is, the permissions one at a time with plain
 /// reasons, Claude Code (installed? signed in?), a first question on a sample, and the three things
-/// worth knowing (tap to stop, ⌃⌥T to type, ↻ in the notch). Skippable; replayed from
+/// worth knowing (tap to stop, ⌃⌥T to type, the notch's controls). Skippable; replayed from
 /// Settings → General. `welcome.json` remembers where you are (a restart for Screen Recording
 /// comes back to the same page) and that it's done.
 /// Pictures without a call: `Poinky --welcome-shot <outdir>` (with POINKY_SUPPORT_DIR set to a scratch folder).
@@ -717,7 +717,7 @@ private struct TipsPage: View {
                 text: "In a library or on a call? This opens a little box to type your question.")
             Tip(done: false, keys: nil, title: model.hasNotch ? "Your notch is my home" : "I live in the menu bar",
                 text: model.hasNotch
-                    ? "Move the mouse onto the notch at the top of the screen for my controls and Settings. If I ever get stuck, ↻ there starts me fresh."
+                    ? "Move the mouse onto the notch at the top of the screen for my controls and Settings. If I ever get stuck, Settings → General → Start Fresh fixes it."
                     : "Click ✨ in the menu bar for my controls and Settings. If I ever get stuck, Start Fresh there fixes it.",
                 showCircle: false)
         }
@@ -782,6 +782,12 @@ struct SetupCheckSection: View {
                 Button("Show the Welcome Tour") { WelcomeWindowController.shared.show() }
                 Spacer()
                 Button("Check Again") { model.runAllChecks() }.disabled(model.claude == .checking)
+            }
+            HStack(alignment: .firstTextBaseline) {
+                Text("Stuck or not answering? Start Fresh restarts the voice, the mic and Claude without quitting. Helpers keep working.")
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                Spacer()
+                Button("Start Fresh") { settings.startFresh?() }
             }
         }
         .onAppear { if model.lastCheck == nil { model.runAllChecks() } }

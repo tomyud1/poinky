@@ -55,6 +55,7 @@ By hand, if you skipped it: run `claude` once in Terminal and sign in, then hold
 - **"Claude Code isn't installed" or a login error:** run `claude` in Terminal and sign in, or use an API key (✨ menu → Settings → Claude).
 - **It doesn't see my screen:** Screen Recording is off. Turn it on, then quit and reopen Poinky.
 - **macOS asks for permissions again after an update:** the installer makes a local signing certificate ("Poinky Local Signing") so it shouldn't. If you clicked "Don't allow" when macOS asked to let `codesign` use it, run the installer again and choose Always Allow.
+- **It stops answering or seems stuck:** say "start fresh", or Settings → General → Start Fresh (also in the ✨ menu). It restarts the voice, the mic and Claude without quitting; helpers keep working.
 - **No natural voice:** run the install command again (it only adds what's missing), or pick Apple voices in Settings → Voice.
 - **The build failed:** the installer prints the end of its log. The whole log is in `~/Library/Application Support/Poinky/install.log`; please attach it to an [issue](https://github.com/tomyud1/poinky/issues).
 

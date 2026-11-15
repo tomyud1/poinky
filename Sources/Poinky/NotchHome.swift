@@ -90,7 +90,6 @@ final class NotchModel: ObservableObject {
     var onTeacher: () -> Void = {}
     var onBuddy: () -> Void = {}
     var onSettings: () -> Void = {}
-    var onReset: () -> Void = {}
     var onUpdate: () -> Void = {}
     var onQuit: () -> Void = {}
 
@@ -328,7 +327,6 @@ struct NotchView: View {
             if m.sessionOn && !m.inCall {
                 NotchIcon(m: m, id: "end", icon: "stop.circle", tip: "End the session (clears the screen; the next \(m.holdKeys) starts a new one)", action: m.onEnd)
             }
-            NotchIcon(m: m, id: "reset", icon: "arrow.clockwise", tip: "Not responding? Restart Poinky's voice, mic and Claude sessions (helpers keep working)", action: m.onReset)
             if !m.update.isEmpty {
                 NotchIcon(m: m, id: "update", icon: m.update == "ready" ? "arrow.down.circle.fill" : "arrow.down.circle",
                           tip: m.update == "ready" ? "The new version of Poinky is ready: click to restart into it" : "A new version of Poinky is available: click to see what's new and update",

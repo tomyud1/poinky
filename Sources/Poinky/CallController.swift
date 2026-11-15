@@ -271,6 +271,7 @@ final class CallController: NSObject, NSMenuDelegate {
         let settings = SettingsWindowController.shared.model
         settings.onSaved = { [weak self] cfg in self?.settingsChanged(cfg) }
         settings.previewVoice = { [weak self] voice, speed in self?.previewVoice(voice: voice, speed: speed) }
+        settings.startFresh = { [weak self] in self?.resetEverything() }
         // Load the local voice in the background now, so the first call doesn't wait for it.
         if wantsPhonon(config) { try? phonon.start() }
         PhononInstaller.shared.onInstalled = { [weak self] in self?.voiceInstalled() }
@@ -298,7 +299,6 @@ final class CallController: NSObject, NSMenuDelegate {
         m.onTeacher = { [weak self] in self?.toggleArtist() }
         m.onBuddy = { [weak self] in self?.toggleBuddy() }
         m.onSettings = { [weak self] in self?.home.collapse(); self?.openSettings() }
-        m.onReset = { [weak self] in self?.home.collapse(); self?.resetEverything() }
         m.onUpdate = { [weak self] in self?.home.collapse(); self?.config.save(); SettingsWindowController.shared.show(tab: "general") }
         m.onQuit = { NSApp.terminate(nil) }
         m.onOpenReport = { [weak self] r in
@@ -808,6 +808,12 @@ final class CallController: NSObject, NSMenuDelegate {
             turn += 1
             speaker.stop()
             mergeNext = true
+        }
+        // "Start fresh" (said or typed): the same as Settings → General → Start Fresh, without a model.
+        if Self.isStartFresh(text) {
+            mergeNext = false
+            DispatchQueue.main.async { [weak self] in self?.resetEverything() }
+            return
         }
         // A helper is waiting for your answer: a clear yes or no (or a pick) goes straight to it.
         if guide == nil, let (id, reply) = helperScreen.askReply(text, pointing: talkTarget, asking: askingNow) {
@@ -2722,6 +2728,16 @@ final class CallController: NSObject, NSMenuDelegate {
         config.save()
         home.model.teacherOn = config.artistEnabled
         if state != .idle { overlay.setClaudeCaption("Artist \(config.artistEnabled ? "on" : "off") from your next call.") }
+    }
+
+    /// Only the whole sentence: "start fresh", "Poinky, start over fresh please", "restart yourself".
+    static func isStartFresh(_ text: String) -> Bool {
+        var t = text.lowercased().replacingOccurrences(of: #"[^a-z ]"#, with: " ", options: .regularExpression)
+        for w in ["poinky", "please", "hey", "okay", "ok", "just", "can you", "could you"] {
+            t = t.replacingOccurrences(of: #"\b\#(w)\b"#, with: " ", options: .regularExpression)
+        }
+        t = t.split(separator: " ").joined(separator: " ")
+        return ["start fresh", "start over fresh", "start afresh", "restart yourself", "reset yourself", "start yourself fresh"].contains(t)
     }
 
     /// "Poinky isn't responding": start everything over without quitting. Ends the session, restarts the
