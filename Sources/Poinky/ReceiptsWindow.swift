@@ -11,9 +11,10 @@ final class ReceiptsModel: ObservableObject {
     var onSettings: () -> Void = {}
 
     func reload() {
+        let followNewest = selected == nil || selected == list.first?.id
         list = Receipts.all().reversed()
-        on = AppConfig.load().receipts
-        if selected == nil || !list.contains(where: { $0.id == selected }) { selected = list.first?.id }
+        on = Receipts.enabled
+        if followNewest || !list.contains(where: { $0.id == selected }) { selected = list.first?.id }
     }
     var current: Receipt? { list.first { $0.id == selected } }
 }

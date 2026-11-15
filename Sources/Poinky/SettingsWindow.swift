@@ -649,7 +649,7 @@ private struct PrivacyTab: View {
             }
             Section {
                 Toggle("Keep a receipt of what each question sends", isOn: $model.config.receipts)
-                    .onChange(of: model.config.receipts) { _, on in Receipts.enabled = on; if !on { Receipts.clear() } }
+                    .onChange(of: model.config.receipts) { _, on in Receipts.enabled = on; if !on { Receipts.clear() } else { Receipts.onChange() } }
                 Text("The screenshot, the lines about the app in front, and which of your files were included, for the last \(Receipts.keep) questions. Kept only on this Mac; hover the notch and click What I saw. Turning this off deletes them.")
                     .font(.caption).foregroundStyle(.secondary)
                 HStack {

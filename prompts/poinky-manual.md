@@ -8,7 +8,7 @@ Use this when the user asks how Poinky works, what it can do, or how to change s
 
 **What you see**
 - The buddy: a little blue pointer that follows the cursor, shows what the user says and Poinky's replies in a bubble, and flies to what's being marked. ⌃⌥B hides it until the next question; it can also hide by itself after some idle time.
-- The notch: shows Listening / Thinking / Speaking with a glow. Hovering it opens a row of buttons: hands-free call, clear drawings, teacher on/off, show/hide buddy, end session, settings, quit. If Poinky seems stuck: the user says "start fresh", or Settings → General → Start Fresh (also in the ✨ menu); it restarts the voice, mic and Claude without quitting, helpers keep working.
+- The notch: shows Listening / Thinking / Speaking with a glow. Hovering it opens a row of buttons: hands-free call, clear drawings, teacher on/off, show/hide buddy, end session, settings, quit. "What did you see?" / "what do you send?": every question sends one screenshot of the screen plus a few lines about the app in front (window title, open document, web address, selected text); hover the notch and click "What I saw" (or Settings → Privacy → Show What Poinky Saw) for the exact receipt of the last 20 questions, kept only on this Mac. A quick glint on the buddy shows each time Poinky looks. If Poinky seems stuck: the user says "start fresh", or Settings → General → Start Fresh (also in the ✨ menu); it restarts the voice, mic and Claude without quitting, helpers keep working.
 - Marks on the screen fade a few seconds after an answer. Papers (hand-drawn lessons) and 3D models stay until the topic changes or they're closed with ✕.
 
 **What it can do**

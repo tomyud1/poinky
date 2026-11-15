@@ -313,7 +313,7 @@ final class CallController: NSObject, NSMenuDelegate {
             m.receiptLine = r?.short ?? ""
             m.receiptDetail = r?.summary ?? ""
             m.receiptAt = r?.at ?? .distantPast
-            if ReceiptsWindow.shared.model.list.first?.id != r?.id || r == nil { ReceiptsWindow.shared.model.reload() }
+            ReceiptsWindow.shared.model.reload()   // an open window updates too (a lookup adds to the last one)
         }
         Receipts.onChange = refreshReceipt
         refreshReceipt()
