@@ -7,6 +7,8 @@ import WebKit
 @MainActor
 final class Overlay: NSObject, WKNavigationDelegate {
     struct SceneItem { let id: String; let type: String; let label: String; let box: [Int]? }
+    /// The part of a 3D model you clicked last (its name shows on the model), so "what's this?" knows.
+    private var picked: (id: String, name: String, at: Date)?
 
     /// You finished drawing a mark (⌥ + click / drag).
     var onMarkAdded: (() -> Void)?
@@ -40,6 +42,7 @@ final class Overlay: NSObject, WKNavigationDelegate {
         let lines = scene.map { item -> String in
             var s = "- \(item.type) id=\"\(item.id)\""
             if !item.label.isEmpty { s += " “\(item.label)”" }
+            if let p = picked, p.id == item.id, Date().timeIntervalSince(p.at) < 120 { s += " (the user just clicked its part “\(p.name)”)" }
             if let b = item.box, b.count == 4 {
                 let px = b.map { Int((CGFloat($0) * scale).rounded()) }
                 s += " at x=\(px[0]) y=\(px[1]) w=\(px[2]) h=\(px[3])"
@@ -392,6 +395,8 @@ final class Overlay: NSObject, WKNavigationDelegate {
                 r.count == 4 ? CGRect(x: r[0].doubleValue, y: r[1].doubleValue, width: r[2].doubleValue, height: r[3].doubleValue) : nil
             }
             trackMouse()
+        case "picked":
+            picked = ("\(msg["id"] ?? "")", "\(msg["name"] ?? "")", Date())
         case "error":
             onCardError?("\(msg["id"] ?? "")", "\(msg["type"] ?? "")", "\(msg["message"] ?? "")")
         case "clear":

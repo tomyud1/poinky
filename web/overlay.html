@@ -349,6 +349,10 @@
       }
       return;
     }
+    if (e.data && typeof e.data.sbPicked === 'string') {   // a part of a 3D model was clicked: the talker hears which
+      for (const f of cards.querySelectorAll('iframe')) if (f.contentWindow === e.source) post({kind:'picked', id:f.closest('.card').dataset.id, name:e.data.sbPicked.slice(0, 80)});
+      return;
+    }
     if (!e.data || !e.data.sbError) return;
     for (const f of cards.querySelectorAll('iframe')) {
       if (f.contentWindow === e.source) { const c = f.closest('.card'); post({kind:'error', id:c.dataset.id, type:c.dataset.type, message:e.data.sbError}); }
