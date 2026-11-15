@@ -15,6 +15,8 @@ final class Speaker {
     private weak var audio: AudioIO?
     private var voice: AVSpeechSynthesisVoice?
     private var rate: Float = AVSpeechUtteranceDefaultSpeechRate
+    private var language = "en-US"
+    private var otherVoices: [String: AVSpeechSynthesisVoice?] = [:]   // by language, for sentences in another one
 
     private var queue: [(String, Int?)] = []
     private var sources = 0           // who is still adding sentences (the talker, a lesson)
@@ -79,6 +81,7 @@ final class Speaker {
     /// Picks the voice. Returns false if only the basic, robotic-sounding voices are installed.
     @discardableResult
     func configure(language: String, voiceName: String, rate: Float) -> Bool {
+        self.language = language
         self.rate = max(AVSpeechUtteranceMinimumSpeechRate, min(AVSpeechUtteranceMaximumSpeechRate, rate))
         let all = AVSpeechSynthesisVoice.speechVoices()
         if !voiceName.isEmpty,
@@ -206,6 +209,14 @@ final class Speaker {
         // the caption (and the step it starts) keeps the text as written.
         let normalized = SpokenText.normalize(text)
         let spoken = normalized.contains(where: { $0.isLetter || $0.isNumber }) ? normalized : text
+        // A whole sentence in another language ("¿Dónde está la estación?") is said by Apple's
+        // voice for it: Phonon only speaks English, and an English voice reads it as noise.
+        let own = (phonon?.isRunning == true) ? "en" : (voice?.language ?? language)
+        if let lang = SpokenLanguage.foreign(text, voiceLanguage: own), let v = otherVoice(lang) {
+            Self.logSpeech(text, "[\(v.language)] " + text)
+            speakWithApple(text, spoken: text, tag: tag, gen: gen, voice: v)
+            return
+        }
         Self.logSpeech(text, spoken)
         if let p = phonon, p.isRunning {
             speakWithPhonon(p, text, spoken: spoken, tag: tag, gen: gen)
@@ -349,10 +360,20 @@ final class Speaker {
     }
     private let format24k = AVAudioFormat(standardFormatWithSampleRate: PhononVoice.sampleRate, channels: 1)!
 
-    private func speakWithApple(_ text: String, spoken: String, tag: Int?, gen: Int) {
+    /// The best installed voice for a language (Premium > Enhanced > Default, no novelty voices).
+    private func otherVoice(_ lang: String) -> AVSpeechSynthesisVoice? {
+        if let v = otherVoices[lang] { return v }
+        let v = AVSpeechSynthesisVoice.speechVoices()
+            .filter { $0.language.lowercased().hasPrefix(lang) && !$0.voiceTraits.contains(.isNoveltyVoice) }
+            .max { $0.quality.rawValue < $1.quality.rawValue }
+        otherVoices[lang] = v
+        return v
+    }
+
+    private func speakWithApple(_ text: String, spoken: String, tag: Int?, gen: Int, voice other: AVSpeechSynthesisVoice? = nil) {
         appleCaption = (text, tag)
         let u = AVSpeechUtterance(string: spoken)
-        u.voice = voice
+        u.voice = other ?? voice
         u.rate = rate
         synth.write(u) { [weak self] buffer in
             guard let pcm = buffer as? AVAudioPCMBuffer else { return }

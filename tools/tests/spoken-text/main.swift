@@ -146,4 +146,25 @@ checkSplit("Three steps.\n1. Open it.\n2. Save it.", ["Three steps.", "1. Open i
 checkSplit("Wait... really? Yes!", ["Wait... really?", "Yes!"])
 checkSplit("Okay. Done.", ["Okay.", "Done."])
 
+// Whole sentences in another language go to Apple's voice for it
+func checkLang(_ text: String, _ want: String?, voice: String = "en-US", line: UInt = #line) {
+    let got = SpokenLanguage.foreign(text, voiceLanguage: voice)
+    if got != want { failed += 1; print("FAIL language (line \(line)): \(text) want \(want ?? "-") got \(got ?? "-")") }
+}
+checkLang("Sure, that's the save button.", nil)
+checkLang("In Hebrew that's שלום, which means hello.", nil)
+checkLang("The word is gracias, which means thank you.", nil)
+checkLang("Gracias.", nil)
+checkLang("Hasta la vista, baby.", nil)
+checkLang("The café is on the Champs-Élysées.", nil)
+checkLang("I love the song La Vie en Rose by Edith Piaf.", nil)
+checkLang("Yes, the derivative of x squared is 2x.", nil)
+checkLang("שלום, מה שלומך היום?", "he")
+checkLang("¿Dónde está la estación de tren?", "es")
+checkLang("Je ne sais pas où il est.", "fr")
+checkLang("Привет, как дела?", "ru")
+checkLang("こんにちは、元気ですか？", "ja")
+checkLang("שלום, מה שלומך היום?", nil, voice: "he-IL")
+checkLang("Open the file and click Save now.", "en", voice: "he-IL")
+
 if failed == 0 { print("ok   spoken text: all cases") } else { print("\(failed) failed"); exit(1) }

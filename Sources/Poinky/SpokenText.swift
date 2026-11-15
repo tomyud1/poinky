@@ -351,3 +351,29 @@ enum SentenceSplit {
         return true
     }
 }
+
+import NaturalLanguage
+
+/// Which language a whole sentence is in, when it clearly isn't the voice's own. Phonon only
+/// speaks English and read "שלום, מה שלומך?" or "¿Dónde está la estación?" as noise, so those
+/// sentences go to Apple's voice for their language. Mixed sentences ("In Hebrew that's שלום")
+/// and short or unclear ones stay with the usual voice.
+enum SpokenLanguage {
+    static func foreign(_ text: String, voiceLanguage: String) -> String? {
+        let base = String(voiceLanguage.lowercased().prefix(2))
+        let letters = text.unicodeScalars.filter { CharacterSet.letters.contains($0) }
+        guard letters.count >= 4 else { return nil }
+        let nonLatin = letters.filter { $0.value > 0x024F && !(0x1E00...0x1EFF).contains($0.value) }.count
+        let r = NLLanguageRecognizer()
+        r.processString(text)
+        guard let (lang, p) = r.languageHypotheses(withMaximum: 1).first else { return nil }
+        let code = String(lang.rawValue.prefix(2))
+        guard code != base, code != "un" else { return nil }
+        if Double(nonLatin) >= Double(letters.count) * 0.6 { return p >= 0.6 ? code : nil }
+        // Latin script: only clear, whole sentences in a common language.
+        let words = text.split(whereSeparator: { $0.isWhitespace }).count
+        guard words >= 4, p >= 0.9,
+              ["es", "fr", "de", "it", "pt", "nl", "sv", "da", "nb", "pl", "tr", "id", "en"].contains(code) else { return nil }
+        return code
+    }
+}
