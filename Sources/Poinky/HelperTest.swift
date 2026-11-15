@@ -598,6 +598,23 @@ extension HelperTest {
             check(got?.name == name && got?.intent == intent, "typed \"\(said)\" → \(got.map { "\($0.name) \($0.intent)" } ?? "not about a helper")")
         }
         check(HelperTalk.byName("@Violet add tests", names: names) == nil, "typed \"@Violet …\" with no Violet: not about a helper")
+        // A second Mint ("Mint 2"): said or typed by name, never mixed up with the first one.
+        let names2 = ["Mint", "Coral", "Mint 2"]
+        for (said, name, intent) in [("How's Mint 2 doing?", "Mint 2", HelperTalk.Intent.status), ("how's mint two doing", "Mint 2", .status),
+                                     ("How's Mint doing?", "Mint", .status), ("Tell Mint two to also add a test", "Mint 2", .message("Also add a test")),
+                                     ("tell mint 2 to use yarn", "Mint 2", .message("Use yarn")), ("Tell Mint to use yarn", "Mint", .message("Use yarn")),
+                                     ("Stop Mint 2", "Mint 2", .stop), ("stop mint", "Mint", .stop), ("Mint 2, also update the README", "Mint 2", .message("Also update the README")),
+                                     ("Mint two, wait", "Mint 2", .pause), ("Undo what Mint 2 did", "Mint 2", .undo), ("what's mint number 2 up to", "Mint 2", .status),
+                                     ("@Mint 2 add a test for 4 people", "Mint 2", .message("Add a test for 4 people")), ("@mint2 /review", "Mint 2", .message("/review")),
+                                     ("@Mint-2: stop", "Mint 2", .stop), ("@Mint add a test", "Mint", .message("Add a test"))] as [(String, String, HelperTalk.Intent)] {
+            let got = HelperTalk.byName(said, names: names2)
+            check(got?.name == name && got?.intent == intent, "two Mints: \"\(said)\" → \(got.map { "\($0.name) \($0.intent)" } ?? "not about a helper")")
+        }
+        check(HelperTalk.byName("How's Mint 2 doing?", names: names) == nil, "\"Mint 2\" with only one Mint: not about a helper")
+        check(HelperTalk.without(name: "Mint", in: "Mint 2, yes") == nil && HelperTalk.without(name: "Mint 2", in: "Mint 2, yes") == "yes"
+              && HelperTalk.without(name: "Mint", in: "Mint, yes") == "yes", "answering by name: \"Mint 2, yes\" isn't for Mint")
+        check(HelperTalk.canonical("mint two, yes", names: names2) == "Mint 2, yes" && HelperTalk.canonical("Mint, two tests fail", names: names2) == "Mint, two tests fail",
+              "\"mint two\" → \(HelperTalk.canonical("mint two, yes", names: names2))")
         // Helper names: never one this run already had (the Helpers window lists them all).
         let n1 = AgentManager.pickName(used: [("Mint", false)])
         let n2 = AgentManager.pickName(used: AgentManager.names.map { ($0, false) })
