@@ -6,11 +6,14 @@ import Foundation
 /// desktop slash a dot pie", a URL letter by letter, and markdown or emoji as noise.
 /// Pure and fast (well under a millisecond a sentence); tested by tools/tests/spoken-text.
 enum SpokenText {
-    static func normalize(_ input: String) -> String {
+    /// `language`: the voice's. The spoken words ("squared", "for example") are English, so other
+    /// languages only lose markdown, emoji, web addresses and paths.
+    static func normalize(_ input: String, language: String = "en") -> String {
         var s = input
         s = markdown(s)
         s = dropEmoji(s)
         s = links(s)
+        guard language.lowercased().hasPrefix("en") else { return tidy(s) }
         s = words(s)
         s = keys(s)
         s = code(s)

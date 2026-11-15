@@ -155,7 +155,7 @@ final class Speaker {
         let s = sentence.trimmingCharacters(in: .whitespacesAndNewlines)
         guard turnActive, !s.isEmpty else { return }
         spokenText += " " + s
-        let said = SpokenText.normalize(s)
+        let said = SpokenText.normalize(s, language: usingPhonon ? "en" : (voice?.language ?? language))
         if said != s { spokenText += " " + said }    // the echo check hears the spoken words
         queue.append((s, tag))
         pump()
@@ -240,7 +240,7 @@ final class Speaker {
         }
         // What's heard is said the way a person would say it ("x squared", not "x caret 2");
         // the caption (and the step it starts) keeps the text as written.
-        let normalized = SpokenText.normalize(part)
+        let normalized = SpokenText.normalize(part, language: usingPhonon ? "en" : (voice?.language ?? language))
         let spoken = normalized.contains(where: { $0.isLetter || $0.isNumber }) ? normalized : part
         Self.logSpeech(caption?.0 ?? "+", spoken)
         if let p = phonon, p.isRunning {

@@ -111,6 +111,11 @@ check("👍", "")
 check("Great job! 👏🏽", "Great job!")
 check("I ❤️ it.", "I it.")
 
+// Another voice language: only markdown, emoji, links and paths change
+if SpokenText.normalize("זה **חשוב**, x^2 ב-https://example.com/a 🎉", language: "he-IL") != "זה חשוב, x^2 ב-example.com" {
+    failed += 1; print("FAIL other language: \(SpokenText.normalize("זה **חשוב**, x^2 ב-https://example.com/a 🎉", language: "he-IL"))")
+}
+
 // Sentence splitting
 func checkSplit(_ text: String, _ want: [String], line: UInt = #line) {
     // Stream it in a few characters at a time, like the model does (TalkParser.takeSentences).
