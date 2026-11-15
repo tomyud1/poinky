@@ -66,6 +66,8 @@
   let cursor = null;                         // where your cursor is (points), or null (other screen)
   const B = { x: -200, y: -200, vx: 0, vy: 0, placed: false };
   let fly = null;                            // {x, y, until, pokeAt}: Claude is pointing at something
+  let home = null;                           // {x, y, fx, fy}: showing you where it lives (the notch), facing fx,fy
+  let tucked = false, blink = false;         // gone into its home; hidden for a moment (Reduced Motion's fade)
   let look = null, lookRot = 0;              // a helper it's facing (id), and the extra turn
   let bubbleKind = null, bubbleText = '', bubbleW = 0, bubbleH = 0, fadeTimer = 0;
   const OFFSET = { x: 20, y: 23 };           // its tip sits this far below-right of the real cursor
@@ -103,6 +105,13 @@
         const d = -3 * Math.abs(Math.sin(p * Math.PI * 2)) * (1 - p * .5);
         o.dx = d * .7; o.dy = d * .7; break;
       }
+      case 'crouch': { // about to take off: it dips and squeezes, then springs up
+        o.sx = 1 + .14 * s; o.sy = 1 - .16 * s; o.dy = 2 * s; break;
+      }
+      case 'tuck': {   // slipping into its home: up a little and shrinking away
+        const e = ease(p);
+        o.sx = o.sy = 1 - .9 * e; o.dy = -12 * e; break;
+      }
     }
     return o;
   }
@@ -111,9 +120,10 @@
   let last = performance.now();
   function frame(now) {
     const dt = Math.min(1 / 30, (now - last) / 1000); last = now;
-    const flying = fly && now < fly.until;
+    let flying = fly && now < fly.until;
     if (fly && !flying) fly = null;
-    const anchor = flying ? fly : cursor;
+    if (home) flying = true;
+    const anchor = home || (flying ? fly : cursor);
     if (anchor) {
       // Near the right or bottom edge it moves to the other side of the cursor (with a hop).
       const off = flying ? { x: 0, y: 0 } : OFFSET;
@@ -130,7 +140,8 @@
       const tx = clampX(anchor.x + side.x * off.x), ty = clampY(anchor.y + side.y * off.y);
       if (!B.placed) { B.x = tx; B.y = ty; B.vx = B.vy = 0; B.placed = true; side.x = nx; side.y = ny; flip.x = nx; flip.y = ny; }
       // Under-damped: it runs a step behind you, overshoots a touch, then settles.
-      const k = flying ? 120 : 300, c = flying ? 15 : 22;
+      // Home: a slower, graceful flight with a little overshoot (one spring family: stiffness/damping only).
+      const k = home ? 70 : flying ? 120 : 300, c = home ? 12 : flying ? 15 : 22;
       B.vx += ((tx - B.x) * k - B.vx * c) * dt;
       B.vy += ((ty - B.y) * k - B.vy * c) * dt;
       B.x += B.vx * dt; B.y += B.vy * dt;
@@ -145,7 +156,7 @@
     const fx = (flip.x < 0 ? -1 : 1) * Math.max(.12, Math.abs(flip.x));
     const fy = (flip.y < 0 ? -1 : 1) * Math.max(.12, Math.abs(flip.y));
 
-    const visible = !!(buddyOn && shown && phase !== 'off' && (cursor || flying));
+    const visible = !!(buddyOn && shown && phase !== 'off' && (cursor || flying) && !tucked && !blink);
     if (visible !== wasVisible) buddy.classList.toggle('on', visible);
     if (visible && !wasVisible) act('pop', 420);
     if (!visible) hiddenFor += dt; else hiddenFor = 0;
@@ -163,8 +174,9 @@
       if (fly && fly.pokeAt && now >= fly.pokeAt) { fly.pokeAt = 0; act('poke', 600); }
     }
     // Facing a helper it's handing a task to (or hearing back from).
-    if (look && SB.helperPos) {
-      const t = SB.helperPos(look);
+    const facing = home ? { x: home.fx, y: home.fy } : look && SB.helperPos ? SB.helperPos(look) : null;
+    if (facing || look) {
+      const t = facing;
       if (t) {
         const d0 = Math.atan2(-fy, -fx) * 180 / Math.PI;           // where its tip points now
         let want = Math.atan2(t.y - B.y, t.x - B.x) * 180 / Math.PI - d0;
@@ -287,7 +299,7 @@
       buddy.classList.toggle('thinking', phase === 'thinking' || phase === 'starting');
       if (phase === 'thinking' && bubbleKind === 'you') bubble.classList.add('dim'); else bubble.classList.remove('dim');
       if (phase === 'listening' && bubbleKind === 'claude') setBubble(null, null);
-      if (phase === 'off') { setBubble(null, null); fly = null; B.placed = false; }
+      if (phase === 'off') { setBubble(null, null); fly = null; home = null; tucked = blink = false; B.placed = false; }
     },
     /** Hide the buddy for now (it comes back when you ask something). */
     buddyShow(on) {
@@ -316,6 +328,33 @@
       else if (kind === 'handoff' || kind === 'report') look = d && d.id;
       else if (kind === 'handoffEnd') look = null;
       else if (kind === 'absorb') { look = null; act('happy', 600); }
+    },
+    /** "I live here" (first run): fly up to (x, y) under the notch or the menu bar icon, facing (fx, fy).
+     *  Reduced Motion: it fades out at the cursor and fades in there instead of flying. */
+    homeGo(x, y, fx, fy) {
+      const was = home;
+      home = { x, y, fx, fy };
+      tucked = false;
+      if (calm) {
+        blink = true;
+        setTimeout(() => { B.x = x; B.y = y; B.vx = B.vy = 0; B.placed = true; blink = false; }, 320);
+      } else if (!was && B.placed) {
+        act('crouch', 260);
+        B.vy -= 220;   // a little lift as it takes off
+      }
+    },
+    /** It goes into its home (the caption goes too); `SB.phase('off')` later resets it for the next session. */
+    homeEnd() {
+      setBubble(null, null);
+      if (calm) { tucked = true; return; }
+      act('tuck', 460);
+      setTimeout(() => { tucked = true; }, 440);
+    },
+    /** For tests: where it is and what it's doing. */
+    homeState() {
+      return { x: B.x, y: B.y, home: !!home, tucked, blink, visible: buddy.classList.contains('on'),
+               bubble: bubble.classList.contains('on') ? bubble.textContent : '', calm,
+               transform: buddy.style.transform };
     },
     buddyOn(on) {
       buddyOn = !!on;

@@ -53,6 +53,8 @@ final class NotchModel: ObservableObject {
 
     func clearTip() { tipWork?.cancel(); hoverButton = nil; tip = nil }
     @Published var buddyHidden = false
+    /// First run ("I live here", FirstRun.swift): home opens a little and glows while the buddy shows you where it is.
+    @Published var beckon = false
     @Published var agentsRunning = 0
     @Published var update = ""             // "" · available · ready (shows the update arrow)
     /// What helpers did, newest last: the hover panel lists the latest few, and the ones you haven't
@@ -124,10 +126,11 @@ final class NotchModel: ObservableObject {
                           + CGFloat(recentReports.count) * Self.lineRow + (recentReports.isEmpty ? 0 : 4) + 6)
         }
         if active { return CGSize(width: wide, height: notchHeight) }
+        if beckon && hasNotch { return CGSize(width: max(notchWidth, 150) + 44, height: notchHeight + 6) }
         if dotCount > 0 { return CGSize(width: notchWidth + 2 * (Self.dotWing + CGFloat(dotCount - 1) * 10), height: notchHeight) }
         return CGSize(width: max(notchWidth, 1), height: notchHeight)
     }
-    var visible: Bool { hasNotch || active || expanded || dotCount > 0 }
+    var visible: Bool { hasNotch || active || expanded || dotCount > 0 || (beckon && hasNotch) }
 
     /// Each helper's color (web/helpers.js has the same ones).
     static func color(of name: String) -> Color {
@@ -155,6 +158,7 @@ struct NotchView: View {
 
     private var glow: Color {
         if m.guide && m.phase == "ready" { return sbTeal }
+        if m.beckon && !m.active { return sbBlue }
         switch m.phase {
         case "listening": return sbBlue
         case "speaking": return sbOrange
@@ -179,8 +183,8 @@ struct NotchView: View {
         ZStack(alignment: .top) {
             UnevenRoundedRectangle(bottomLeadingRadius: radius, bottomTrailingRadius: radius, style: .continuous)
                 .fill(Color.black)
-                .shadow(color: glow.opacity(m.active ? 0.55 + 0.4 * m.level : 0), radius: 14, y: 3)
-                .shadow(color: glow.opacity(m.active ? 0.35 : 0), radius: 4, y: 1)
+                .shadow(color: glow.opacity(m.active ? 0.55 + 0.4 * m.level : m.beckon ? 0.8 : 0), radius: 14, y: 3)
+                .shadow(color: glow.opacity(m.active || m.beckon ? 0.35 : 0), radius: 4, y: 1)
             VStack(spacing: 0) {
                 wings.frame(height: m.notchHeight)
                 if m.expanded {
@@ -224,6 +228,7 @@ struct NotchView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .animation(.spring(response: 0.36, dampingFraction: 0.78), value: m.expanded)
         .animation(.spring(response: 0.4, dampingFraction: 0.72), value: m.active)
+        .animation(.spring(response: 0.4, dampingFraction: 0.72), value: m.beckon)
         .animation(.easeOut(duration: 0.25), value: m.phase)
         .animation(.easeOut(duration: 0.15), value: m.hoverButton)
         .animation(.easeOut(duration: 0.15), value: m.tip)
