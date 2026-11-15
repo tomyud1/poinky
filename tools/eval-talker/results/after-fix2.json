@@ -1,0 +1,120 @@
+[
+ {
+  "id": "writer-punchier",
+  "who": "writer",
+  "said": "make this paragraph punchier",
+  "checks": [
+   [
+    "replaces it for them (<do>) or reads a rewrite",
+    false
+   ],
+   [
+    "the new text is shorter than the old",
+    true
+   ],
+   [
+    "<do> carries the exact new text",
+    true
+   ],
+   [
+    "offers to put it in",
+    true
+   ],
+   [
+    "no agent",
+    true
+   ]
+  ],
+  "generic": [
+   [
+    "has <say>",
+    true
+   ],
+   [
+    "spoken style (no markdown/URL/emoji)",
+    true
+   ],
+   [
+    "<draw> is valid JSON",
+    true
+   ],
+   [
+    "math said for the ear (no ² = ( ) symbols)",
+    true
+   ],
+   [
+    "nothing outside the tags",
+    true
+   ]
+  ],
+  "passed": false,
+  "say": "Sure, here's a tighter version. Want me to swap it in?",
+  "tags": [
+   "draw",
+   "say",
+   "visual"
+  ],
+  "raw": "<say>Sure, here's a tighter version. Want me to swap it in?</say>\n<visual></visual>\n<draw>{\"items\":[{\"type\":\"underline\",\"id\":\"para\",\"x\":144,\"y\":188,\"w\":1019,\"find\":\"It is important to note that\",\"label\":\"tighter\"}]}</draw>",
+  "first_token": 0.8614380359649658,
+  "first_sentence": 1.0182368755340576,
+  "total": 1.3462936878204346,
+  "input_tokens": 13765,
+  "run": 0
+ },
+ {
+  "id": "writer-punchier",
+  "who": "writer",
+  "said": "make this paragraph punchier",
+  "checks": [
+   [
+    "replaces it for them (<do>) or reads a rewrite",
+    true
+   ],
+   [
+    "the new text is shorter than the old",
+    true
+   ],
+   [
+    "<do> carries the exact new text",
+    true
+   ],
+   [
+    "offers to put it in",
+    true
+   ],
+   [
+    "no agent",
+    true
+   ]
+  ],
+  "generic": [
+   [
+    "has <say>",
+    true
+   ],
+   [
+    "spoken style (no markdown/URL/emoji)",
+    true
+   ],
+   [
+    "math said for the ear (no ² = ( ) symbols)",
+    true
+   ],
+   [
+    "nothing outside the tags",
+    true
+   ]
+  ],
+  "passed": true,
+  "say": "Sure, here's a punchier version. Onboarding often drags, and it could be simpler and better for everyone involved. Want me to swap it in?",
+  "tags": [
+   "say"
+  ],
+  "raw": "<say>Sure, here's a punchier version. Onboarding often drags, and it could be simpler and better for everyone involved. Want me to swap it in?</say>",
+  "first_token": 0.7865719795227051,
+  "first_sentence": 0.9737899303436279,
+  "total": 1.2224860191345215,
+  "input_tokens": 13768,
+  "run": 1
+ }
+]

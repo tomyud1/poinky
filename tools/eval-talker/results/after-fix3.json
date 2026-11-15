@@ -1,0 +1,171 @@
+[
+ {
+  "id": "writer-punchier",
+  "who": "writer",
+  "said": "make this paragraph punchier",
+  "checks": [
+   [
+    "replaces it for them (<do>) or reads a rewrite",
+    true
+   ],
+   [
+    "the new text is shorter than the old",
+    false
+   ],
+   [
+    "<do> carries the exact new text",
+    true
+   ],
+   [
+    "offers to put it in",
+    true
+   ],
+   [
+    "no agent",
+    true
+   ]
+  ],
+  "generic": [
+   [
+    "has <say>",
+    true
+   ],
+   [
+    "spoken style (no markdown/URL/emoji)",
+    true
+   ],
+   [
+    "math said for the ear (no ² = ( ) symbols)",
+    true
+   ],
+   [
+    "nothing outside the tags",
+    true
+   ]
+  ],
+  "passed": false,
+  "say": "Sure, I'll make it punchier.",
+  "tags": [
+   "do",
+   "say"
+  ],
+  "raw": "<say>Sure, I'll make it punchier.</say>\n<do>In the open Pages document \"Onboarding proposal\", replace the selected paragraph (which starts \"It is important to note that\") with this tighter version: Onboarding is often long and clunky, with more steps than it needs. Let's cut the extra steps and make the first day better for everyone involved.</do>",
+  "first_token": 0.8634648323059082,
+  "first_sentence": 1.029670238494873,
+  "total": 1.4871909618377686,
+  "input_tokens": 13830,
+  "run": 0
+ },
+ {
+  "id": "writer-punchier",
+  "who": "writer",
+  "said": "make this paragraph punchier",
+  "checks": [
+   [
+    "replaces it for them (<do>) or reads a rewrite",
+    true
+   ],
+   [
+    "the new text is shorter than the old",
+    true
+   ],
+   [
+    "<do> carries the exact new text",
+    true
+   ],
+   [
+    "offers to put it in",
+    true
+   ],
+   [
+    "no agent",
+    true
+   ]
+  ],
+  "generic": [
+   [
+    "has <say>",
+    true
+   ],
+   [
+    "spoken style (no markdown/URL/emoji)",
+    true
+   ],
+   [
+    "math said for the ear (no ² = ( ) symbols)",
+    true
+   ],
+   [
+    "nothing outside the tags",
+    true
+   ]
+  ],
+  "passed": true,
+  "say": "Sure, here's a punchier version. Onboarding often drags, and it could be simpler for everyone involved. Want me to swap it in?",
+  "tags": [
+   "say"
+  ],
+  "raw": "<say>Sure, here's a punchier version. Onboarding often drags, and it could be simpler for everyone involved. Want me to swap it in?</say>",
+  "first_token": 0.7730159759521484,
+  "first_sentence": 0.935554027557373,
+  "total": 1.2217357158660889,
+  "input_tokens": 13832,
+  "run": 1
+ },
+ {
+  "id": "writer-punchier",
+  "who": "writer",
+  "said": "make this paragraph punchier",
+  "checks": [
+   [
+    "replaces it for them (<do>) or reads a rewrite",
+    false
+   ],
+   [
+    "the new text is shorter than the old",
+    true
+   ],
+   [
+    "<do> carries the exact new text",
+    true
+   ],
+   [
+    "offers to put it in",
+    true
+   ],
+   [
+    "no agent",
+    true
+   ]
+  ],
+  "generic": [
+   [
+    "has <say>",
+    true
+   ],
+   [
+    "spoken style (no markdown/URL/emoji)",
+    true
+   ],
+   [
+    "math said for the ear (no ² = ( ) symbols)",
+    true
+   ],
+   [
+    "nothing outside the tags",
+    true
+   ]
+  ],
+  "passed": false,
+  "say": "Sure, here's a tighter version. Want me to swap it in?",
+  "tags": [
+   "say"
+  ],
+  "raw": "<say>Sure, here's a tighter version. Want me to swap it in?</say>",
+  "first_token": 0.8719420433044434,
+  "first_sentence": 1.175011157989502,
+  "total": 1.2030670642852783,
+  "input_tokens": 13831,
+  "run": 2
+ }
+]

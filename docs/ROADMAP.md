@@ -44,6 +44,7 @@ Measured 2026-11-08 (Haiku, real talker prompt, a 1568×1078 screenshot per ques
 What was built:
 - `CallController.prepareFreshTalker` (after `talkerRotateAfter` = 10 questions, warmed in the background) and `swapTalkerIfReady` (at the next question, once it has had 2.5 s): the new talker gets a recap of the last 8 exchanges from `history` (`needsRecap`), never old screenshots. Over 30 questions this roughly halves the tokens read (≈1.4M → ≈0.7M) and keeps the context far from its limit.
 - `sendOnce`: the earlier-helpers list and the commands list go to the talker only when they change (or the question is about helpers): 2,141 → 341 characters per question when nothing changed.
+- 2026-11-15: the talker was thinking again (Claude Code ignores `MAX_THINKING_TOKENS=0` for Haiku 5.5): first words took 1.7–5.4 s (median 3.5). `CLAUDE_CODE_EXTRA_BODY` turns thinking off: 0.7–1.2 s (median 1.0), measured with `tools/eval-talker/run.py`.
 - `ClaudeCodeBrain` logs `usage` (tokens read, cached, written) for every answer in the timeline.
 - Test: `POINKY_ROTATE_AFTER=2` with several `--ask`s and `FAKE_CLAUDE_LOG` (the fake logs its pid and each message).
 Still open: the teacher (`artist`) also keeps every screenshot it was sent (it continues papers, so it needs a recap of what's on the paper); the guide keeps one session per walkthrough (fine for now).

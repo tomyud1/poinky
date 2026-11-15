@@ -1,0 +1,170 @@
+[
+ {
+  "id": "writer-punchier",
+  "who": "writer",
+  "said": "make this paragraph punchier",
+  "checks": [
+   [
+    "replaces it for them (<do>) or reads the rewrite aloud",
+    true
+   ],
+   [
+    "the new text is shorter than the old",
+    true
+   ],
+   [
+    "<do> carries the new text",
+    true
+   ],
+   [
+    "offers to put it in",
+    true
+   ],
+   [
+    "no agent",
+    true
+   ]
+  ],
+  "generic": [
+   [
+    "has <say>",
+    true
+   ],
+   [
+    "spoken style (no markdown/URL/emoji)",
+    true
+   ],
+   [
+    "math said for the ear (no ² = ( ) symbols)",
+    true
+   ],
+   [
+    "nothing outside the tags",
+    true
+   ]
+  ],
+  "passed": true,
+  "say": "Sure, here's a punchier version: Onboarding is slow, and it has too many steps. Let's make it faster and easier for everyone. Want me to swap it in?",
+  "tags": [
+   "say"
+  ],
+  "raw": "<say>Sure, here's a punchier version: Onboarding is slow, and it has too many steps. Let's make it faster and easier for everyone. Want me to swap it in?</say>",
+  "first_token": 0.8619098663330078,
+  "first_sentence": 1.2037410736083984,
+  "total": 1.2220940589904785,
+  "input_tokens": 13823,
+  "run": 0
+ },
+ {
+  "id": "writer-punchier",
+  "who": "writer",
+  "said": "make this paragraph punchier",
+  "checks": [
+   [
+    "replaces it for them (<do>) or reads the rewrite aloud",
+    true
+   ],
+   [
+    "the new text is shorter than the old",
+    true
+   ],
+   [
+    "<do> carries the new text",
+    true
+   ],
+   [
+    "offers to put it in",
+    true
+   ],
+   [
+    "no agent",
+    true
+   ]
+  ],
+  "generic": [
+   [
+    "has <say>",
+    true
+   ],
+   [
+    "spoken style (no markdown/URL/emoji)",
+    true
+   ],
+   [
+    "math said for the ear (no ² = ( ) symbols)",
+    true
+   ],
+   [
+    "nothing outside the tags",
+    true
+   ]
+  ],
+  "passed": true,
+  "say": "Here's a tighter version: Onboarding drags, and three changes can fix it. Want me to swap it in?",
+  "tags": [
+   "say"
+  ],
+  "raw": "<say>Here's a tighter version: Onboarding drags, and three changes can fix it. Want me to swap it in?</say>",
+  "first_token": 0.8165786266326904,
+  "first_sentence": 1.0831317901611328,
+  "total": 1.1013517379760742,
+  "input_tokens": 13822,
+  "run": 1
+ },
+ {
+  "id": "writer-punchier",
+  "who": "writer",
+  "said": "make this paragraph punchier",
+  "checks": [
+   [
+    "replaces it for them (<do>) or reads the rewrite aloud",
+    false
+   ],
+   [
+    "the new text is shorter than the old",
+    true
+   ],
+   [
+    "<do> carries the new text",
+    true
+   ],
+   [
+    "offers to put it in",
+    true
+   ],
+   [
+    "no agent",
+    true
+   ]
+  ],
+  "generic": [
+   [
+    "has <say>",
+    true
+   ],
+   [
+    "spoken style (no markdown/URL/emoji)",
+    true
+   ],
+   [
+    "math said for the ear (no ² = ( ) symbols)",
+    true
+   ],
+   [
+    "nothing outside the tags",
+    true
+   ]
+  ],
+  "passed": false,
+  "say": "Here's a punchier version. Want me to swap it in?",
+  "tags": [
+   "say"
+  ],
+  "raw": "<say>Here's a punchier version. Want me to swap it in?</say>",
+  "first_token": 0.7709910869598389,
+  "first_sentence": 1.0593483448028564,
+  "total": 1.0774712562561035,
+  "input_tokens": 13823,
+  "run": 2
+ }
+]

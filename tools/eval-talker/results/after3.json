@@ -1,0 +1,340 @@
+[
+ {
+  "id": "homework-math",
+  "who": "student",
+  "said": "can you help me with number three",
+  "checks": [
+   [
+    "explains the method, not just the answer",
+    true
+   ],
+   [
+    "doesn't give away both roots unasked",
+    true
+   ],
+   [
+    "marks problem 3",
+    true
+   ],
+   [
+    "no agent",
+    true
+   ]
+  ],
+  "generic": [
+   [
+    "has <say>",
+    true
+   ],
+   [
+    "spoken style (no markdown/URL/emoji)",
+    true
+   ],
+   [
+    "<draw> is valid JSON",
+    true
+   ],
+   [
+    "math said for the ear (no ² = ( ) symbols)",
+    true
+   ],
+   [
+    "nothing outside the tags",
+    true
+   ]
+  ],
+  "passed": true,
+  "say": "Sure. Number three is 2x squared minus 8x plus 6 equals 0. Let me sketch how to solve it.",
+  "tags": [
+   "draw",
+   "say",
+   "visual"
+  ],
+  "raw": "<say>Sure. Number three is 2x squared minus 8x plus 6 equals 0. Let me sketch how to solve it.</say>\n<visual>Lesson. Main idea: solve a quadratic by first dividing every term by 2 to simplify, then factoring. Cover: start with 2x squared minus 8x plus 6 equals 0; divide everything by 2 to get x squared minus 4x plus 3 equals 0; factor into x minus 1 times x minus 3; so x equals 1 or x equals 3. Relates to item 3 on the homework, around 280,250.</visual>\n<draw>{\"items\":[{\"type\":\"bracket\",\"id\":\"item3\",\"x\":140,\"y\":240,\"h\":28,\"find\":\"3. Solve for x\",\"label\":\"problem 3\"}]}</draw>",
+  "first_token": 0.864408016204834,
+  "first_sentence": 1.0197532176971436,
+  "total": 1.8512210845947266,
+  "input_tokens": 13550,
+  "run": 0
+ },
+ {
+  "id": "homework-math",
+  "who": "student",
+  "said": "can you help me with number three",
+  "checks": [
+   [
+    "explains the method, not just the answer",
+    true
+   ],
+   [
+    "doesn't give away both roots unasked",
+    true
+   ],
+   [
+    "marks problem 3",
+    true
+   ],
+   [
+    "no agent",
+    true
+   ]
+  ],
+  "generic": [
+   [
+    "has <say>",
+    true
+   ],
+   [
+    "spoken style (no markdown/URL/emoji)",
+    true
+   ],
+   [
+    "<draw> is valid JSON",
+    true
+   ],
+   [
+    "math said for the ear (no ² = ( ) symbols)",
+    true
+   ],
+   [
+    "nothing outside the tags",
+    true
+   ]
+  ],
+  "passed": true,
+  "say": "Sure, Alex. Number three is a quadratic with a leading coefficient of 2, so the first step is to divide everything by 2. Let me sketch it.",
+  "tags": [
+   "draw",
+   "say",
+   "visual"
+  ],
+  "raw": "<say>Sure, Alex. Number three is a quadratic with a leading coefficient of 2, so the first step is to divide everything by 2. Let me sketch it.</say>\n<visual>Lesson. Main idea: solve 2x squared minus 8x plus 6 equals 0 by first dividing every term by 2 to get x squared minus 4x plus 3 equals 0, then factoring. Cover in order: write the original equation; divide each term by 2; get x squared minus 4x plus 3 equals 0; factor into x minus 1 times x minus 3; set each factor to zero; the solutions are x equals 1 and x equals 3. Relates to problem 3 on the page, around the line \"3. Solve for x\" near 280,253.</visual>\n<draw>{\"items\":[{\"type\":\"underline\",\"id\":\"prob3\",\"x\":144,\"y\":253,\"w\":280,\"find\":\"3. Solve for x: 2x² − 8x + 6 = 0\",\"label\":\"start here\"}]}</draw>",
+  "first_token": 0.8959529399871826,
+  "first_sentence": 1.0429449081420898,
+  "total": 2.188812017440796,
+  "input_tokens": 13550,
+  "run": 1
+ },
+ {
+  "id": "homework-check",
+  "who": "student",
+  "said": "is this right",
+  "checks": [
+   [
+    "says it's not right, or hands the check to the teacher",
+    true
+   ],
+   [
+    "never calls the wrong answer right",
+    true
+   ],
+   [
+    "teacher brief points at the factoring (or says it)",
+    true
+   ],
+   [
+    "no agent",
+    true
+   ]
+  ],
+  "generic": [
+   [
+    "has <say>",
+    true
+   ],
+   [
+    "spoken style (no markdown/URL/emoji)",
+    true
+   ],
+   [
+    "<draw> is valid JSON",
+    true
+   ],
+   [
+    "math said for the ear (no ² = ( ) symbols)",
+    true
+   ],
+   [
+    "nothing outside the tags",
+    true
+   ]
+  ],
+  "passed": true,
+  "say": "Not quite, Alex. The factoring is right, but the first step isn't: dividing by 2 gives x squared minus 4x plus 3, which is correct, so your roots are fine. Let me show you the check.",
+  "tags": [
+   "draw",
+   "say",
+   "visual"
+  ],
+  "raw": "<say>Not quite, Alex. The factoring is right, but the first step isn't: dividing by 2 gives x squared minus 4x plus 3, which is correct, so your roots are fine. Let me show you the check.</say>\n<visual>Lesson. Main idea: \"Check the roots by plugging them back in\". Cover: start from 2x squared minus 8x plus 6 equals 0; divide everything by 2 to get x squared minus 4x plus 3 equals 0; factor into x minus 1 times x minus 3, so the roots are 1 and 3, not 2 and 3. Plug x equals 2 back in to show it fails: 2 squared is 4, minus 8 is minus 4, plus 3 is minus 1, not 0. Relates to the highlighted line in the notes.</visual>\n<draw>{\"items\":[{\"type\":\"underline\",\"id\":\"wrong\",\"x\":420,\"y\":243,\"w\":165,\"find\":\"(x − 2)(x − 3) = 0\",\"label\":\"wrong factors\"}]}</draw>",
+  "first_token": 0.7838749885559082,
+  "first_sentence": 0.9319231510162354,
+  "total": 2.2122299671173096,
+  "input_tokens": 13615,
+  "run": 0
+ },
+ {
+  "id": "homework-check",
+  "who": "student",
+  "said": "is this right",
+  "checks": [
+   [
+    "says it's not right, or hands the check to the teacher",
+    true
+   ],
+   [
+    "never calls the wrong answer right",
+    true
+   ],
+   [
+    "teacher brief points at the factoring (or says it)",
+    true
+   ],
+   [
+    "no agent",
+    true
+   ]
+  ],
+  "generic": [
+   [
+    "has <say>",
+    true
+   ],
+   [
+    "spoken style (no markdown/URL/emoji)",
+    true
+   ],
+   [
+    "<draw> is valid JSON",
+    true
+   ],
+   [
+    "math said for the ear (no ² = ( ) symbols)",
+    false
+   ],
+   [
+    "nothing outside the tags",
+    true
+   ]
+  ],
+  "passed": false,
+  "say": "Not quite, Alex. Your method is fine, but the factoring step is wrong. Start with 2x squared minus 8x plus 6 and divide everything by 2, which gives x squared minus 4x plus 3. That part is right. Then the factors of 3 that add to negative 4 are negative 1 and negative 3, so it factors as (x minus 1)(x minus 3), giving x equals 1 or x equals 3, not 2.",
+  "tags": [
+   "draw",
+   "say",
+   "visual"
+  ],
+  "raw": "<say>Not quite, Alex. Your method is fine, but the factoring step is wrong. Start with 2x squared minus 8x plus 6 and divide everything by 2, which gives x squared minus 4x plus 3. That part is right. Then the factors of 3 that add to negative 4 are negative 1 and negative 3, so it factors as (x minus 1)(x minus 3), giving x equals 1 or x equals 3, not 2.</say>\n<visual>Lesson. Main idea: \"Dividing by 2 first, then factoring x squared minus 4x plus 3\". Cover: start with 2x squared minus 8x plus 6 equals 0; divide every term by 2 to get x squared minus 4x plus 3 equals 0; find two numbers that multiply to 3 and add to negative 4, which are negative 1 and negative 3; so the factored form is (x minus 1)(x minus 3) equals 0; so x equals 1 or x equals 3. Point out where the earlier line wrote (x minus 2)(x minus 3), which is the mistake. Relates to the highlighted line 3 in the note around 365,243.</visual>\n<draw>{\"items\":[{\"type\":\"underline\",\"id\":\"wrong\",\"x\":390,\"y\":243,\"w\":200,\"find\":\"(x − 2)(x − 3) = 0\",\"label\":\"wrong factors\"}]}</draw>",
+  "first_token": 1.7896170616149902,
+  "first_sentence": 1.964430809020996,
+  "total": 3.678443193435669,
+  "input_tokens": 13612,
+  "run": 1
+ },
+ {
+  "id": "hebrew",
+  "who": "edge",
+  "said": "תסביר לי מה כתוב פה",
+  "checks": [
+   [
+    "answers in Hebrew",
+    true
+   ],
+   [
+    "gets the sketch: short hand-over, no <visual> (the app starts the teacher for \"תסביר\")",
+    true
+   ],
+   [
+    "doesn't act",
+    true
+   ]
+  ],
+  "generic": [
+   [
+    "has <say>",
+    true
+   ],
+   [
+    "spoken style (no markdown/URL/emoji)",
+    true
+   ],
+   [
+    "<draw> is valid JSON",
+    true
+   ],
+   [
+    "math said for the ear (no ² = ( ) symbols)",
+    true
+   ],
+   [
+    "nothing outside the tags",
+    true
+   ]
+  ],
+  "passed": true,
+  "say": "בטח, בוא אסביר לך.",
+  "tags": [
+   "draw",
+   "say"
+  ],
+  "raw": "<say>בטח, בוא אסביר לך.</say>\n<draw>{\"items\":[{\"type\":\"underline\",\"id\":\"main\",\"x\":144,\"y\":173,\"w\":1012,\"find\":\"Researchers found that people who took a 20-minute walk\",\"label\":\"המחקר\"}]}</draw>",
+  "first_token": 0.6758520603179932,
+  "first_sentence": 0.845372200012207,
+  "total": 1.2681081295013428,
+  "input_tokens": 13745,
+  "run": 0
+ },
+ {
+  "id": "hebrew",
+  "who": "edge",
+  "said": "תסביר לי מה כתוב פה",
+  "checks": [
+   [
+    "answers in Hebrew",
+    true
+   ],
+   [
+    "gets the sketch: short hand-over, no <visual> (the app starts the teacher for \"תסביר\")",
+    true
+   ],
+   [
+    "doesn't act",
+    true
+   ]
+  ],
+  "generic": [
+   [
+    "has <say>",
+    true
+   ],
+   [
+    "spoken style (no markdown/URL/emoji)",
+    true
+   ],
+   [
+    "<draw> is valid JSON",
+    true
+   ],
+   [
+    "math said for the ear (no ² = ( ) symbols)",
+    true
+   ],
+   [
+    "nothing outside the tags",
+    true
+   ]
+  ],
+  "passed": true,
+  "say": "שנייה, אני מכין לך סקיצה.",
+  "tags": [
+   "draw",
+   "say"
+  ],
+  "raw": "<say>שנייה, אני מכין לך סקיצה.</say>\n<draw>{\"items\":[{\"type\":\"bracket\",\"id\":\"main\",\"x\":140,\"y\":160,\"h\":44,\"find\":\"Researchers found that people who took a 20-minute walk\",\"to\":\"within 30 minutes of eating.\",\"label\":\"the finding\"}]}</draw>",
+  "first_token": 0.6599531173706055,
+  "first_sentence": 0.8208308219909668,
+  "total": 1.2033729553222656,
+  "input_tokens": 13744,
+  "run": 1
+ }
+]
