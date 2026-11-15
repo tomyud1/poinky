@@ -21,12 +21,13 @@
   // digit 1 comes from Chalkboard SE (a flagged 1 in a matching hand).
   const FONT = '"PoinkyHand", "Noteworthy", "Chalkboard SE", "Marker Felt", ui-rounded, system-ui';
 
-  const style = document.createElement('style');
-  style.textContent = `
+  const FACES = `
     @font-face{font-family:PoinkyHand;src:local("Noteworthy-Light"),local("Noteworthy");font-weight:400}
     @font-face{font-family:PoinkyHand;src:local("Noteworthy-Bold"),local("Noteworthy");font-weight:700}
     @font-face{font-family:PoinkyHand;src:local("ChalkboardSE-Light"),local("Chalkboard SE");font-weight:400;unicode-range:U+0031}
-    @font-face{font-family:PoinkyHand;src:local("ChalkboardSE-Regular"),local("Chalkboard SE");font-weight:700;unicode-range:U+0031}
+    @font-face{font-family:PoinkyHand;src:local("ChalkboardSE-Regular"),local("Chalkboard SE");font-weight:700;unicode-range:U+0031}`;
+  const style = document.createElement('style');
+  style.textContent = FACES + `
     #pen{position:absolute;left:0;top:0;width:26px;height:26px;pointer-events:none;opacity:0;transition:opacity .4s;z-index:50;
       filter:drop-shadow(0 1px 2px rgba(0,0,0,.35))}
     .card.lpaper{border-radius:14px;overflow:hidden;background-color:#fbf8f0;
@@ -35,6 +36,11 @@
     .lpaper .lsvg{display:block;width:100%;overflow:hidden}
     .lpaper .lsvg text{font-family:${FONT};white-space:pre;paint-order:stroke;stroke:var(--halo,${PAPER});stroke-width:5px;stroke-linejoin:round}
     .lpaper .lsvg text.nohalo{stroke:none}
+    .lpaper .save{position:absolute;right:40px;top:5px;height:28px;border-radius:14px;border:0;padding:0 11px;cursor:pointer;z-index:3;
+      background:rgba(30,32,38,.08);color:#5d584c;font:600 12.5px -apple-system,system-ui;transition:background .15s,color .15s,opacity .2s}
+    .lpaper .save:hover{background:rgba(30,32,38,.72);color:#fff}
+    .lpaper .save.done{background:#3a9a5b;color:#fff}
+    .lpaper .save:disabled{opacity:.5;cursor:default}
     @keyframes lp-in{from{opacity:0;transform:translateY(18px) scale(.97)}to{opacity:1;transform:none}}`;
   document.head.appendChild(style);
 
@@ -225,12 +231,14 @@
     Object.assign(c.style, { left: f.x + 'px', top: f.y + 'px', width: f.w + 'px' });
     top = f.y;
     toTop = false; yShift = 0; contentBottom = 0;
-    c.innerHTML = '<div class="bar"><span></span><button class="x" title="Close">✕</button></div>';
+    c.innerHTML = '<div class="bar"><span></span><button class="save" title="Save a picture of this page">Save</button><button class="x" title="Close">✕</button></div>';
     c.querySelector('.bar span').textContent = title || '';
     svg = el('svg', { class: 'lsvg', preserveAspectRatio: 'xMidYMin meet' }, c);
     view = { h: 0, y: 0, vh: 0 };
     defs = el('defs', {}, svg);
     c.querySelector('.x').addEventListener('click', () => { SB.lessonStop(); X.removeCard(c); });
+    c.querySelector('.save').addEventListener('click', e => { e.stopPropagation(); savePaper(c); });
+    c.querySelector('.save').addEventListener('mousedown', e => e.stopPropagation());
     X.dragBy(c.querySelector('.bar'), c);
     // Once you drag it somewhere, it stays there (it still grows and shrinks).
     c.querySelector('.bar').addEventListener('mousedown', () => { c.dataset.moved = '1'; c.style.transition = ''; });
@@ -243,6 +251,65 @@
     paperSound();
     X.report();
   }
+  // ---------- keeping a page: a picture of the paper (for revising later) ----------
+  /** The paper as a PNG data URL: everything drawn, on the lined paper, 2× for a sharp print. */
+  function paperPicture(c) {
+    const s = c.querySelector('svg.lsvg');
+    if (!s) return Promise.resolve(null);
+    let bottom = 0;
+    for (const g of s.querySelectorAll(':scope > g')) { try { const b = g.getBBox(); if (b.width || b.height) bottom = Math.max(bottom, b.y + b.height); } catch (e) {} }
+    const h = Math.ceil(Math.max(200, bottom + 36)), title = c.dataset.title || '';
+    // Fills fade in with animations; write where they ended into the elements so the copy has them.
+    for (const a of document.getAnimations()) { const t = a.effect && a.effect.target; if (t && s.contains(t)) { try { a.commitStyles(); } catch (e) {} } }
+    const copy = s.cloneNode(true);
+    copy.querySelectorAll('[clip-path]').forEach(n => n.removeAttribute('clip-path'));   // anything still being written
+    copy.querySelectorAll('text[opacity="0"]').forEach(n => n.remove());
+    copy.removeAttribute('style'); copy.removeAttribute('class');
+    copy.setAttribute('xmlns', NS);
+    copy.setAttribute('width', UNITS * 2); copy.setAttribute('height', h * 2);
+    copy.setAttribute('viewBox', `0 0 ${UNITS} ${h}`);
+    const st = document.createElementNS(NS, 'style');
+    st.textContent = FACES + `text{font-family:${FONT};white-space:pre;paint-order:stroke;stroke:var(--halo,${PAPER});stroke-width:5px;stroke-linejoin:round}`;
+    copy.insertBefore(st, copy.firstChild);
+    const xml = new XMLSerializer().serializeToString(copy);
+    return new Promise(res => {
+      const img = new Image();
+      img.onload = () => {
+        try {
+          const cv = document.createElement('canvas'); cv.width = UNITS * 2; cv.height = h * 2;
+          const x = cv.getContext('2d');
+          x.fillStyle = PAPER; x.fillRect(0, 0, cv.width, cv.height);
+          x.strokeStyle = 'rgba(0,0,0,.05)'; x.lineWidth = 2;
+          for (let gx = 0; gx < cv.width; gx += 44) { x.beginPath(); x.moveTo(gx, 0); x.lineTo(gx, cv.height); x.stroke(); }
+          for (let gy = 0; gy < cv.height; gy += 44) { x.beginPath(); x.moveTo(0, gy); x.lineTo(cv.width, gy); x.stroke(); }
+          x.drawImage(img, 0, 0);
+          res({ png: cv.toDataURL('image/png'), title, width: cv.width, height: cv.height });
+        } catch (e) { res({ svg: xml, title }); }   // a canvas the browser won't read back: keep the drawing as SVG
+      };
+      img.onerror = () => res({ svg: xml, title });
+      img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(xml);
+    });
+  }
+  async function savePaper(c) {
+    const b = c.querySelector('.save');
+    b.disabled = true; b.textContent = 'Saving…';
+    const pic = await paperPicture(c);
+    if (!pic) { b.disabled = false; b.textContent = 'Save'; return; }
+    X.post({ kind: 'saveLesson', title: pic.title, png: pic.png || null, svg: pic.svg || null });
+    SB.lastLessonPicture = pic;   // tests and tools read it
+    // The app answers with SB.lessonSaved(where); without an app (a test page) the button just resets.
+    clearTimeout(b._t); b._t = setTimeout(() => { b.disabled = false; b.textContent = 'Save'; }, 4000);
+  }
+  /** The app saved the page: say where, briefly. */
+  SB.lessonSaved = (where, ok = true) => {
+    const b = paper && paper.querySelector('.save');
+    if (!b) return;
+    b.disabled = false; b.textContent = ok ? `Saved to ${where} ✓` : "Couldn't save";
+    b.classList.toggle('done', !!ok);
+    clearTimeout(b._t); b._t = setTimeout(() => { b.textContent = 'Save'; b.classList.remove('done'); }, 2600);
+  };
+  SB.lessonPicture = () => paper && paper.isConnected ? paperPicture(paper) : Promise.resolve(null);
+
   function retire(c) {
     if (!c) return;
     c.classList.add('leaving');

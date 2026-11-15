@@ -72,6 +72,21 @@
     check(onCurve === 0, `the point's label doesn't sit on the curve (${onCurve} curve points under it)`);
     const al = item('a').querySelector('text').getBBox();
     check(al.y + al.height < 450 || al.y > 450, `an arrow's label sits beside the arrow, not on it (label ${Math.round(al.y)}–${Math.round(al.y + al.height)}, arrow at 450)`);
+
+    // Save: the page becomes a picture for the app to keep.
+    const msgs = [];
+    W.webkit = { messageHandlers: { sb: { postMessage: m => msgs.push(m) } } };
+    const paperEl = W.document.querySelector('.card.lpaper');
+    paperEl.querySelector('.save').click();
+    for (let i = 0; i < 100 && !msgs.some(m => m.kind === 'saveLesson'); i++) await wait(50);
+    const saved = msgs.find(m => m.kind === 'saveLesson');
+    check(saved && /^data:image\/png;base64,/.test(saved.png || '') && saved.title === 'test', 'Save sends a PNG of the page with its title');
+    if (saved && saved.png) {
+      const img = new Image(); img.src = saved.png; await img.decode();
+      check(img.width === 1600 && img.height > 1200, `the picture is sharp (2×) and holds everything drawn (${img.width}×${img.height})`);
+    }
+    SB.lessonSaved('Desktop', true);
+    check(/Desktop/.test(paperEl.querySelector('.save').textContent), 'the button says where it went');
   } catch (e) { check(false, 'threw: ' + e.message); }
   window.testResults = { pass: !fail.length, lines: results };
 })();

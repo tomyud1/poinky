@@ -1,6 +1,7 @@
 // Plays a teacher reply in tools/lesson-player.html (headless Chrome) and saves a picture at the end of every
 // spoken line, plus one when it's done.
 // Usage: node tools/lesson-shots.mjs reply.txt outdir [--bg light|dark|code] [--size 1512x982] [--speed 1]
+// Also saves saved.png: the picture the paper's Save button makes.
 import { spawn } from 'node:child_process';
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -47,6 +48,9 @@ for (let t = 0; t < 240000; t += 100) {
 }
 await sleep(4000 / speed);
 await shot('final.png');
+const pic = (await send('Runtime.evaluate', { expression: 'document.getElementById("overlay").contentWindow.SB.lessonPicture()', awaitPromise: true, returnByValue: true })).result?.value;
+if (pic && pic.png) writeFileSync(join(outDir, 'saved.png'), Buffer.from(pic.png.split(',')[1], 'base64'));
+else console.log('no picture', pic && Object.keys(pic));
 writeFileSync(join(outDir, 'log.txt'), (await ev('lab.log.join("\\n")')) + '\n');
 console.log(await ev('lab.log.join("\\n")'));
 chrome.kill(); try { rmSync(prof, { recursive: true, force: true }); } catch {}

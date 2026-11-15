@@ -409,6 +409,15 @@ final class Overlay: NSObject, WKNavigationDelegate {
             if let id = Int("\(msg["id"] ?? "")") { onHelperAsking?(id) }
         case "helperAction":
             if let id = Int("\(msg["id"] ?? "")"), let action = msg["action"] as? String { onHelperAction?(id, action) }
+        case "saveLesson":
+            // The paper's Save button: a picture of the page on the Desktop.
+            let title = msg["title"] as? String ?? "", png = msg["png"] as? String, svg = msg["svg"] as? String
+            Task.detached(priority: .userInitiated) {
+                let url = LessonSaver.save(title: title, pngDataURL: png, svg: svg)
+                await MainActor.run {
+                    self.js("SB.lessonSaved(\(self.jsString(url.map(LessonSaver.placeName) ?? "")), \(url != nil))")
+                }
+            }
         default:
             break
         }
