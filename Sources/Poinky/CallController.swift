@@ -1072,7 +1072,7 @@ final class CallController: NSObject, NSMenuDelegate {
         let gist = summary.text
         var lines = ["(This session's earlier messages were cleared to keep you fast; old screenshots are gone. So follow-ups still make sense:)"]
         let recent = gist.isEmpty ? history : Array(history.suffix(5))
-        if !gist.isEmpty { lines.append("The session so far, in short:\n" + gist) }
+        if !gist.isEmpty { lines.append("The session so far, in short (what the user told you here still holds: answer with it):\n" + gist) }
         lines.append(recent.count < history.count || !gist.isEmpty ? "The last exchanges, oldest first:" : "What was said, oldest first:")
         for h in recent { lines.append("- User: \(Recall.clip(h.user, 500)) / You: \(Recall.clip(h.assistant, 1000))") }
         Timeline.log("talker.recap", ["summary": gist.count, "exchanges": recent.count])
