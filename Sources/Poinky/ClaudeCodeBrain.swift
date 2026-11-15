@@ -44,6 +44,18 @@ final class ClaudeCodeBrain: Brain {
     }
 
     private let effort: String
+    /// Automatic effort on Haiku: ask the API for no thinking step at all. Claude Code itself never sends
+    /// `thinking: disabled` for Haiku 5.5 (it treats it as a model that can't turn thinking off, so
+    /// `alwaysThinkingEnabled:false` / `MAX_THINKING_TOKENS=0` are ignored), and Haiku then thinks for
+    /// 1–4 s before its first word. The API accepts it, so it goes in through `CLAUDE_CODE_EXTRA_BODY`
+    /// (with no context edits, since Claude Code's `clear_thinking` edit requires thinking). If a later
+    /// Claude Code or API rejects it, the turn is retried once without it and it stays off.
+    private var skipThinking: Bool { effort.isEmpty && model.lowercased().contains("haiku") && !Self.skipThinkingBroken }
+    static let noThinkingBody = ProcessInfo.processInfo.environment["POINKY_NO_THINKING_BODY"]   // (tests: a body the API refuses)
+        ?? #"{"thinking":{"type":"disabled"},"context_management":{"edits":[]}}"#
+    private static var skipThinkingBroken = ProcessInfo.processInfo.environment["POINKY_KEEP_THINKING"] != nil
+    private var lastLine: Data?
+    private var retriedID: Int?
     /// Claude Code tools it may use (none for the talker, teacher, guide and doer; WebSearch and WebFetch
     /// for the web searcher). Each one is also pre-approved, since nobody is there to say yes.
     private let tools: [String]
@@ -77,6 +89,7 @@ final class ClaudeCodeBrain: Brain {
         ]
         var line = try JSONSerialization.data(withJSONObject: msg)
         line.append(0x0A)
+        lastLine = line
 
         return try await withCheckedThrowingContinuation { cont in
             nextID += 1
@@ -185,6 +198,7 @@ final class ClaudeCodeBrain: Brain {
         env["PATH"] = ["\(home)/.local/bin", "/opt/homebrew/bin", "/usr/local/bin", env["PATH"] ?? "/usr/bin:/bin"]
             .joined(separator: ":")
         if effort.isEmpty { env["MAX_THINKING_TOKENS"] = "0" }   // skip the thinking step: faster replies
+        if skipThinking, env["CLAUDE_CODE_EXTRA_BODY"] == nil { env["CLAUDE_CODE_EXTRA_BODY"] = Self.noThinkingBody }
         p.environment = env
         let dir = workDir ?? AppConfig.dir
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -282,6 +296,8 @@ final class ClaudeCodeBrain: Brain {
             pending = nil
             if pend.id == cancelledID {
                 pend.cont.resume(throwing: CancellationError())
+            } else if obj["is_error"] as? Bool == true, retryWithThinking(pend, error: (obj["result"] as? String) ?? "") {
+                return
             } else if obj["is_error"] as? Bool == true {
                 let msg = (obj["result"] as? String) ?? "Claude Code returned an error."
                 var err = BrainError(msg)
@@ -299,6 +315,32 @@ final class ClaudeCodeBrain: Brain {
         default:
             break
         }
+    }
+
+    /// The API (or a newer Claude Code) refused the no-thinking request: turn it off for good, restart
+    /// without it and send the same question again, once. Returns false if this error is something else.
+    private func retryWithThinking(_ pend: Pending, error: String) -> Bool {
+        let e = error.lowercased()
+        guard skipThinking, retriedID != pend.id, let line = lastLine,
+              e.contains("400") || e.contains("invalid_request"),
+              e.contains("thinking") || e.contains("context_management") || e.contains("extra") else { return false }
+        Self.skipThinkingBroken = true
+        retriedID = pend.id
+        Timeline.log("brain.thinking", ["model": model, "why": String(error.prefix(160))])
+        NSLog("Poinky: no-thinking request refused (\(error.prefix(160))); retrying with thinking")
+        try? stdin?.close()
+        stdin = nil
+        if let p = process, p.isRunning { p.terminate() }
+        process = nil
+        pending = Pending(cont: pend.cont, onText: pend.onText, id: pend.id)
+        do {
+            try launchIfNeeded()
+            try stdin?.write(contentsOf: line)
+        } catch {
+            pending = nil
+            pend.cont.resume(throwing: BrainError("Couldn't talk to Claude Code: \(error.localizedDescription)"))
+        }
+        return true
     }
 
     // MARK: - Finding `claude`
