@@ -16,17 +16,31 @@
     gray: ['#9aa0a8', '#eceef1'], teal: ['#3aa89a', '#dff3f0'], pink: ['#d36aa8', '#fbe6f2'],
   };
   const INK = '#3b3b3b', MUTED = '#808080', PEN_INK = '#d4a72c';
-  const FONT = '"Noteworthy", "Chalkboard SE", "Marker Felt", ui-rounded, system-ui';
+  const PAPER = '#fbf8f0';
+  // Noteworthy's "1" is a bare stroke, the same as "l" and "I": in math and code that reads wrong, so the
+  // digit 1 comes from Chalkboard SE (a flagged 1 in a matching hand).
+  const FONT = '"PoinkyHand", "Noteworthy", "Chalkboard SE", "Marker Felt", ui-rounded, system-ui';
 
+  const FACES = `
+    @font-face{font-family:PoinkyHand;src:local("Noteworthy-Light"),local("Noteworthy");font-weight:400}
+    @font-face{font-family:PoinkyHand;src:local("Noteworthy-Bold"),local("Noteworthy");font-weight:700}
+    @font-face{font-family:PoinkyHand;src:local("ChalkboardSE-Light"),local("Chalkboard SE");font-weight:400;unicode-range:U+0031}
+    @font-face{font-family:PoinkyHand;src:local("ChalkboardSE-Regular"),local("Chalkboard SE");font-weight:700;unicode-range:U+0031}`;
   const style = document.createElement('style');
-  style.textContent = `
+  style.textContent = FACES + `
     #pen{position:absolute;left:0;top:0;width:26px;height:26px;pointer-events:none;opacity:0;transition:opacity .4s;z-index:50;
       filter:drop-shadow(0 1px 2px rgba(0,0,0,.35))}
     .card.lpaper{border-radius:14px;overflow:hidden;background-color:#fbf8f0;
       background-image:linear-gradient(rgba(0,0,0,.035) 1px,transparent 1px),linear-gradient(90deg,rgba(0,0,0,.035) 1px,transparent 1px);
       background-size:22px 22px;box-shadow:0 22px 60px rgba(0,0,0,.35),0 0 0 1px rgba(0,0,0,.08);animation:lp-in .5s cubic-bezier(.2,.9,.3,1.1)}
     .lpaper .lsvg{display:block;width:100%;overflow:hidden}
-    .lpaper .lsvg text{font-family:${FONT}}
+    .lpaper .lsvg text{font-family:${FONT};white-space:pre;paint-order:stroke;stroke:var(--halo,${PAPER});stroke-width:5px;stroke-linejoin:round}
+    .lpaper .lsvg text.nohalo{stroke:none}
+    .lpaper .save{position:absolute;right:40px;top:5px;height:28px;border-radius:14px;border:0;padding:0 11px;cursor:pointer;z-index:3;
+      background:rgba(30,32,38,.08);color:#5d584c;font:600 12.5px -apple-system,system-ui;transition:background .15s,color .15s,opacity .2s}
+    .lpaper .save:hover{background:rgba(30,32,38,.72);color:#fff}
+    .lpaper .save.done{background:#3a9a5b;color:#fff}
+    .lpaper .save:disabled{opacity:.5;cursor:default}
     @keyframes lp-in{from{opacity:0;transform:translateY(18px) scale(.97)}to{opacity:1;transform:none}}`;
   document.head.appendChild(style);
 
@@ -217,12 +231,14 @@
     Object.assign(c.style, { left: f.x + 'px', top: f.y + 'px', width: f.w + 'px' });
     top = f.y;
     toTop = false; yShift = 0; contentBottom = 0;
-    c.innerHTML = '<div class="bar"><span></span><button class="x" title="Close">✕</button></div>';
+    c.innerHTML = '<div class="bar"><span></span><button class="save" title="Save a picture of this page">Save</button><button class="x" title="Close">✕</button></div>';
     c.querySelector('.bar span').textContent = title || '';
     svg = el('svg', { class: 'lsvg', preserveAspectRatio: 'xMidYMin meet' }, c);
     view = { h: 0, y: 0, vh: 0 };
     defs = el('defs', {}, svg);
     c.querySelector('.x').addEventListener('click', () => { SB.lessonStop(); X.removeCard(c); });
+    c.querySelector('.save').addEventListener('click', e => { e.stopPropagation(); savePaper(c); });
+    c.querySelector('.save').addEventListener('mousedown', e => e.stopPropagation());
     X.dragBy(c.querySelector('.bar'), c);
     // Once you drag it somewhere, it stays there (it still grows and shrinks).
     c.querySelector('.bar').addEventListener('mousedown', () => { c.dataset.moved = '1'; c.style.transition = ''; });
@@ -230,10 +246,70 @@
     setHeight(f.h0 || 240);
     X.cards.appendChild(c);
     for (const k in items) delete items[k];
+    for (const k in graphs) delete graphs[k];
     used = [];
     paperSound();
     X.report();
   }
+  // ---------- keeping a page: a picture of the paper (for revising later) ----------
+  /** The paper as a PNG data URL: everything drawn, on the lined paper, 2× for a sharp print. */
+  function paperPicture(c) {
+    const s = c.querySelector('svg.lsvg');
+    if (!s) return Promise.resolve(null);
+    let bottom = 0;
+    for (const g of s.querySelectorAll(':scope > g')) { try { const b = g.getBBox(); if (b.width || b.height) bottom = Math.max(bottom, b.y + b.height); } catch (e) {} }
+    const h = Math.ceil(Math.max(200, bottom + 36)), title = c.dataset.title || '';
+    // Fills fade in with animations; write where they ended into the elements so the copy has them.
+    for (const a of document.getAnimations()) { const t = a.effect && a.effect.target; if (t && s.contains(t)) { try { a.commitStyles(); } catch (e) {} } }
+    const copy = s.cloneNode(true);
+    copy.querySelectorAll('[clip-path]').forEach(n => n.removeAttribute('clip-path'));   // anything still being written
+    copy.querySelectorAll('text[opacity="0"]').forEach(n => n.remove());
+    copy.removeAttribute('style'); copy.removeAttribute('class');
+    copy.setAttribute('xmlns', NS);
+    copy.setAttribute('width', UNITS * 2); copy.setAttribute('height', h * 2);
+    copy.setAttribute('viewBox', `0 0 ${UNITS} ${h}`);
+    const st = document.createElementNS(NS, 'style');
+    st.textContent = FACES + `text{font-family:${FONT};white-space:pre;paint-order:stroke;stroke:var(--halo,${PAPER});stroke-width:5px;stroke-linejoin:round}`;
+    copy.insertBefore(st, copy.firstChild);
+    const xml = new XMLSerializer().serializeToString(copy);
+    return new Promise(res => {
+      const img = new Image();
+      img.onload = () => {
+        try {
+          const cv = document.createElement('canvas'); cv.width = UNITS * 2; cv.height = h * 2;
+          const x = cv.getContext('2d');
+          x.fillStyle = PAPER; x.fillRect(0, 0, cv.width, cv.height);
+          x.strokeStyle = 'rgba(0,0,0,.05)'; x.lineWidth = 2;
+          for (let gx = 0; gx < cv.width; gx += 44) { x.beginPath(); x.moveTo(gx, 0); x.lineTo(gx, cv.height); x.stroke(); }
+          for (let gy = 0; gy < cv.height; gy += 44) { x.beginPath(); x.moveTo(0, gy); x.lineTo(cv.width, gy); x.stroke(); }
+          x.drawImage(img, 0, 0);
+          res({ png: cv.toDataURL('image/png'), title, width: cv.width, height: cv.height });
+        } catch (e) { res({ svg: xml, title }); }   // a canvas the browser won't read back: keep the drawing as SVG
+      };
+      img.onerror = () => res({ svg: xml, title });
+      img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(xml);
+    });
+  }
+  async function savePaper(c) {
+    const b = c.querySelector('.save');
+    b.disabled = true; b.textContent = 'Saving…';
+    const pic = await paperPicture(c);
+    if (!pic) { b.disabled = false; b.textContent = 'Save'; return; }
+    X.post({ kind: 'saveLesson', title: pic.title, png: pic.png || null, svg: pic.svg || null });
+    SB.lastLessonPicture = pic;   // tests and tools read it
+    // The app answers with SB.lessonSaved(where); without an app (a test page) the button just resets.
+    clearTimeout(b._t); b._t = setTimeout(() => { b.disabled = false; b.textContent = 'Save'; }, 4000);
+  }
+  /** The app saved the page: say where, briefly. */
+  SB.lessonSaved = (where, ok = true) => {
+    const b = paper && paper.querySelector('.save');
+    if (!b) return;
+    b.disabled = false; b.textContent = ok ? `Saved to ${where} ✓` : "Couldn't save";
+    b.classList.toggle('done', !!ok);
+    clearTimeout(b._t); b._t = setTimeout(() => { b.textContent = 'Save'; b.classList.remove('done'); }, 2600);
+  };
+  SB.lessonPicture = () => paper && paper.isConnected ? paperPicture(paper) : Promise.resolve(null);
+
   function retire(c) {
     if (!c) return;
     c.classList.add('leaving');
@@ -265,32 +341,254 @@
     return g;
   }
 
-  async function writeText(g, o) {
-    const size = o.size || 22;
-    const t = el('text', {
-      x: o.x, y: o.y, 'font-size': size, fill: textColor(o.color),
-      'text-anchor': o.align === 'center' ? 'middle' : (o.align === 'right' ? 'end' : 'start'),
-      'font-weight': o.bold ? 700 : 400,
-    }, g);
-    t.textContent = o.text || '';
-    let bb = t.getBBox();
-    if (o.free !== false) {
-      const dy = freeShift({ x: bb.x, y: bb.y, w: bb.width, h: bb.height });
-      if (dy) { o = { ...o, y: o.y + dy }; t.setAttribute('y', o.y); bb = t.getBBox(); }
-      claim({ x: bb.x, y: bb.y, w: bb.width, h: bb.height }, o.id);
+  // ---------- math: a small TeX-like notation drawn in the handwriting ----------
+  // x^2, x^{n+1}, a_1, \frac{dy}{dx}, \sqrt{x}, \cdot \times \to \le \pi \Delta …, \text{words}.
+  // In math, * is a dot, -> an arrow, <= / >= / != the real signs.
+  const SYM = {
+    alpha: 'α', beta: 'β', gamma: 'γ', Gamma: 'Γ', delta: 'δ', Delta: 'Δ', epsilon: 'ε', varepsilon: 'ε', zeta: 'ζ', eta: 'η',
+    theta: 'θ', Theta: 'Θ', kappa: 'κ', lambda: 'λ', Lambda: 'Λ', mu: 'μ', nu: 'ν', xi: 'ξ', pi: 'π', Pi: 'Π', rho: 'ρ',
+    sigma: 'σ', Sigma: 'Σ', tau: 'τ', phi: 'φ', varphi: 'φ', Phi: 'Φ', chi: 'χ', psi: 'ψ', Psi: 'Ψ', omega: 'ω', Omega: 'Ω',
+    infty: '∞', cdot: '·', times: '×', div: '÷', pm: '±', mp: '∓', to: '→', rightarrow: '→', Rightarrow: '⇒', implies: '⇒',
+    leftarrow: '←', leftrightarrow: '↔', iff: '⇔', le: '≤', leq: '≤', ge: '≥', geq: '≥', ne: '≠', neq: '≠', approx: '≈',
+    equiv: '≡', sim: '∼', propto: '∝', int: '∫', sum: 'Σ', prod: 'Π', partial: '∂', nabla: '∇', circ: '∘', degree: '°',
+    in: '∈', notin: '∉', subset: '⊂', cup: '∪', cap: '∩', emptyset: '∅', forall: '∀', exists: '∃', neg: '¬', land: '∧', lor: '∨',
+    ldots: '…', dots: '…', cdots: '⋯', angle: '∠', perp: '⊥', parallel: '∥', triangle: '△', prime: '′', ',': ' ', ';': ' ', ' ': ' ', quad: '  ',
+    sin: 'sin', cos: 'cos', tan: 'tan', ln: 'ln', log: 'log', exp: 'exp', lim: 'lim', max: 'max', min: 'min',
+    left: '', right: '', displaystyle: '', '{': '{', '}': '}', '%': '%', '$': '$', '#': '#', '_': '_', '&': '&',
+  };
+  /** Mathy text: a hint to draw it as math even without "math": true. */
+  const looksMath = s => /\\(frac|sqrt|cdot|times|pi|theta|alpha|Delta|int|sum|le|ge|to)\b|\^[{(\d]|_\{/.test(s);
+  // Chemical formulas in plain text (H2O, CO2, C6H12O6) get their numbers written small and low.
+  const ELEMENTS = new Set('H He Li Be B C N O F Ne Na Mg Al Si P S Cl Ar K Ca Ti Cr Mn Fe Co Ni Cu Zn Br Ag Sn I Au Hg Pb U'.split(' '));
+  const NOT_CHEM = new Set(['PS2', 'PS3', 'PS4', 'PS5', 'CS2', 'K2', 'B12', 'F35', 'F16', 'C4', 'U2']);
+  function chemParts(word) {
+    if (NOT_CHEM.has(word) || !/\d/.test(word) || !/^([A-Z][a-z]?\d*)+$/.test(word)) return null;
+    const parts = word.match(/[A-Z][a-z]?\d*/g);
+    if (!parts.every(p => ELEMENTS.has(p.replace(/\d+/, '')))) return null;
+    if (parts.length < 2 && !['H2', 'O2', 'N2', 'Cl2', 'O3'].includes(word)) return null;
+    return word.split(/(\d+)/).filter(Boolean);
+  }
+  /** Fills a text element, writing chemical formulas with subscripts. */
+  function fillText(t, str, size) {
+    const words = str.split(/(\b[A-Za-z0-9]+\b)/);
+    if (!words.some(w => chemParts(w))) { t.textContent = str; return; }
+    let low = false;
+    for (const w of words) {
+      const parts = chemParts(w);
+      for (const p of parts || [w]) {
+        const sub = !!parts && /^\d+$/.test(p);
+        const span = el('tspan', {}, t);
+        if (sub !== low) { span.setAttribute('dy', (sub ? .28 : -.28) * size); low = sub; }
+        if (sub) span.setAttribute('font-size', size * .68);
+        span.textContent = p;
+      }
     }
-    grow(bb.y + bb.height);
+  }
+  /** A JSON "\frac" arrives as a form feed + "rac" (and \t, \b, \n, \r likewise): put the backslash back. */
+  const unescapeTex = s => s.replace(/\f/g, '\\f').replace(/\t/g, '\\t').replace(/\x08/g, '\\b').replace(/\r/g, '\\r')
+    .replace(/\n(?=[a-zA-Z])/g, '\\n');
+
+  function parseTex(src) {
+    let i = 0;
+    const s = unescapeTex(src).replace(/->/g, '→').replace(/-/g, '−').replace(/<=/g, '≤').replace(/>=/g, '≥').replace(/!=/g, '≠')
+      .replace(/(\S)\s*\*\s*(?=\S)/g, '$1 · ').replace(/'/g, '′');
+    function group(stop) {
+      const out = [];
+      while (i < s.length && s[i] !== stop) {
+        const c = s[i];
+        if (c === '^' || c === '_') {
+          i++;
+          const arg = argument();
+          let base = out.pop() || { t: 'text', s: '' };
+          if (base.t !== 'script') base = { t: 'script', base, sup: null, sub: null };
+          base[c === '^' ? 'sup' : 'sub'] = arg;
+          out.push(base);
+        } else out.push(atom());
+      }
+      if (stop && s[i] === stop) i++;
+      return out;
+    }
+    function argument() {
+      while (s[i] === ' ') i++;
+      if (s[i] === '{') { i++; return group('}'); }
+      if (s[i] === '\\') return [atom()];
+      if (s[i] === '(') {   // calculator style: e^(2x), x^(n+1)
+        let depth = 0, j = i;
+        for (; j < s.length; j++) { if (s[j] === '(') depth++; else if (s[j] === ')' && --depth === 0) break; }
+        const inner = s.slice(i + 1, j); i = Math.min(s.length, j + 1);
+        return parseTex(inner);
+      }
+      // Without braces: a number (x^10, 2^-n), or else one character (H_2O, e^x).
+      const m = /^[-+−]?(\d+(\.\d+)?|[^\s\d])/.exec(s.slice(i));
+      if (!m) return [];
+      i += m[0].length;
+      return [{ t: 'text', s: m[0].replace('-', '−') }];
+    }
+    function atom() {
+      const c = s[i];
+      if (c === '{') { i++; return { t: 'row', items: group('}') }; }
+      if (c === '\\') {
+        i++;
+        let name = '';
+        if (/[a-zA-Z]/.test(s[i] || '')) while (/[a-zA-Z]/.test(s[i] || '')) name += s[i++];
+        else name = s[i++] || '';
+        if (name === 'frac' || name === 'dfrac' || name === 'tfrac') { const num = argument(), den = argument(); return { t: 'frac', num, den }; }
+        if (name === 'sqrt') { let idx = null; if (s[i] === '[') { const e = s.indexOf(']', i); idx = s.slice(i + 1, e); i = e + 1; } return { t: 'sqrt', body: argument(), idx }; }
+        if (name === 'text' || name === 'mathrm' || name === 'textbf' || name === 'mathbf' || name === 'operatorname') {
+          if (s[i] === '{') { const e = s.indexOf('}', i); const txt = s.slice(i + 1, e < 0 ? s.length : e); i = e < 0 ? s.length : e + 1; return { t: 'text', s: txt }; }
+          return { t: 'text', s: '' };
+        }
+        if (name === 'overline' || name === 'bar' || name === 'vec' || name === 'hat') return { t: 'over', body: argument(), kind: name };
+        return { t: 'text', s: name in SYM ? SYM[name] : name };
+      }
+      // A run of plain characters (a script attaches after it, which looks the same as after its last letter).
+      let run = '';
+      while (i < s.length && !'^_{}\\'.includes(s[i])) {
+        // Stop before the base of a script so "2x^2" raises only past "x" (same place, but keeps sizes right).
+        if ((s[i + 1] === '^' || s[i + 1] === '_') && run) break;
+        run += s[i++];
+      }
+      return { t: 'text', s: run };
+    }
+    return group(null);
+  }
+
+  /** Lays out parsed math; returns a box {w, a, d, draw(parent, x, y)} (a/d: height above/below the baseline). */
+  function layoutTex(nodes, size, color, measure) {
+    function text(str) {
+      const w = measure(str, size);
+      return { w, a: size * .74, d: size * .24, draw(p, x, y) { const t = el('text', { x, y, 'font-size': size, fill: color }, p); t.textContent = str; } };
+    }
+    function row(list, sz) { return layoutTex(list, sz, color, measure); }
+    const boxes = nodes.map(n => {
+      if (n.t === 'text') return text(n.s);
+      if (n.t === 'row') return row(n.items, size);
+      if (n.t === 'script') {
+        const b = layoutTex([n.base], size, color, measure);
+        const ss = Math.max(11, size * .66);
+        const up = n.sup && row(n.sup, ss), dn = n.sub && row(n.sub, ss);
+        const rise = Math.max(size * .4, b.a - ss * .45), drop = Math.max(size * .18, b.d * .6);
+        const w = b.w + 1 + Math.max(up ? up.w : 0, dn ? dn.w : 0);
+        return {
+          w, a: Math.max(b.a, up ? rise + up.a : 0), d: Math.max(b.d, dn ? drop + dn.d : 0),
+          draw(p, x, y) { b.draw(p, x, y); if (up) up.draw(p, x + b.w + 1, y - rise); if (dn) dn.draw(p, x + b.w + 1, y + drop); },
+        };
+      }
+      if (n.t === 'frac') {
+        const fs = Math.max(13, size * .86), num = row(n.num, fs), den = row(n.den, fs), pad = size * .14;
+        const w = Math.max(num.w, den.w) + 2 * pad, axis = size * .3, gap = size * .14;
+        return {
+          w: w + size * .12, a: axis + gap + num.d + num.a, d: Math.max(0, gap + den.a + den.d - axis),
+          draw(p, x, y) {
+            num.draw(p, x + (w - num.w) / 2, y - axis - gap - num.d);
+            den.draw(p, x + (w - den.w) / 2, y - axis + gap + den.a);
+            el('path', { d: `M${x + 1},${y - axis + jit(.6)} Q${x + w / 2},${y - axis + jit(1.2)} ${x + w - 1},${y - axis + jit(.6)}`, fill: 'none', stroke: color, 'stroke-width': Math.max(1.6, size / 14), 'stroke-linecap': 'round' }, p);
+          },
+        };
+      }
+      if (n.t === 'sqrt') {
+        const b = row(n.body, size), h = size * .1, lead = size * .62;
+        const ix = n.idx ? row([{ t: 'text', s: n.idx }], Math.max(10, size * .5)) : null;
+        return {
+          w: lead + b.w + size * .12, a: b.a + h + 2, d: b.d,
+          draw(p, x, y) {
+            const top = y - b.a - h, bot = y + b.d;
+            el('path', { d: `M${x},${y - size * .28} L${x + size * .14},${y - size * .36} L${x + size * .32},${bot} L${x + lead - size * .06},${top} L${x + lead + b.w + size * .1},${top + jit(.6)}`, fill: 'none', stroke: color, 'stroke-width': Math.max(1.6, size / 15), 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }, p);
+            if (ix) ix.draw(p, x, y - size * .45);
+            b.draw(p, x + lead, y);
+          },
+        };
+      }
+      if (n.t === 'over') {
+        const b = row(n.body, size);
+        return {
+          w: b.w, a: b.a + size * .16, d: b.d,
+          draw(p, x, y) {
+            b.draw(p, x, y);
+            const ty = y - b.a - size * .06;
+            el('path', { d: n.kind === 'vec' ? `M${x},${ty} L${x + b.w},${ty} M${x + b.w - 6},${ty - 4} L${x + b.w},${ty} L${x + b.w - 6},${ty + 4}` : `M${x},${ty} L${x + b.w},${ty}`, fill: 'none', stroke: color, 'stroke-width': 1.6, 'stroke-linecap': 'round' }, p);
+          },
+        };
+      }
+      return text('');
+    });
+    const w = boxes.reduce((t, b) => t + b.w, 0);
+    return {
+      w, a: Math.max(size * .74, ...boxes.map(b => b.a)), d: Math.max(size * .24, ...boxes.map(b => b.d)),
+      draw(p, x, y) { let cx = x; for (const b of boxes) { b.draw(p, cx, y); cx += b.w; } },
+    };
+  }
+
+  let measurer = null;
+  function measure(str, size, bold) {
+    if (!measurer || !measurer.isConnected) { measurer = el('text', { x: -9999, y: -9999, opacity: 0 }, svg); }
+    measurer.setAttribute('font-size', size);
+    measurer.setAttribute('font-weight', bold ? 700 : 400);
+    measurer.textContent = str;
+    return str ? measurer.getComputedTextLength() : 0;
+  }
+
+  /** Draws math at baseline (x, y) in group g; returns the group holding it. */
+  function drawMath(g, src, x, y, size, color, align, bold) {
+    const box = layoutTex(parseTex(String(src)), size, color, (s, z) => measure(s, z, bold));
+    const x0 = align === 'center' ? x - box.w / 2 : align === 'right' ? x - box.w : x;
+    const m = el('g', { class: 'math', 'font-weight': bold ? 700 : 400 }, g);
+    box.draw(m, x0, y);
+    return m;
+  }
+
+  /** Reveals node (text or a group) left to right while the pen writes along it. */
+  async function reveal(node, bb, size, baseY) {
     const id = 'clip' + (++uid);
     const cp = el('clipPath', { id }, defs);
     const r = el('rect', { x: bb.x - 3, y: bb.y - 6, width: 0, height: bb.height + 12 }, cp);
-    t.setAttribute('clip-path', `url(#${id})`);
-    const baseY = o.y - size * .3;
+    node.setAttribute('clip-path', `url(#${id})`);
     await penTo(...onScreen(bb.x, baseY));
-    const ok = await tween(Math.max(.2, (o.text || '').length / 26) / pace, u => {
+    const chars = Math.max(1, bb.width / (size * .5));
+    const ok = await tween(Math.max(.2, chars / 26) / pace, u => {
       r.setAttribute('width', (bb.width + 6) * u);
       setPen(...onScreen(bb.x + bb.width * u, baseY + Math.sin(u * 50) * size * .1));
     });
-    if (ok) { t.removeAttribute('clip-path'); cp.remove(); } else { r.setAttribute('width', bb.width + 6); }
+    if (ok) { node.removeAttribute('clip-path'); cp.remove(); } else { r.setAttribute('width', bb.width + 6); }
+  }
+
+  async function writeText(g, o) {
+    const size = o.size || 22;
+    const color = textColor(o.color);
+    const isMath = o.op === 'math' || o.math === true || (o.math !== false && looksMath(o.text || ''));
+    let node;
+    if (isMath) node = drawMath(g, o.text || o.tex || '', o.x, o.y, size, color, o.align, o.bold);
+    else {
+      node = el('text', {
+        x: o.x, y: o.y, 'font-size': size, fill: color,
+        'text-anchor': o.align === 'center' ? 'middle' : (o.align === 'right' ? 'end' : 'start'),
+        'font-weight': o.bold ? 700 : 400,
+      }, g);
+      node.setAttributeNS('http://www.w3.org/XML/1998/namespace', 'xml:space', 'preserve');
+      fillText(node, o.text || '', size);
+    }
+    if (o.halo) node.style.setProperty('--halo', o.halo);
+    let bb = node.getBBox();
+    // Too wide for the paper: shrink it to fit (never past the right margin).
+    const maxW = UNITS - 24 - (o.align === 'center' ? 0 : Math.max(0, bb.x));
+    if (o.fit !== false && bb.width > maxW + 1 && bb.x >= 0) {
+      const k = Math.max(.55, maxW / bb.width);
+      node.remove();
+      return writeText(g, { ...o, size: size * k, fit: false });
+    }
+    if (o.free !== false) {
+      const dy = freeShift({ x: bb.x, y: bb.y, w: bb.width, h: bb.height });
+      if (dy) {
+        o = { ...o, y: o.y + dy };
+        if (isMath) { node.remove(); node = drawMath(g, o.text || o.tex || '', o.x, o.y, size, color, o.align, o.bold); }
+        else node.setAttribute('y', o.y);
+        bb = node.getBBox();
+      }
+      claim({ x: bb.x, y: bb.y, w: bb.width, h: bb.height }, o.id);
+    }
+    grow(bb.y + bb.height);
+    await reveal(node, bb, size, o.y - size * .3);
+    return bb;
   }
 
   function roundRect(x, y, w, h, r) {
@@ -311,7 +609,13 @@
     const p = el('path', { d: roundRect(x, y, w, h, 8), fill: 'none', stroke, 'stroke-width': 2.4, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }, g);
     await drawPath(p, onScreen, 1400);
     bg.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 250, fill: 'forwards' });
-    if (o.text) await writeText(g, { x: x + w / 2, y: y + h / 2 + (o.size || 26) * .35, text: o.text, size: o.size || 26, align: 'center', color: o.textColor, free: false });
+    if (o.text) {
+      // Long text shrinks to fit inside the box.
+      let size = o.size || 26;
+      const tw = measure(o.text, size);
+      if (!looksMath(o.text) && !o.math && tw > w - 16) size = Math.max(13, size * (w - 16) / tw);
+      await writeText(g, { x: x + w / 2, y: y + h / 2 + size * .35, text: o.text, size, align: 'center', color: o.textColor, free: false, halo: fill, math: o.math, fit: false });
+    }
   }
 
   async function arrow(o, parent, toScreen, colorDefault) {
@@ -330,7 +634,28 @@
       fill: 'none', stroke: col, 'stroke-width': wdt, 'stroke-linecap': 'round', 'stroke-linejoin': 'round',
     }, g);
     await drawPath(head, toScreen, 900);
-    if (o.label && (parent === svg || !parent)) await writeText(g, { x: cx, y: cy - 12, text: o.label, size: 18, align: 'center', color: 'gray', free: false });
+    if (o.label && (parent === svg || !parent)) await arrowLabel(g, o.label, [x1, y1], [cx, cy], [x2, y2], o.id);
+  }
+
+  /** An arrow's label goes beside the middle of the arrow (not on it), on the side with more room. */
+  async function arrowLabel(g, label, p0, c, p2, id) {
+    const size = 18;
+    const mx = .25 * p0[0] + .5 * c[0] + .25 * p2[0], my = .25 * p0[1] + .5 * c[1] + .25 * p2[1];
+    let tx = p2[0] - p0[0], ty = p2[1] - p0[1];
+    const L = Math.hypot(tx, ty) || 1; tx /= L; ty /= L;
+    let nx = -ty, ny = tx;                      // a normal; make it point up (or left for vertical arrows)
+    if (ny > 0 || (Math.abs(ny) < .2 && nx > 0)) { nx = -nx; ny = -ny; }
+    const w = measure(label, size) + 6, h = size * 1.1;
+    const spot = side => {
+      // How far out the label's center must be so its box clears the line: half its extent along the normal.
+      const reach = Math.abs(nx) * w / 2 + Math.abs(ny) * h / 2 + 6;
+      const cx = mx + side * nx * reach, cy = my + side * ny * reach;
+      return { x: cx - w / 2, y: cy - h / 2, w, h };
+    };
+    const cost = r => used.reduce((t, b) => t + overlap(r, b), 0) + (r.x < 4 || r.x + r.w > UNITS - 4 || r.y < 4 ? 1e6 : 0);
+    const a = spot(1), b = spot(-1), r = cost(b) < cost(a) * .6 ? b : a;
+    claim(r, id);
+    await writeText(g, { x: r.x + r.w / 2, y: r.y + r.h / 2 + size * .33, text: label, size, align: 'center', color: 'gray', free: false, fit: false });
   }
 
   async function line(o) {
@@ -369,7 +694,7 @@
     const p = el('path', { d: circlePath(o.x, o.y, r), fill: 'none', stroke, 'stroke-width': 2.4, 'stroke-linecap': 'round' }, g);
     await drawPath(p, onScreen, 700);
     bg.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 200, fill: 'forwards' });
-    if (o.text) await writeText(g, { x: o.x, y: o.y + 7, text: o.text, size: 18, align: 'center', free: false });
+    if (o.text) await writeText(g, { x: o.x, y: o.y + 7, text: o.text, size: 18, align: 'center', free: false, halo: o.fill === false ? undefined : fill, fit: false });
   }
 
   async function check(o) {
@@ -386,6 +711,162 @@
     el('circle', { cx: o.x, cy: o.y, r: 14, fill: '#fff6d8' }, g).style.opacity = 0;
     await drawPath(p, onScreen, 700);
     await writeText(g, { x: o.x, y: o.y + 6, text: String(o.n ?? ''), size: 17, align: 'center', free: false });
+  }
+
+  // ---------- graphs: axes, curves and points ----------
+  /** A function of x from text like "x^2 - 2x + 1", "sin(x)", "2^x", "sqrt(x)/2" (no code is run, only this math). */
+  function compileFn(src) {
+    const s = String(src).replace(/\s+/g, '').replace(/\*\*/g, '^').replace(/·|×/g, '*').replace(/−/g, '-').replace(/^y=|^f\(x\)=/, '');
+    let i = 0;
+    const F = { sin: Math.sin, cos: Math.cos, tan: Math.tan, exp: Math.exp, ln: Math.log, log: Math.log10, sqrt: Math.sqrt, abs: Math.abs,
+      asin: Math.asin, acos: Math.acos, atan: Math.atan, floor: Math.floor, round: Math.round, sign: Math.sign };
+    const C = { pi: Math.PI, e: Math.E, 'π': Math.PI };
+    function expr() { let f = term(); while (s[i] === '+' || s[i] === '-') { const op = s[i++], a = f, b = term(); f = op === '+' ? x => a(x) + b(x) : x => a(x) - b(x); } return f; }
+    function term() {
+      let f = unary();
+      for (;;) {
+        if (s[i] === '*' || s[i] === '/') { const op = s[i++], a = f, b = unary(); f = op === '*' ? x => a(x) * b(x) : x => a(x) / b(x); }
+        else if (i < s.length && /[0-9a-zπ.(]/i.test(s[i])) { const a = f, b = power(); f = x => a(x) * b(x); }   // 2x, 3(x+1), x sin(x)
+        else return f;
+      }
+    }
+    function unary() { if (s[i] === '-') { i++; const a = unary(); return x => -a(x); } if (s[i] === '+') { i++; return unary(); } return power(); }
+    function power() { const a = atom(); if (s[i] === '^') { i++; const b = unary(); return x => Math.pow(a(x), b(x)); } return a; }
+    function atom() {
+      const c = s[i];
+      if (c === '(') { i++; const f = expr(); if (s[i] === ')') i++; return f; }
+      if (/[0-9.]/.test(c)) { let n = ''; while (/[0-9.]/.test(s[i] || '')) n += s[i++]; const v = parseFloat(n); return () => v; }
+      if (c === 'x' && !/[a-z]/i.test(s[i + 1] || '')) { i++; return x => x; }
+      let name = '';
+      while (/[a-zπ]/i.test(s[i] || '')) name += s[i++];
+      if (F[name.toLowerCase()]) { const fn = F[name.toLowerCase()], a = s[i] === '(' ? atom() : power(); return x => fn(a(x)); }
+      if (name.toLowerCase() in C) { const v = C[name.toLowerCase()]; return () => v; }
+      if (name === 'x') return x => x;
+      // Letters run together ("xe", "pix"): read them one at a time.
+      if (name) { i -= name.length - 1; return atomOf(name[0]); }
+      throw new Error('bad expression at ' + i);
+    }
+    const atomOf = ch => ch === 'x' ? (x => x) : ch in C ? (() => C[ch]) : (() => { throw new Error('unknown ' + ch); });
+    const f = expr();
+    if (i < s.length) throw new Error('bad expression at ' + i);
+    return f;
+  }
+
+  const graphs = {};
+  /** A nice tick step for a range: 1, 2 or 5 × a power of ten, about 4–8 ticks. */
+  function niceStep(span) { const raw = span / 5, p = Math.pow(10, Math.floor(Math.log10(raw))), m = raw / p; return (m < 1.5 ? 1 : m < 3.5 ? 2 : m < 7.5 ? 5 : 10) * p; }
+  const fmtTick = v => { const r = Math.round(v * 1000) / 1000; return (r < 0 ? '−' : '') + Math.abs(r); };
+
+  async function graph(o) {
+    const g = group(o);
+    const x = o.x ?? 60, w = Math.min(o.w || 320, UNITS - 20 - x), h = o.h || 220;
+    const xr = o.xrange || o.x_range || [-5, 5], yr = o.yrange || o.y_range || [-5, 5];
+    const y = o.y + freeShift({ x: x - 30, y: o.y - 14, w: w + 50, h: h + 44 });
+    claim({ x: x - 30, y: y - 14, w: w + 50, h: h + 44 }, o.id);
+    grow(y + h + 34);
+    const X = v => x + (v - xr[0]) / (xr[1] - xr[0]) * w, Y = v => y + h - (v - yr[0]) / (yr[1] - yr[0]) * h;
+    graphs[o.id || '_'] = { X, Y, xr, yr, x, y, w, h, g, id: o.id };
+    graphs._last = graphs[o.id || '_'];
+    const col = MUTED;
+    // Axes cross at 0 when 0 is in range, otherwise sit on the edge.
+    const ax = Math.max(xr[0], Math.min(xr[1], 0)), ay = Math.max(yr[0], Math.min(yr[1], 0));
+    if (o.grid) {
+      const sx = niceStep(xr[1] - xr[0]), sy = niceStep(yr[1] - yr[0]);
+      let d = '';
+      for (let v = Math.ceil(xr[0] / sx) * sx; v <= xr[1] + 1e-9; v += sx) d += `M${X(v)},${y} L${X(v)},${y + h} `;
+      for (let v = Math.ceil(yr[0] / sy) * sy; v <= yr[1] + 1e-9; v += sy) d += `M${x},${Y(v)} L${x + w},${Y(v)} `;
+      el('path', { d, stroke: 'rgba(0,0,0,.08)', 'stroke-width': 1, fill: 'none' }, g).animate([{ opacity: 0 }, { opacity: 1 }], { duration: 300, fill: 'forwards' });
+    }
+    const axis = (d) => el('path', { d, fill: 'none', stroke: col, 'stroke-width': 2, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }, g);
+    await drawPath(axis(`M${x - 6},${Y(ay)} L${x + w + 8},${Y(ay) + jit(.8)} M${x + w},${Y(ay) - 5} L${x + w + 8},${Y(ay)} L${x + w},${Y(ay) + 5}`), onScreen, 1600);
+    await drawPath(axis(`M${X(ax)},${y + h + 6} L${X(ax) + jit(.8)},${y - 8} M${X(ax) - 5},${y} L${X(ax)},${y - 8} L${X(ax) + 5},${y}`), onScreen, 1600);
+    if (o.ticks !== false) {
+      const sx = o.xstep || niceStep(xr[1] - xr[0]), sy = o.ystep || niceStep(yr[1] - yr[0]);
+      const tg = el('g', {}, g);
+      let d = '';
+      for (let v = Math.ceil(xr[0] / sx) * sx; v <= xr[1] + 1e-9; v += sx) {
+        if (Math.abs(v - ax) < sx / 2 && ax !== xr[0]) continue;
+        d += `M${X(v)},${Y(ay) - 4} L${X(v)},${Y(ay) + 4} `;
+        const t = el('text', { x: X(v), y: Math.min(y + h + 26, Y(ay) + 21), 'font-size': 14, fill: col, 'text-anchor': 'middle' }, tg); t.textContent = fmtTick(v);
+      }
+      for (let v = Math.ceil(yr[0] / sy) * sy; v <= yr[1] + 1e-9; v += sy) {
+        if (Math.abs(v - ay) < sy / 2 && ay !== yr[0]) continue;
+        d += `M${X(ax) - 4},${Y(v)} L${X(ax) + 4},${Y(v)} `;
+        const t = el('text', { x: Math.max(x - 8, X(ax) - 9), y: Y(v) + 5, 'font-size': 14, fill: col, 'text-anchor': 'end' }, tg); t.textContent = fmtTick(v);
+      }
+      el('path', { d, stroke: col, 'stroke-width': 1.6, fill: 'none', 'stroke-linecap': 'round' }, tg);
+      tg.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 350, fill: 'forwards' });
+    }
+    if (o.xlabel) await writeText(g, { x: x + w + 14, y: Y(ay) + 6, text: o.xlabel, size: 20, color: 'gray', free: false, fit: false });
+    if (o.ylabel) await writeText(g, { x: X(ax) + 10, y: y - 6, text: o.ylabel, size: 20, color: 'gray', free: false, fit: false });
+  }
+
+  /** A curve on a graph: "fn" (a function of x) or "points" (data, joined). */
+  async function plot(o) {
+    const gr = graphs[o.graph] || graphs._last;
+    if (!gr) return;
+    const g = group(o, gr.g.parentNode === svg ? svg : svg);
+    const col = theme(o.color) ? theme(o.color)[0] : (o.color || THEME.blue[0]);
+    let pts = [];
+    const from = (o.from ?? gr.xr[0]), to = (o.to ?? gr.xr[1]);
+    if (Array.isArray(o.points)) pts = o.points.map(p => [+p[0], +p[1]]);
+    else if (o.fn) {
+      let f; try { f = compileFn(o.fn); } catch (e) { return; }
+      const n = 160;
+      for (let k = 0; k <= n; k++) { const xv = from + (to - from) * k / n; let yv; try { yv = f(xv); } catch (e) { yv = NaN; } pts.push([xv, yv]); }
+    }
+    // Split where the curve leaves the graph (or isn't defined), and clip to its box.
+    const span = gr.yr[1] - gr.yr[0], segs = [];
+    let cur = [];
+    for (const [xv, yv] of pts) {
+      if (!isFinite(yv) || yv < gr.yr[0] - span * .02 || yv > gr.yr[1] + span * .02) { if (cur.length > 1) segs.push(cur); cur = []; continue; }
+      cur.push([gr.X(xv), gr.Y(yv)]);
+    }
+    if (cur.length > 1) segs.push(cur);
+    gr.pts = (gr.pts || []).concat(...segs);
+    for (const seg of segs) {
+      const p = el('path', { d: seg.map((q, k) => (k ? 'L' : 'M') + q[0].toFixed(1) + ',' + q[1].toFixed(1)).join(' '), fill: 'none', stroke: col,
+        'stroke-width': o.width || 2.8, 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'stroke-dasharray': o.dashed ? '7 7' : undefined }, g);
+      if (o.dashed) { p.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 300, fill: 'forwards' }); await penTo(...onScreen(...seg[seg.length - 1])); }
+      else await drawPath(p, onScreen, 700);
+    }
+    if (o.label && segs.length) {
+      // At the end of the curve, nudged inside the paper.
+      const last = segs[segs.length - 1], [lx, ly] = last[last.length - 1];
+      const size = 20, lw = measure(o.label, size);
+      const x = Math.min(lx + 8, UNITS - 16 - lw), y = Math.max(ly + (ly < gr.y + 20 ? 22 : -8), 24);
+      await writeText(g, { x, y, text: o.label, size, color: o.color || 'blue', free: false, fit: false, math: o.math });
+    }
+  }
+
+  /** A dot on a graph at data coordinates, with an optional label. */
+  async function point(o) {
+    const gr = graphs[o.graph] || graphs._last;
+    if (!gr || !Array.isArray(o.at)) return;
+    const g = group(o);
+    const [stroke] = theme(o.color) || THEME.red;
+    const px = gr.X(+o.at[0]), py = gr.Y(+o.at[1]);
+    if (o.guides) {
+      const d = `M${px},${py} L${px},${gr.Y(Math.max(gr.yr[0], Math.min(gr.yr[1], 0)))} M${px},${py} L${gr.X(Math.max(gr.xr[0], Math.min(gr.xr[1], 0)))},${py}`;
+      el('path', { d, stroke: stroke, 'stroke-width': 1.6, 'stroke-dasharray': '5 6', fill: 'none', opacity: .7 }, g);
+    }
+    const p = el('path', { d: circlePath(px, py, 5), fill: stroke, stroke, 'stroke-width': 2 }, g);
+    await drawPath(p, onScreen, 300);
+    if (o.label) {
+      // Of the four corners around the dot, the one that covers the least of the curves and other labels.
+      const size = 18, lw = measure(o.label, size), lh = size;
+      const spots = [[px + 10, py - 10], [px - 10 - lw, py - 10], [px + 10, py + 10 + lh * .8], [px - 10 - lw, py + 10 + lh * .8]];
+      const cost = ([x, y]) => {
+        const r = { x: x - 2, y: y - lh * .8, w: lw + 4, h: lh };
+        let c = (gr.pts || []).filter(([qx, qy]) => qx > r.x && qx < r.x + r.w && qy > r.y && qy < r.y + r.h).length * 40;
+        c += used.reduce((t, b) => t + (b.id === gr.id ? 0 : overlap(r, b)), 0);
+        if (r.x < 4 || r.x + r.w > UNITS - 4) c += 1e6;
+        return c;
+      };
+      const [x, y] = spots.reduce((best, sp) => cost(sp) < cost(best) ? sp : best);
+      await writeText(g, { x, y, text: o.label, size, color: o.color || 'red', free: false, fit: false, math: o.math });
+      claim({ x, y: y - lh * .8, w: lw, h: lh }, o.id);
+    }
   }
 
   /** Circle or underline something already on the paper. */
@@ -454,7 +935,7 @@
 
   async function doOp(o, k) {
     if (!paper || !paper.isConnected) return;
-    if (['text', 'box', 'arrow', 'line', 'dot', 'circle', 'check', 'number'].includes(o.op)) {
+    if (['text', 'math', 'graph', 'axes', 'box', 'arrow', 'line', 'dot', 'circle', 'check', 'number'].includes(o.op)) {
       const t = opTop(o);
       if (toTop && t != null) { yShift = t > 80 ? 40 - t : 0; toTop = false; }
       // Drawing that already starts near the top again doesn't need moving up any more.
@@ -462,7 +943,10 @@
       o = shifted(o, yShift);
     }
     switch (o.op) {
-      case 'text': return writeText(group(o), o);
+      case 'text': case 'math': return writeText(group(o), o);
+      case 'graph': case 'axes': return graph(o);
+      case 'plot': return plot(o);
+      case 'point': return point(o);
       case 'box': return box(o);
       case 'arrow': return arrow(o, svg, onScreen);
       case 'line': return line(o);
@@ -518,6 +1002,9 @@
     queue.push({ ops: (spec && spec.ops) || [], k: k || 1 });
     run();
   };
+  /** Still drawing (for tests and tools). */
+  SB.lessonBusy = () => running || queue.length > 0;
+  SB._lessonTest = { compileFn, parseTex, items };
   SB.lessonStop = () => {
     token++;
     queue = [];
