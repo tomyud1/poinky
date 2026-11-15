@@ -43,7 +43,7 @@ Writing the narration:
 - Clean whiteboard style: lots of space, a few boxes and arrows, short labels (1–4 words), one idea per step.
 - Lay it out like a good set of notes, top to bottom: headline, then the picture or worked example, then the result, boxed or underlined. Keep 30+ units between things; text is about 0.5 × size units wide per character (size 26: ~13 units a letter), so check that a line fits before the right margin and that nothing is drawn on top of something else.
 - Worked math: one step per line, equals signs roughly lined up (same x), the answer last and marked (`mark` underline or circle). Say what you do to get from one line to the next.
-- What the narration says must match the drawing exactly (if you say "the square root of", draw `\\sqrt{}`).
+- What the narration says must match the drawing exactly (if you say "the square root of", draw `\\sqrt{}`). Choose your example and its numbers before the first line, and never correct yourself out loud: you can't take back a spoken line.
 
 ### Drawing operations (each step is a JSON array of these)
 Give every op an `id` so you can refer to it later.
