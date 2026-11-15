@@ -28,7 +28,7 @@ final class Speaker {
     private var converter: AVAudioConverter?
     private(set) var spokenText = ""  // this turn's text, used to spot our own echo
 
-    var isSpeaking: Bool { turnActive && (synthesizing || buffersPlaying > 0 || !queue.isEmpty) }
+    var isSpeaking: Bool { turnActive && (synthesizing || buffersPlaying > 0 || !queue.isEmpty || !segments.isEmpty) }
 
     func attach(_ audio: AudioIO) {
         self.audio = audio
@@ -75,6 +75,7 @@ final class Speaker {
         synthesizing = false
         converter = nil
         resetPacing()
+        segments.removeAll()            // a sentence cut in its other-language part is said again whole
         queue = again + queue
     }
 
@@ -172,6 +173,7 @@ final class Speaker {
     func stop() {
         generation += 1
         queue.removeAll()
+        segments.removeAll()
         waitingCaptions.removeAll()
         appleCaption = nil
         synthesizing = false
@@ -200,48 +202,71 @@ final class Speaker {
 
     private func pump() {
         guard !deviceLost else { return }
-        guard turnActive, !synthesizing, !queue.isEmpty else { checkDone(); return }
-        let (text, tag) = queue.removeFirst()
-        making = (text, tag)
+        guard turnActive, !synthesizing, !(queue.isEmpty && segments.isEmpty) else { checkDone(); return }
         synthesizing = true
         let gen = generation
+        if !segments.isEmpty {          // the rest of a sentence that mixes languages: no caption of its own
+            let seg = segments.removeFirst()
+            speakPart(seg.text, voice: seg.voice, caption: nil, gen: gen)
+            return
+        }
+        let (text, tag) = queue.removeFirst()
+        making = (text, tag)
+        // Another language is said by Apple's voice for it, since Phonon only speaks English and an
+        // English voice reads it as noise: a whole sentence ("¿Dónde está la estación?"), or the part
+        // of a sentence in another script ("In Hebrew it's שלום").
+        let own = (phonon?.isRunning == true) ? "en" : (voice?.language ?? language)
+        var parts: [(text: String, voice: AVSpeechSynthesisVoice?)] = []
+        for r in SpokenLanguage.runs(text, voiceLanguage: own) {
+            let v = r.lang.flatMap { otherVoice($0) }
+            if let last = parts.last, last.voice == v { parts[parts.count - 1].text += r.text } else { parts.append((r.text, v)) }
+        }
+        if parts.count == 1, parts[0].voice == nil,
+           let lang = SpokenLanguage.foreign(text, voiceLanguage: own), let v = otherVoice(lang) {
+            parts = [(text, v)]
+        }
+        segments = Array(parts.dropFirst())
+        speakPart(parts.first?.text ?? text, voice: parts.first?.voice, caption: (text, tag), gen: gen)
+    }
+
+    /// The rest of a sentence that mixes languages, each part with its voice (nil: the usual one).
+    private var segments: [(text: String, voice: AVSpeechSynthesisVoice?)] = []
+
+    private func speakPart(_ part: String, voice other: AVSpeechSynthesisVoice?, caption: (String, Int?)?, gen: Int) {
+        if let v = other {
+            Self.logSpeech(caption?.0 ?? "+", "[\(v.language)] " + part)
+            speakWithApple(caption, spoken: part, gen: gen, voice: v)
+            return
+        }
         // What's heard is said the way a person would say it ("x squared", not "x caret 2");
         // the caption (and the step it starts) keeps the text as written.
-        let normalized = SpokenText.normalize(text)
-        let spoken = normalized.contains(where: { $0.isLetter || $0.isNumber }) ? normalized : text
-        // A whole sentence in another language ("¿Dónde está la estación?") is said by Apple's
-        // voice for it: Phonon only speaks English, and an English voice reads it as noise.
-        let own = (phonon?.isRunning == true) ? "en" : (voice?.language ?? language)
-        if let lang = SpokenLanguage.foreign(text, voiceLanguage: own), let v = otherVoice(lang) {
-            Self.logSpeech(text, "[\(v.language)] " + text)
-            speakWithApple(text, spoken: text, tag: tag, gen: gen, voice: v)
-            return
-        }
-        Self.logSpeech(text, spoken)
+        let normalized = SpokenText.normalize(part)
+        let spoken = normalized.contains(where: { $0.isLetter || $0.isNumber }) ? normalized : part
+        Self.logSpeech(caption?.0 ?? "+", spoken)
         if let p = phonon, p.isRunning {
-            speakWithPhonon(p, text, spoken: spoken, tag: tag, gen: gen)
+            speakWithPhonon(p, caption: caption, spoken: spoken, gen: gen)
             return
         }
-        speakWithApple(text, spoken: spoken, tag: tag, gen: gen)
+        speakWithApple(caption, spoken: spoken, gen: gen)
     }
 
     /// Streams the sentence: chunks are played as they're generated, starting once a little is
     /// buffered. The next sentence is asked for as soon as this one is generated, while it plays.
     /// Its first audio waits at the gate (see `holdNext`) when a 3D step needs time on screen.
-    private func speakWithPhonon(_ p: PhononVoice, _ text: String, spoken: String, tag: Int?, gen: Int) {
+    private func speakWithPhonon(_ p: PhononVoice, caption: (String, Int?)?, spoken: String, gen: Int) {
         var waiting: [AVAudioPCMBuffer] = []
         var waitingSeconds = 0.0
         var started = false, atGate = false, ended = false, endOK = true
         let play: (AVAudioPCMBuffer) -> Void = { [weak self] buf in
             guard let self else { return }
-            self.schedule(buf, gen: gen, wholeSentence: false, text: started ? nil : text, tag: tag)
+            self.schedule(buf, gen: gen, wholeSentence: false, text: started ? nil : caption?.0, tag: caption?.1)
             started = true
         }
         // Generated and (if it had any audio) scheduled: close the sentence and make the next one.
         let finish: () -> Void = { [weak self] in
             guard let self, gen == self.generation else { return }
             if !started {
-                if !endOK { self.speakWithApple(text, spoken: spoken, tag: tag, gen: gen) } else { self.synthesizing = false; self.pump() }
+                if !endOK { self.speakWithApple(caption, spoken: spoken, gen: gen) } else { self.synthesizing = false; self.pump() }
                 return
             }
             // A few milliseconds of silence close the sentence: it flushes the resampler's tail and
@@ -249,7 +274,7 @@ final class Speaker {
             if let tail = AVAudioPCMBuffer(pcmFormat: self.format24k, frameCapacity: 240), let d = tail.floatChannelData?[0] {
                 d.initialize(repeating: 0, count: 240)
                 tail.frameLength = 240
-                self.schedule(tail, gen: gen, wholeSentence: true)
+                self.schedule(tail, gen: gen, wholeSentence: true, endsCaption: self.segments.isEmpty)
             }
             self.synthesizing = false
             self.pump()          // make the next sentence while this one plays
@@ -370,8 +395,8 @@ final class Speaker {
         return v
     }
 
-    private func speakWithApple(_ text: String, spoken: String, tag: Int?, gen: Int, voice other: AVSpeechSynthesisVoice? = nil) {
-        appleCaption = (text, tag)
+    private func speakWithApple(_ caption: (String, Int?)?, spoken: String, gen: Int, voice other: AVSpeechSynthesisVoice? = nil) {
+        appleCaption = caption
         let u = AVSpeechUtterance(string: spoken)
         u.voice = other ?? voice
         u.rate = rate
@@ -385,7 +410,15 @@ final class Speaker {
 
     private func received(_ pcm: AVAudioPCMBuffer, gen: Int) {
         guard gen == generation, let audio, audio.running else { return }
-        if pcm.frameLength == 0 {   // end of this sentence
+        if pcm.frameLength == 0 {   // end of this sentence (or part of one)
+            // A few silent milliseconds close it, like Phonon's: they flush the resampler and mark
+            // where it ends, so the next caption shows when it's heard, not when it was made.
+            let n = AVAudioFrameCount(pcm.format.sampleRate / 100)
+            if let tail = AVAudioPCMBuffer(pcmFormat: pcm.format, frameCapacity: n) {
+                tail.frameLength = n
+                for b in UnsafeMutableAudioBufferListPointer(tail.mutableAudioBufferList) { if let d = b.mData { memset(d, 0, Int(b.mDataByteSize)) } }
+                schedule(tail, gen: gen, wholeSentence: true, endsCaption: segments.isEmpty)
+            }
             synthesizing = false
             pump()
             return
@@ -396,7 +429,9 @@ final class Speaker {
     }
     private var appleCaption: (String, Int?)?
 
-    private func schedule(_ pcm: AVAudioPCMBuffer, gen: Int, wholeSentence: Bool, text: String? = nil, tag: Int? = nil) {
+    /// `wholeSentence`: the last buffer of what one voice made (flushes the resampler). `endsCaption`:
+    /// the next sentence's caption may show once it's played (not between two parts of one sentence).
+    private func schedule(_ pcm: AVAudioPCMBuffer, gen: Int, wholeSentence: Bool, endsCaption: Bool? = nil, text: String? = nil, tag: Int? = nil) {
         guard let audio, audio.running else { return }
         guard let out = convert(pcm, to: audio.playbackFormat, endOfStream: wholeSentence) else { return }
         // Caption: show this sentence now if nothing is playing, otherwise when the one before it ends.
@@ -409,7 +444,7 @@ final class Speaker {
             }
         }
         audioEndsAt = max(Date(), audioEndsAt).addingTimeInterval(Double(out.frameLength) / out.format.sampleRate)
-        let endsSentence = wholeSentence
+        let endsSentence = endsCaption ?? wholeSentence
         buffersPlaying += 1
         audio.player.scheduleBuffer(out, completionCallbackType: .dataPlayedBack) { [weak self] _ in
             DispatchQueue.main.async {
@@ -438,7 +473,7 @@ final class Speaker {
     }
 
     private func checkDone() {
-        guard turnActive, !turnOpen, !synthesizing, queue.isEmpty, buffersPlaying == 0 else { return }
+        guard turnActive, !turnOpen, !synthesizing, queue.isEmpty, segments.isEmpty, buffersPlaying == 0 else { return }
         turnActive = false
         resetPacing()
         onTurnFinished?()

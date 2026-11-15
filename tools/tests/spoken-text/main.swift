@@ -167,4 +167,17 @@ checkLang("こんにちは、元気ですか？", "ja")
 checkLang("שלום, מה שלומך היום?", nil, voice: "he-IL")
 checkLang("Open the file and click Save now.", "en", voice: "he-IL")
 
+// Mixed sentences are cut where another script starts
+func checkRuns(_ text: String, _ want: [String], line: UInt = #line) {
+    let got = SpokenLanguage.runs(text, voiceLanguage: "en-US").map { ($0.lang.map { "[\($0)] " } ?? "") + $0.text }
+    if got != want { failed += 1; print("FAIL runs (line \(line))\n   want: \(want)\n   got:  \(got)") }
+}
+checkRuns("Sure, that's the save button.", ["Sure, that's the save button."])
+checkRuns("And in Hebrew, שלום, מה שלומך היום?", ["And in Hebrew, ", "[he] שלום, מה שלומך היום?"])
+checkRuns("In Hebrew that's שלום, which means hello.", ["In Hebrew that's ", "[he] שלום, ", "which means hello."])
+checkRuns("Hello is 你好 in Chinese.", ["Hello is ", "[zh] 你好 ", "in Chinese."])
+checkRuns("In Japanese it's 日本語です.", ["In Japanese it's ", "[ja] 日本語です."])
+checkRuns("The angle θ is small.", ["The angle θ is small."])
+checkRuns("Привет means hi.", ["[ru] Привет ", "means hi."])
+
 if failed == 0 { print("ok   spoken text: all cases") } else { print("\(failed) failed"); exit(1) }

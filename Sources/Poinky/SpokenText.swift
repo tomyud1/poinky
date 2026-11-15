@@ -377,3 +377,67 @@ enum SpokenLanguage {
         return code
     }
 }
+
+extension SpokenLanguage {
+    /// The language a letter's script belongs to, for scripts an English voice can't read
+    /// (nil for Latin, Greek (math letters), digits and punctuation).
+    static func scriptLanguage(_ u: Unicode.Scalar) -> String? {
+        switch u.value {
+        case 0x0590...0x05FF, 0xFB1D...0xFB4F: return "he"
+        case 0x0600...0x06FF, 0x0750...0x077F, 0xFB50...0xFDFF, 0xFE70...0xFEFF: return "ar"
+        case 0x0400...0x04FF: return "ru"
+        case 0x3040...0x30FF: return "ja"
+        case 0xAC00...0xD7AF, 0x1100...0x11FF: return "ko"
+        case 0x4E00...0x9FFF, 0x3400...0x4DBF: return "zh"
+        case 0x0E00...0x0E7F: return "th"
+        case 0x0900...0x097F: return "hi"
+        default: return nil
+        }
+    }
+
+    /// A sentence in a Latin-script voice's language, cut where another script starts and ends:
+    /// "And in Hebrew, שלום, מה שלומך?" → [("And in Hebrew, ", nil), ("שלום, מה שלומך?", "he")].
+    /// One part (nil) when there's nothing to cut. Words of 1 letter in another script stay put.
+    static func runs(_ text: String, voiceLanguage: String) -> [(text: String, lang: String?)] {
+        let base = String(voiceLanguage.lowercased().prefix(2))
+        guard !["he", "ar", "ru", "ja", "ko", "zh", "th", "hi", "uk", "fa"].contains(base),
+              text.unicodeScalars.contains(where: { scriptLanguage($0) != nil }) else { return [(text, nil)] }
+        let japanese = text.unicodeScalars.contains { (0x3040...0x30FF).contains($0.value) }   // kanji too, then
+        var parts: [(text: String, lang: String?)] = []
+        var cur = "", curLang: String? = nil
+        var pendingGap = ""       // spaces/punctuation since the last letter: they join the next run if it's the same script
+        for ch in text {
+            let u = ch.unicodeScalars.first!
+            if CharacterSet.letters.contains(u) {
+                var l = scriptLanguage(u)
+                if l == "zh", japanese { l = "ja" }
+                if l != curLang, !cur.isEmpty {
+                    parts.append((cur + pendingGap, curLang))   // the gap ends the phrase before
+                    cur = ""
+                } else {
+                    cur += pendingGap
+                }
+                pendingGap = ""
+                curLang = l
+                cur.append(ch)
+            } else if ch.isWhitespace || ch.isPunctuation || ch.isSymbol {
+                pendingGap.append(ch)
+            } else {
+                cur += pendingGap; pendingGap = ""; cur.append(ch)
+            }
+        }
+        cur += pendingGap
+        if !cur.isEmpty { parts.append((cur, curLang)) }
+        // Punctuation right after a run ("שלום, ") belongs to it; a lone letter isn't worth a voice change.
+        var merged: [(text: String, lang: String?)] = []
+        for p in parts {
+            let letters = p.text.filter(\.isLetter).count
+            if let last = merged.last, (last.lang == p.lang || (p.lang != nil && letters < 2)) {
+                merged[merged.count - 1].text += p.text
+            } else {
+                merged.append(p)
+            }
+        }
+        return merged.count > 1 || merged.first?.lang != nil ? merged : [(text, nil)]
+    }
+}
