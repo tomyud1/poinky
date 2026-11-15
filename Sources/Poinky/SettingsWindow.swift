@@ -150,8 +150,9 @@ final class SettingsWindowController {
     func snapshotTab(to out: String, tab name: String = "claude") {
         model.reload()
         let voice = name == "voice"
-        let tab = voice ? AnyView(VoiceTab(model: model)) : name == "general" ? AnyView(GeneralTab(model: model)) : AnyView(ClaudeTab(model: model))
-        let h: CGFloat = voice ? 560 : name == "general" ? 1600 : 900
+        let tab = voice ? AnyView(VoiceTab(model: model)) : name == "general" ? AnyView(GeneralTab(model: model))
+            : name == "privacy" ? AnyView(PrivacyTab(model: model)) : AnyView(ClaudeTab(model: model))
+        let h: CGFloat = voice ? 560 : name == "general" ? 1600 : name == "privacy" ? 620 : 900
         let host = NSHostingView(rootView: tab.frame(width: 620, height: h))
         let w = NSWindow(contentRect: CGRect(x: -3000, y: 0, width: 620, height: h), styleMask: [.borderless], backing: .buffered, defer: false)
         w.contentView = host
@@ -645,6 +646,17 @@ private struct PrivacyTab: View {
                 Toggle("Also send the text I selected, the open document's name and the web page's address", isOn: $model.config.frontAppContext)
                 Text("So \"explain this paragraph\" or \"summarize this lecture\" works on exactly what you selected, and helpers start in the right folder. Read through Accessibility, never from password fields or the apps below.")
                     .font(.caption).foregroundStyle(.secondary)
+            }
+            Section {
+                Toggle("Keep a receipt of what each question sends", isOn: $model.config.receipts)
+                    .onChange(of: model.config.receipts) { _, on in Receipts.enabled = on; if !on { Receipts.clear() } }
+                Text("The screenshot, the lines about the app in front, and which of your files were included, for the last \(Receipts.keep) questions. Kept only on this Mac; hover the notch and click What I saw. Turning this off deletes them.")
+                    .font(.caption).foregroundStyle(.secondary)
+                HStack {
+                    Button("Show What Poinky Saw…") { ReceiptsWindow.shared.show() }
+                    Spacer()
+                    Button("Clear Receipts", role: .destructive) { Receipts.clear() }
+                }
             }
             Section {
                 Text("Poinky never sees these apps: they're left out of every screenshot it sends to Claude.")

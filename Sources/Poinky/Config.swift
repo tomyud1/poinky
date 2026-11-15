@@ -47,6 +47,7 @@ struct AppConfig: Codable {
     var webSearch = true               // the main buddy may do a quick web search itself (Claude Code brain only)
     var checkForUpdates = true         // look for a new Poinky on GitHub now and then (never installs by itself)
     var frontAppContext = true         // send the front app's selected text, open document and web address with each question
+    var receipts = true                // keep a receipt of what each question sent (last 20, receipts/, only on this Mac)
     var computerControl = true         // Poinky may click and type for you when you ask it to do something
     var webPhotos = true               // pin a photo of the real thing (from Wikipedia) next to 3D models and lessons
     var agentPermission = "auto"        // background agents: "auto" (Claude Code's auto mode; falls back to acceptEdits if it can't start), "acceptEdits" (edit the project + run tests, ask for the rest), "plan"
@@ -111,6 +112,7 @@ struct AppConfig: Codable {
         conversationLog = try c.decodeIfPresent(Bool.self, forKey: .conversationLog) ?? d.conversationLog
         webSearch = try c.decodeIfPresent(Bool.self, forKey: .webSearch) ?? d.webSearch
         frontAppContext = try c.decodeIfPresent(Bool.self, forKey: .frontAppContext) ?? d.frontAppContext
+        receipts = try c.decodeIfPresent(Bool.self, forKey: .receipts) ?? d.receipts
         checkForUpdates = try c.decodeIfPresent(Bool.self, forKey: .checkForUpdates) ?? d.checkForUpdates
         computerControl = try c.decodeIfPresent(Bool.self, forKey: .computerControl) ?? d.computerControl
         webPhotos = try c.decodeIfPresent(Bool.self, forKey: .webPhotos) ?? d.webPhotos
