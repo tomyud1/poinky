@@ -1260,7 +1260,7 @@ final class CallController: NSObject, NSMenuDelegate {
         let q = question.lowercased()
         if ["punchier", "shorter", "rewrite", "reword", "rephrase", "fix the grammar", "more formal", "less formal",
             "tighten", "make it sound", "make this sound"].contains(where: { q.contains($0) }) {
-            return "(New wording: <say> must contain the whole new text itself, word for word, then \"Want me to swap it in?\", then <offer say=\"Swapping it in.\"><do>Replace the selected text with exactly: …the new text…</do></offer>. Never \"here's a version\" without the words.)"
+            return "(New wording: <say> must contain the whole new text itself, word for word, then \"Want me to swap it in?\", then <offer say=\"Swapping it in.\"><do>Replace the selected text with exactly: …the new text…</do></offer>. Rewrite only the selected words: no greeting or sign-off they didn't select. Never \"here's a version\" without the words.)"
         }
         if ["short version", "sum it up", "summarize", "summarise", "tl;dr", "tldr", "gist", "in a nutshell", "quick summary"].contains(where: { q.contains($0) }) {
             return "(Summary: at most 3 short sentences, about 40 words, the main point first. Don't list every item.)"

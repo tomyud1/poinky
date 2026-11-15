@@ -370,6 +370,7 @@ SCENARIOS = [
                  ("doesn't change it yet (no top-level <do>)", lacks("do")),
                  ("the swap is ready: <offer> with a <do> of the same words", rewrite_ready),
                  ("the <do> says to replace the selected text", offer_body("do", r"replac|select")),
+                 ("replaces just the selection (no greeting or sign-off added)", lambda r: not offer_body("do", r"\bHi Sam\b|\bThanks\b|\bAlex\b")(r)),
                  ("no agent", lacks("agent"))]),
     dict(id="offer-helper", who="coder", html=TERMINAL, ctx=["Front app: Terminal, window “tipcalc — -zsh — 120×36”."],
          said="why is this crashing?", cursor=(500, 300),

@@ -22,7 +22,7 @@ After changing a check on purpose, record the fixtures again and look at the dif
 ## Weekly live run (uses your Claude plan, ~25 Haiku calls, ~2 min)
 ```
 POINKY_EVAL_CLAUDE=$(which claude) python3 tools/eval-talker/run.py --label weekly-$(date +%F)
-python3 tools/eval-talker/run.py --rescore after-fix8,offer1,offer2 weekly-$(date +%F)    # compare with the last one
+python3 tools/eval-talker/run.py --rescore after-fix8,offer1,offer2,offer3,offer4 weekly-$(date +%F)    # compare with the last one
 ```
 New failures are either a real regression (fix the prompt or code) or a check that's too strict (fix the check). Then add the run to the fixtures with `--record-fixtures` so CI keeps checking those replies.
 
@@ -67,7 +67,8 @@ Without the thinking step Haiku followed the reply format less well (the first f
 Per-run detail: `python3 tools/eval-talker/run.py --rescore before,before-extra after,after2,after3,after-fix,after-fix2,after-fix3,after-fix4,after-fix5,after-fix6,after-fix7,after-fix8`.
 
 ## Offers (2026-11-15)
-`offer-rewrite`, `offer-helper`, `offer-remind`: when the talker ends with an offer ("Want me to swap it in?"), it writes the action ready in `<offer say="…">…</offer>` and does nothing yet (see Offer.swift). Haiku, 2 runs each: the rewrite and the reminder were offered with the exact `<do>` / `<remind>` ready every time (1.0–1.6 s to first words); for "why is this crashing?" it explained and sketched but didn't offer a fix (the check only requires a prepared helper when it does offer). `writer-punchier` also carried the offer.
+`offer-rewrite`, `offer-helper`, `offer-remind`: when the talker ends with an offer ("Want me to swap it in?"), it writes the action ready in `<offer say="…">…</offer>` and does nothing yet (see Offer.swift). Haiku, 2 runs each: the rewrite and the reminder were offered with the exact `<do>` / `<remind>` ready every time (1.0–1.6 s to first words); for "why is this crashing?" it explained and sketched but didn't offer a fix (the check only requires a prepared helper when it does offer). `writer-punchier` also carried the offer (4 of 4).
+For a selected sentence in an email, Haiku often puts the greeting it sees above it ("Hi Sam,") into the new text, which a swap would then repeat: 0 of 4 runs clean with only the prompt line, 1 of 2 after the rewrite hint also says so (`answerShapeHint`). Still open.
 
 ## Known gaps
 - "Short version" summaries sometimes still list every item.

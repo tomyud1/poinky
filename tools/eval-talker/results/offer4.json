@@ -1,0 +1,124 @@
+[
+ {
+  "id": "offer-rewrite",
+  "who": "writer",
+  "said": "can you make this sound more polite",
+  "checks": [
+   [
+    "reads the new text and offers to put it in",
+    true
+   ],
+   [
+    "doesn't change it yet (no top-level <do>)",
+    true
+   ],
+   [
+    "the swap is ready: <offer> with a <do> of the same words",
+    true
+   ],
+   [
+    "the <do> says to replace the selected text",
+    true
+   ],
+   [
+    "replaces just the selection (no greeting or sign-off added)",
+    false
+   ],
+   [
+    "no agent",
+    true
+   ]
+  ],
+  "generic": [
+   [
+    "has <say>",
+    true
+   ],
+   [
+    "spoken style (no markdown/URL/emoji)",
+    true
+   ],
+   [
+    "math said for the ear (no ² = ( ) symbols)",
+    true
+   ],
+   [
+    "nothing outside the tags",
+    true
+   ]
+  ],
+  "passed": false,
+  "say": "Sure. Here's a politer version: Hi Sam, I hope you're doing well. Could you please send me the slides by tomorrow? I've asked a couple of times, so I'd really appreciate it if you could get them to me. Want me to swap it in?",
+  "tags": [
+   "offer",
+   "say"
+  ],
+  "raw": "<say>Sure. Here's a politer version: Hi Sam, I hope you're doing well. Could you please send me the slides by tomorrow? I've asked a couple of times, so I'd really appreciate it if you could get them to me. Want me to swap it in?</say>\n<offer say=\"Swapping it in.\"><do>Replace the selected text with exactly: Hi Sam, I hope you're doing well. Could you please send me the slides by tomorrow? I've asked a couple of times, so I'd really appreciate it if you could get them to me.</do></offer>",
+  "first_token": 0.7118618488311768,
+  "first_sentence": 0.8611061573028564,
+  "total": 1.4044089317321777,
+  "input_tokens": 14680,
+  "run": 0
+ },
+ {
+  "id": "offer-rewrite",
+  "who": "writer",
+  "said": "can you make this sound more polite",
+  "checks": [
+   [
+    "reads the new text and offers to put it in",
+    true
+   ],
+   [
+    "doesn't change it yet (no top-level <do>)",
+    true
+   ],
+   [
+    "the swap is ready: <offer> with a <do> of the same words",
+    true
+   ],
+   [
+    "the <do> says to replace the selected text",
+    true
+   ],
+   [
+    "replaces just the selection (no greeting or sign-off added)",
+    true
+   ],
+   [
+    "no agent",
+    true
+   ]
+  ],
+  "generic": [
+   [
+    "has <say>",
+    true
+   ],
+   [
+    "spoken style (no markdown/URL/emoji)",
+    true
+   ],
+   [
+    "math said for the ear (no ² = ( ) symbols)",
+    true
+   ],
+   [
+    "nothing outside the tags",
+    true
+   ]
+  ],
+  "passed": true,
+  "say": "Sure. Here's a warmer version: Hi Sam, I hope you're doing well. Could you please send me the slides by tomorrow? I've asked a couple of times, and I'd really appreciate it. Want me to swap it in?",
+  "tags": [
+   "offer",
+   "say"
+  ],
+  "raw": "<say>Sure. Here's a warmer version: Hi Sam, I hope you're doing well. Could you please send me the slides by tomorrow? I've asked a couple of times, and I'd really appreciate it. Want me to swap it in?</say>\n<offer say=\"Swapping it in.\"><do>Replace the selected text in Mail with exactly: Could you please send me the slides by tomorrow? I've asked a couple of times, and I'd really appreciate it.</do></offer>",
+  "first_token": 0.7618420124053955,
+  "first_sentence": 0.9117579460144043,
+  "total": 1.3779289722442627,
+  "input_tokens": 14678,
+  "run": 1
+ }
+]

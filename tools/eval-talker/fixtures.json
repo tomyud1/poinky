@@ -86,14 +86,14 @@
  },
  {
   "id": "writer-punchier",
-  "source": "offer1",
-  "raw": "<say>Here's a punchier version: Onboarding takes too long, and it has too many steps. We can simplify it so every new hire has a better first experience. Want me to swap it in?</say>\n<offer say=\"Swapping it in.\"><do>Replace the selected text with exactly: Onboarding takes too long, and it has too many steps. We can simplify it so every new hire has a better first experience.</do></offer>\n<draw>{\"items\":[]}</draw>",
+  "source": "offer3",
+  "raw": "<say>Here's the punchier version: Onboarding takes too long, and it doesn't have to. Want me to swap it in?</say>\n<offer say=\"Swapping it in.\"><do>Replace the selected text with exactly: Onboarding takes too long, and it doesn't have to.</do></offer>",
   "fails": []
  },
  {
   "id": "writer-punchier",
-  "source": "after-fix8",
-  "raw": "<say>Sure: \"Onboarding is often slow, and it can have more steps than it needs. Simplifying it would make things better for everyone involved.\" Want me to swap it in?</say>",
+  "source": "offer3",
+  "raw": "<say>Here's a punchier version: Onboarding often takes too long and has steps we could simplify, so new hires get a worse start than they should. Want me to swap it in?</say>\n<draw>{\"items\":[]}</draw>\n<offer say=\"Swapping it in.\"><do>Replace the selected text with exactly: Onboarding often takes too long and has steps we could simplify, so new hires get a worse start than they should.</do></offer>",
   "fails": []
  },
  {
@@ -305,15 +305,17 @@
  },
  {
   "id": "offer-rewrite",
-  "source": "offer2",
-  "raw": "<say>Sure. Here's a politer version: Hi Sam, could you please send me the slides by tomorrow? I've asked a couple of times now, so I'd really appreciate it. Want me to swap it in?</say>\n<offer say=\"Swapping it in.\"><do>Replace the selected text with exactly: Hi Sam, could you please send me the slides by tomorrow? I've asked a couple of times now, so I'd really appreciate it.</do></offer>",
+  "source": "offer4",
+  "raw": "<say>Sure. Here's a warmer version: Hi Sam, I hope you're doing well. Could you please send me the slides by tomorrow? I've asked a couple of times, and I'd really appreciate it. Want me to swap it in?</say>\n<offer say=\"Swapping it in.\"><do>Replace the selected text in Mail with exactly: Could you please send me the slides by tomorrow? I've asked a couple of times, and I'd really appreciate it.</do></offer>",
   "fails": []
  },
  {
   "id": "offer-rewrite",
-  "source": "offer1",
-  "raw": "<say>Sure. Here's a warmer version: Hi Sam, I hope the week is going well. Could you please send me the slides by tomorrow? I've asked a couple of times and I'd really appreciate it. Thanks so much. Want me to swap it in?</say>\n<offer say=\"Swapping it in.\"><do>Replace the selected text with exactly: Hi Sam, I hope the week is going well. Could you please send me the slides by tomorrow? I've asked a couple of times and I'd really appreciate it. Thanks so much.</do></offer>",
-  "fails": []
+  "source": "offer4",
+  "raw": "<say>Sure. Here's a politer version: Hi Sam, I hope you're doing well. Could you please send me the slides by tomorrow? I've asked a couple of times, so I'd really appreciate it if you could get them to me. Want me to swap it in?</say>\n<offer say=\"Swapping it in.\"><do>Replace the selected text with exactly: Hi Sam, I hope you're doing well. Could you please send me the slides by tomorrow? I've asked a couple of times, so I'd really appreciate it if you could get them to me.</do></offer>",
+  "fails": [
+   "replaces just the selection (no greeting or sign-off added)"
+  ]
  },
  {
   "id": "offer-helper",
