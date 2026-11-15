@@ -127,6 +127,10 @@ struct AppConfig: Codable {
 
     static let dir: URL = {
         let fm = FileManager.default
+        // Tests and pictures (`--settings-shot`, `--welcome-shot`): a scratch folder instead of the real settings.
+        if let d = ProcessInfo.processInfo.environment["POINKY_SUPPORT_DIR"], !d.isEmpty {
+            return URL(fileURLWithPath: d, isDirectory: true)
+        }
         let base = fm.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support", isDirectory: true)
         let new = base.appendingPathComponent("Poinky", isDirectory: true)
         // Poinky used to be called ScreenBuddy: bring its settings, memory and voice along, once.

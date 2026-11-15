@@ -7,6 +7,8 @@ FAKE_CLAUDE_MODE:
   hang    reads messages and never answers (the stall watchdog / stuck detector must recover)
   deaf    never answers and ignores interrupts too
   crash   exits as soon as a message arrives
+  signedout  answers every message with Claude Code's "Not logged in" error; `auth status` says loggedIn false
+`--version` and `auth status` answer like the real CLI (signed in, except in "signedout" mode).
 Interrupt control_requests end the current turn with an error_during_execution result (like the real one),
 except in "deaf" mode.
 """
@@ -23,6 +25,10 @@ def note(s):
         with open(log, "a") as f: f.write(f"{time.time():.3f} {s}\n")
 
 argv = sys.argv
+if "--version" in argv:
+    print("2.1.300 (Claude Code)"); sys.exit(0)
+if argv[1:3] == ["auth", "status"]:
+    print(json.dumps({"loggedIn": mode != "signedout", "authMethod": "claude.ai"}, indent=2)); sys.exit(1 if mode == "signedout" else 0)
 prompt = argv[argv.index("--system-prompt") + 1] if "--system-prompt" in argv else ""
 writes_notes = "private notes" in prompt
 note(f"start pid {os.getpid()} identity={'## Who you are' in prompt} about_me={'## About the user' in prompt} notes={'## Recent sessions' in prompt} note_writer={writes_notes}")
@@ -42,6 +48,9 @@ for line in sys.stdin:
     text = " ".join(c.get("text", "") for c in msg["message"]["content"] if c.get("type") == "text")
     note(f"pid {os.getpid()} question: " + json.dumps(text))
     if mode == "crash": sys.exit(3)
+    if mode == "signedout":
+        out({"type": "result", "subtype": "success", "is_error": True, "result": "Not logged in · Please run /login"})
+        continue
     if mode in ("hang", "deaf"): busy = True; continue
     if writes_notes:
         extra = ("\nABOUT: " + os.environ["FAKE_NOTE_ABOUT"]) if os.environ.get("FAKE_NOTE_ABOUT") else ""

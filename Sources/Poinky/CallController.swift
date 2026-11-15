@@ -401,19 +401,17 @@ final class CallController: NSObject, NSMenuDelegate {
         lastActivity = ProcessInfo.processInfo.systemUptime
         let myCall = callID
         Task { @MainActor in
+            // Missing permissions open the permissions page (one at a time, with Allow / Open Settings
+            // and a Restart button for Screen Recording) instead of an alert.
             guard await SpeechListener.requestPermissions() else {
                 state = .idle
-                showAlert("Poinky needs Microphone and Speech Recognition access.",
-                          info: "Turn both on for Poinky in System Settings → Privacy & Security.",
-                          settingsPane: "Privacy_Microphone")
+                WelcomeWindowController.shared.offerFix(.permissions)
                 return
             }
             guard await ScreenCapture.hasPermission() else {
                 state = .idle
                 ScreenCapture.requestPermission()
-                showAlert("Poinky needs Screen Recording access to see your screen.",
-                          info: "Turn it on in System Settings → Privacy & Security → Screen & System Audio Recording, then quit and reopen Poinky.",
-                          settingsPane: "Privacy_ScreenCapture")
+                WelcomeWindowController.shared.offerFix(.permissions, askedScreen: true)
                 return
             }
 
@@ -648,6 +646,7 @@ final class CallController: NSObject, NSMenuDelegate {
 
     /// A quick tap of the talk keys: stop Claude (nothing is sent).
     private func pushTap() {
+        WelcomeWindowController.shared.model.did(.tapped)   // the first-run tour's "tap to stop" tip
         // A video being made: a tap cancels it (holding to ask something else doesn't).
         if video.job?.status == .cooking, !video.window.isOpen {
             if state == .speaking || state == .thinking { turn += 1; speaker.stop(); stopLesson(); state = restingState }
@@ -936,6 +935,7 @@ final class CallController: NSObject, NSMenuDelegate {
     /// ⌃⌥T: the box to type in, for the helper under the mouse if there is one.
     @objc func openTypeBox() {
         if typeBox.isOpen { typeBox.close(); return }
+        WelcomeWindowController.shared.model.did(.typed)
         if let id = overlay.pointedHelper, let a = agents.agents.first(where: { $0.id == id }),
            a.status == .running || a.status == .queued {
             let hex = HelperWindows.colors[a.name.components(separatedBy: " ")[0]] ?? "#34c98e"
@@ -1153,7 +1153,7 @@ final class CallController: NSObject, NSMenuDelegate {
         let myTurn = turn
         lastActivity = ProcessInfo.processInfo.systemUptime
         if buddyHidden { setBuddyHidden(false) }
-        if !proactive { lastQuestion = question }
+        if !proactive { lastQuestion = question; WelcomeWindowController.shared.model.did(.asked) }
         // A background update (a helper's report) is built from helper output, which can contain text from
         // web pages or files: like a lookup reply, it may only speak and mark, never act.
         lookupReply = proactive
@@ -1235,6 +1235,7 @@ final class CallController: NSObject, NSMenuDelegate {
                 self.askedAt = nil   // an error line isn't an answer: keep it out of the wait times
                 self.overlay.setClaudeCaption("⚠️ \(error.localizedDescription)")
                 self.speaker.enqueue(SpokenError.line(for: error))
+                WelcomeWindowController.shared.offerFix(for: error)
             }
             guard myTurn == self.turn else { return }
             self.overlay.clearMarks()   // your marks were for this question
@@ -1495,6 +1496,7 @@ final class CallController: NSObject, NSMenuDelegate {
     }
 
     private func finishedSpeaking() {
+        WelcomeWindowController.shared.model.did(.answered)
         // Steps whose line was never heard (e.g. the voice failed) still get drawn.
         for tag in pendingSteps.keys.sorted() {
             for step in pendingSteps[tag] ?? [] { play(step) }
@@ -2656,12 +2658,15 @@ final class CallController: NSObject, NSMenuDelegate {
         add("Clear Drawings", #selector(clearAll))
         add("Settings…", #selector(openSettings), key: ",")
         add("Get More Apple Voices…", #selector(openVoiceSettings))
+        add("Welcome Tour…", #selector(openWelcome))
+        add("Start Fresh (if Poinky seems stuck)", #selector(resetEverything))
         menu.addItem(.separator())
         let quit = NSMenuItem(title: "Quit Poinky", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         menu.addItem(quit)
     }
 
     @objc private func endSessionFromMenu() { endCall() }
+    @objc private func openWelcome() { WelcomeWindowController.shared.show() }
 
     @objc private func pickBrain(_ sender: NSMenuItem) {
         guard let raw = sender.representedObject as? String, let kind = BrainKind(rawValue: raw) else { return }

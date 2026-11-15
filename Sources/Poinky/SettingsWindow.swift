@@ -72,13 +72,22 @@ final class SettingsModel: ObservableObject {
         return String(data: data, encoding: .utf8)
     }
 
-    init() { config = AppConfig.load(); loading = true; memoryText = Memory.text(); loading = false }
+    init() { config = AppConfig.load(); loading = true; memoryText = Memory.text(); reminders = Reminders.all(); loading = false }
 
     func reload() {
         loading = true
         config = AppConfig.load()
         memoryText = Memory.text()
+        reminders = Reminders.all()
         loading = false
+    }
+
+    /// Settings → General → Reminders: what Poinky will say (or start) by itself, and when.
+    @Published var reminders: [Reminder] = []
+    func cancelReminder(_ id: String) {
+        let left = Reminders.all().filter { $0.id != id }
+        Reminders.save(left)
+        reminders = left
     }
 
     private func scheduleSave() {
@@ -140,7 +149,7 @@ final class SettingsWindowController {
         model.reload()
         let voice = name == "voice"
         let tab = voice ? AnyView(VoiceTab(model: model)) : name == "general" ? AnyView(GeneralTab(model: model)) : AnyView(ClaudeTab(model: model))
-        let h: CGFloat = voice ? 560 : name == "general" ? 1000 : 900
+        let h: CGFloat = voice ? 560 : name == "general" ? 1250 : 900
         let host = NSHostingView(rootView: tab.frame(width: 620, height: h))
         let w = NSWindow(contentRect: CGRect(x: -3000, y: 0, width: 620, height: h), styleMask: [.borderless], backing: .buffered, defer: false)
         w.contentView = host
@@ -239,6 +248,7 @@ private struct GeneralTab: View {
                 Text("When you ask it to do something (fill a form, write an email), it uses your mouse and keyboard while it explains. It asks before anything that sends, buys or deletes, and never types into password fields. Tap ⌃⌥ or press Esc to stop it. macOS asks for Accessibility permission the first time.")
                     .font(.caption).foregroundStyle(.secondary)
             }
+            RemindersSection(model: model)
             Section("Hands-free calls") {
                 VStack(alignment: .leading, spacing: 4) {
                     Slider(value: $model.config.silenceSeconds, in: 0.5...2.5, step: 0.1) {
@@ -251,10 +261,65 @@ private struct GeneralTab: View {
             Section {
                 Text("Hold ⌥ Option and click or drag to mark things on screen any time Poinky is active.")
                     .font(.callout).foregroundStyle(.secondary)
+                HStack {
+                    Text("New to Poinky, or want a refresher?").font(.callout)
+                    Spacer()
+                    Button("Show the Welcome Tour") { WelcomeWindowController.shared.show() }
+                }
             }
             if !updateFirst { UpdateSection(model: model) }
         }
         .formStyle(.grouped)
+    }
+}
+
+/// Settings → General → Reminders: the list, with a button to cancel each one.
+private struct RemindersSection: View {
+    @ObservedObject var model: SettingsModel
+    var body: some View {
+        Section("Reminders") {
+            if model.reminders.isEmpty {
+                Text("None yet. Ask me something like “remind me tomorrow at 9 to email my teacher” or “every weekday at 8, remind me to review my flashcards”.")
+                    .font(.callout).foregroundStyle(.secondary)
+            }
+            ForEach(model.reminders, id: \.id) { r in
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    Image(systemName: r.agentTitle != nil ? "person.crop.circle.badge.clock" : r.every != nil ? "repeat" : "bell")
+                        .foregroundStyle(.secondary).frame(width: 18)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(r.agentTitle.map { "Helper: \($0)" } ?? r.text).lineLimit(2)
+                        Text(Self.when(r) + (r.agentTitle != nil ? " · " + r.text : "")).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                    Spacer()
+                    Button { model.cancelReminder(r.id) } label: { Image(systemName: "xmark.circle.fill") }
+                        .buttonStyle(.borderless).foregroundStyle(.secondary)
+                        .help("Cancel this reminder")
+                        .accessibilityLabel("Cancel reminder: \(r.text)")
+                }
+            }
+        }
+        .onAppear { model.reminders = Reminders.all() }   // one may have been said or added since the window opened
+    }
+
+    /// "Tomorrow at 9:00 AM, then every weekday".
+    static func when(_ r: Reminder, now: Date = Date()) -> String {
+        let cal = Calendar.current
+        let time = r.at.formatted(date: .omitted, time: .shortened)
+        let day: String
+        if cal.isDateInToday(r.at) { day = "Today" }
+        else if cal.isDateInTomorrow(r.at) { day = "Tomorrow" }
+        else if let days = cal.dateComponents([.day], from: cal.startOfDay(for: now), to: cal.startOfDay(for: r.at)).day, days > 0, days < 7 {
+            day = r.at.formatted(.dateTime.weekday(.wide))
+        } else { day = r.at.formatted(date: .abbreviated, time: .omitted) }
+        let again: String
+        switch r.every {
+        case .daily: again = ", then every day"
+        case .weekdays: again = ", then every weekday"
+        case .weekly: again = ", then every week"
+        case .hourly: again = ", then every hour"
+        case nil: again = ""
+        }
+        return "\(day) at \(time)\(again)"
     }
 }
 

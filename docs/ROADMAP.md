@@ -75,9 +75,11 @@ Still open: Terminal/iTerm's working folder (not in Accessibility; maybe from th
 What was built (2026-11-08): `Reminders.swift` + `CallController.checkReminders` / `deliverReminders`. The talker writes `<remind at="YYYY-MM-DD HH:MM" every="daily|weekdays|weekly|hourly" agent="title" dir="…">text</remind>` and `<remind-cancel>words|all</remind-cancel>`; `reminders.json` (0600, max 50). Checked every 20 s and on wake; due ones are said as a plain line (no model, `sayWhenFree`) when you're free (report rules), or their helper is started (`agent=`). Missed while asleep/off → "Earlier reminder: …". "Weekdays" follow the user's region (Israel: Sun–Thu). App Nap is held off when one is within 15 minutes. The talker sees the list when it changes or the question is about time (`sendOnce`).
 Safety: helper reports (`ask(proactive:)`) now may only speak and mark (`lookupReply = proactive`), like lookup replies, since they're built from helper output; found when a fake report re-scheduled reminders.
 Tests: swiftc harness (15 checks: times, repeats, due/late, cancel, region weekends), the app with the fake (`POINKY_REMINDER_TICK`, `POINKY_REMINDERS_FILE`; reminder said at 10.9 s for 11 s, scheduled helper started at 14.9 s), real Haiku (one-off, weekdays, daily helper with the folder).
-Still open: a list of reminders in the notch / Settings, triggers (CI failed, a test broke, a file changed, a calendar event soon), and asking before a scheduled helper does anything risky while you're away (it already raises its hand).
+Built (2026-11-15): Settings → General → Reminders lists them (when, repeat, helper) with a button to cancel each; empty, it gives two example phrases.
+The notch's hover panel shows the next one within a day ("Reminder: Tomorrow 9:00 Email…").
+Still open: triggers (CI failed, a test broke, a file changed, a calendar event soon), and asking before a scheduled helper does anything risky while you're away (it already raises its hand).
 
-## 6. Easy to install (status: signing deferred; in-app Update done; tutorial open)
+## 6. Easy to install (status: signing deferred; in-app Update and first-run tour done)
 - Signed + notarized `.dmg` with automatic updates (Sparkle), instead of building from source.
 - A 60-second first-run tutorial: hold to talk, tap to stop, point at a helper, ↻.
 Decision (2026-11-08): no paid Apple Developer ID ($99/year) for now; it's an open-source app with one user. Revisit when there are users or a sponsor. Without it, a downloaded app is blocked by Gatekeeper and an ad-hoc signed one loses its permissions on every update, so for now:
@@ -86,7 +88,8 @@ Decision (2026-11-08): no paid Apple Developer ID ($99/year) for now; it's an op
 
 Built (2026-11-09): the in-app Update (`Updater.swift`). build.sh stamps the commit, its date, "local changes" and the source folder into Info.plist (`PoinkyCommit`, `PoinkyCommitDate`, `PoinkyDirty`, `PoinkySource`). Settings → General → Updates shows the version, checks the branch the source follows (`git fetch`, never a password prompt), lists what's new (commit titles), and Update builds in the background with a progress bar from Swift's `[n/m]` lines (log: `Poinky/update.log`); then "Restart Poinky" (with a warning when a session or helpers would be cut off). The installer's copy (`Poinky/source`) is reset to GitHub's version (and back if the build fails); any other folder is only fast-forwarded, never with uncommitted changes. An app in Applications gets the new copy staged as `Poinky.app.new`, swapped in by a small script after Poinky quits. It checks by itself 90 s after launch and every 6 h (setting `checkForUpdates`), and the notch shows a green arrow while one is available or ready. Nothing installs or restarts by itself.
 Test without touching the real install: `tools/fake-build.sh` + `Poinky --update-test out.txt` (see CLAUDE.md → Testing).
-Still open: the first-run tutorial; rerunning `phonon/install.sh` when an update changes the voice's pinned versions.
+Built (2026-11-15): the first-run tour (`Welcome.swift`, see CLAUDE.md): permissions one at a time, Claude Code check with Install / Sign in buttons, a first question on a sample, tap-to-stop / ⌃⌥T / ↻ tips that check off when you do them; replay from Settings → General or the menu bar (which also gained "Start Fresh", so Macs without a notch have the ↻ too). Verified with `--welcome-shot` pictures and launches with a fresh `POINKY_SUPPORT_DIR` (new install opens it, an existing config marks it done silently, quitting keeps it pending).
+Still open: rerunning `phonon/install.sh` when an update changes the voice's pinned versions.
 
 ## 7. Trust (status: proposed)
 - Show clearly what each question sends.

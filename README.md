@@ -46,9 +46,9 @@ The installer sets up everything else for you, in `~/Library/Application Support
 
 ### First run
 
-1. Open Terminal, run `claude` once and sign in (skip if you use an API key).
-2. Hold <kbd>⌃ Control</kbd> <kbd>⌥ Option</kbd>, ask something, let go. macOS asks for **Microphone** and **Speech Recognition**: click Allow.
-3. **Screen Recording** has to be switched on by hand: System Settings → Privacy & Security → Screen & System Audio Recording → turn Poinky on, then reopen Poinky.
+Poinky opens a one-minute welcome: it asks for each permission with a plain reason (Microphone, Speech Recognition, Screen Recording; Accessibility only if you want it to click and type for you), checks that Claude Code is installed and signed in (with a button that fixes it if not), and has you ask your first question about a sample problem. Replay it from Settings → General.
+
+By hand, if you skipped it: run `claude` once in Terminal and sign in, then hold <kbd>⌃ Control</kbd> <kbd>⌥ Option</kbd>, ask something, let go. **Screen Recording** has to be switched on in System Settings → Privacy & Security → Screen & System Audio Recording, then reopen Poinky.
 
 ### Troubleshooting
 
