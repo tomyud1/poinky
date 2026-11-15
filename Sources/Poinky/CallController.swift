@@ -24,6 +24,7 @@ final class CallController: NSObject, NSMenuDelegate {
     private let helperWindows = HelperWindows()   // each helper's own window (its transcript and a box to type to it)
     private let typeBox = TypeBox()               // typing to Poinky instead of talking (⌃⌥T)
     private let away = AwayNotifier()             // away from the Mac: helpers' questions go to your phone (opt-in)
+    private let notifier = HelperNotifier()       // Mac notifications: a helper needs you outside a session, or finished while you're away
     private var typeHotKey: HotKey?
     private var helpersHotKey: HotKey?   // ⌃⌥H: the Helpers window
     private var typedAfterStart: (text: String, helper: Int?)?   // typed while no session was running
@@ -234,8 +235,11 @@ final class CallController: NSObject, NSMenuDelegate {
         ptt.onCommit = { [weak self] in self?.pushCommit() }
         ptt.onUp = { [weak self] send in self?.pushUp(send: send) }
         ptt.onTap = { [weak self] in self?.pushTap() }
-        agents.onFinished = { [weak self] a in self?.helperScreen.finished(a); self?.askEnded(a.id); self?.agentFinished(a) }
-        agents.onChange = { [weak self] in self?.refreshAgentsInHome(); self?.helperWindows.updateAll() }
+        agents.onFinished = { [weak self] a in self?.helperScreen.finished(a); self?.askEnded(a.id); self?.agentFinished(a); self?.notifyAsks(nil); self?.notifier.finished(a) }
+        agents.onChange = { [weak self] in
+            self?.refreshAgentsInHome(); self?.helperWindows.updateAll()
+            self?.notifyAsks(nil)   // answered (by voice, a card, its window) or withdrawn: its notification goes away
+        }
         agents.onEntry = { [weak self] a, e in self?.helperWindows.entry(a, e) }
         agents.onHands = { [weak self] id in
             guard let self, let id else { return }
@@ -263,15 +267,19 @@ final class CallController: NSObject, NSMenuDelegate {
         typeBox.onSend = { [weak self] text, helper in self?.typed(text, helper: helper) }
         agents.onStarted = { [weak self] a in self?.helperScreen.started(a) }
         agents.onEvent = { [weak self] a, e in self?.helperScreen.event(a, e) }
-        agents.onStopped = { [weak self] a in self?.helperScreen.stopped(id: a.id); self?.askEnded(a.id) }
+        agents.onStopped = { [weak self] a in self?.helperScreen.stopped(id: a.id); self?.askEnded(a.id); self?.notifyAsks(nil) }
         agents.onAsksChanged = { [weak self] a in
             guard let self else { return }
             self.helperScreen.asksChanged(a)
             if a.asks.isEmpty { self.askEnded(a.id) }
             self.away.stillOpen(Set(self.agents.agents.flatMap { $0.asks.map(\.requestID) }))
             if let first = a.asks.first { self.away.asking(a, first) }
+            self.notifyAsks(a)
         }
         away.settings(config)
+        notifier.settings(config)
+        notifier.onAnswer = { [weak self] id, rid, reply in self?.phoneAnswer(id, rid, reply) }   // the same path as the phone's and the card's buttons
+        notifier.onOpen = { [weak self] id in self?.helperWindows.show(id) }
         away.onAnswer = { [weak self] id, rid, reply in self?.phoneAnswer(id, rid, reply) }
         overlay.onHelperAsking = { [weak self] id in self?.helperAsking(id) }
         helperScreen.onCardAnswer = { [weak self] id, yes in self?.cardAnswer(id, yes) }
@@ -2581,9 +2589,18 @@ final class CallController: NSObject, NSMenuDelegate {
             self.askingNow = nil
             self.askSpoken = nil
             self.helperScreen.park(id: id)
+            // Nobody answered out loud: a notification, so it can be answered from anywhere on the Mac.
+            if let a = self.agents.agents.first(where: { $0.id == id }), let ask = a.asks.first { self.notifier.asking(a, ask, inSession: true, parked: true) }
         }
         parkWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + secs, execute: work)
+    }
+
+    /// Mac notifications for helpers' requests: answered or withdrawn ones go away; a new one shows when
+    /// no session runs (in a session Poinky says it, and it's shown only if that goes unanswered).
+    private func notifyAsks(_ a: AgentManager.Agent?) {
+        notifier.stillOpen(agents.agents.flatMap { h in h.asks.map { (h.id, $0) } })
+        if let a, let first = a.asks.first { notifier.asking(a, first, inSession: state != .idle) }
     }
 
     /// It's not waiting anymore (answered everything, withdrew, finished or was stopped).
@@ -2609,6 +2626,7 @@ final class CallController: NSObject, NSMenuDelegate {
             line = "\(a.name) isn't waiting for that anymore."
         case .next:
             if wasNext { askSpoken = nil }
+            notifyAsks(a)   // its next question (from a notification, it gets one too)
         case .sent:
             var ok = true
             if case .no = reply { ok = false }
@@ -2912,6 +2930,7 @@ final class CallController: NSObject, NSMenuDelegate {
     /// The Settings window saved: pick up what can change right away.
     private func settingsChanged(_ cfg: AppConfig) {
         away.settings(cfg)
+        notifier.settings(cfg)
         if cfg.checkForUpdates != config.checkForUpdates { Updater.shared.autoCheck(cfg.checkForUpdates) }
         let hotkeyChanged = cfg.hotkey != config.hotkey || cfg.buddyHotkey != config.buddyHotkey || cfg.typeHotkey != config.typeHotkey
             || cfg.helpersHotkey != config.helpersHotkey

@@ -28,12 +28,14 @@ final class AwayNotifier: NSObject, URLSessionDataDelegate {
     }
 
     /// Away: the screen is locked, or no key or mouse for `awayMinutes`.
-    var isAway: Bool {
-        if forceAway { return true }
+    var isAway: Bool { forceAway || Self.userIsAway(minutes: config.awayMinutes) }
+
+    /// The screen is locked, or no key or mouse for that many minutes.
+    static func userIsAway(minutes: Double) -> Bool {
         if CallController.screenLocked() { return true }
         let idle = [CGEventType.keyDown, .mouseMoved, .leftMouseDown, .scrollWheel]
             .map { CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: $0) }.min() ?? 0
-        return idle > max(1, config.awayMinutes) * 60
+        return idle > max(1, minutes) * 60
     }
 
     var enabled: Bool { config.awayNotify && !config.ntfyTopic.isEmpty }

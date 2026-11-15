@@ -14,7 +14,7 @@ bad()  { printf "  \033[31mFAIL\033[0m %s\n" "$1"; fail=1; }
 expect() { grep -qE "$2" "$1" && pass "$3" || { bad "$3"; sed 's/^/       /' "$1" | grep -v " event " | head -40; }; }
 
 echo "1. Parser"
-swiftc -O -o "$TMP/parser" Sources/Poinky/HelperEvents.swift Sources/Poinky/HelperAsk.swift Sources/Poinky/HelperTranscript.swift tools/tests/helper-events/main.swift 2>"$TMP/swiftc.log" || { cat "$TMP/swiftc.log"; exit 1; }
+swiftc -O -o "$TMP/parser" Sources/Poinky/HelperEvents.swift Sources/Poinky/HelperCost.swift Sources/Poinky/HelperAsk.swift Sources/Poinky/HelperTranscript.swift tools/tests/helper-events/main.swift 2>"$TMP/swiftc.log" || { cat "$TMP/swiftc.log"; exit 1; }
 "$TMP/parser" tools/helper-runs | grep -E "ok|FAIL" ; "$TMP/parser" tools/helper-runs >/dev/null || fail=1
 
 echo "1a. The talker's replies: offers, and the talker eval replayed (no tokens)"
@@ -147,6 +147,20 @@ expect "$TMP/ntfy.txt" "actions=.http, Allow, http://127.0.0.1:$NP/poinky-test-r
 expect "$TMP/N.txt" "from the phone: #1 yes.*→ sent" "tapping Allow answers it"
 expect "$TMP/N.txt" "#1 Mint FINISHED done" "and it goes on and finishes"
 expect "$TMP/ntfy.txt" "listening on poinky-test-reply" "answers are only listened for while something waits"
+
+echo "4k. No session: a helper's request becomes a Mac notification (a fake center), and its buttons answer it"
+run K POINKY_TEST_NOTIFY=allow "$BIN" --helper-test "$TMP/K.txt" "$TMP/proj" fixture:ask-install
+expect "$TMP/K.txt" "notification ask.risky: \"Mint: Test 1\" / \"Can I run npm install left-pad\\?\"" "its name and task, the plain question (a risky one: its own category, with the red Allow)"
+expect "$TMP/K.txt" "from a notification: #1 yes\\(always: false.*→ sent" "Allow answers it (never \"always\")"
+expect "$TMP/K.txt" "#1 Mint FINISHED done" "and it goes on and finishes"
+expect "$TMP/K.txt" "notification done: \"Mint finished: Test 1\"" "finished while you're away: a notification (when turned on)"
+run KQ POINKY_TEST_NOTIFY=open,choose "$BIN" --helper-test "$TMP/KQ.txt" "$TMP/proj" fixture:ask-question
+expect "$TMP/KQ.txt" "notification question: " "a question gets its own notification"
+expect "$TMP/KQ.txt" "from a notification: open #1's window" "Open shows its window and answers nothing"
+expect "$TMP/KQ.txt" "from a notification: #1 answer\\(\"No preference: you choose.\"\\) → sent" "You choose answers it"
+expect "$TMP/KQ.txt" "#1 Mint FINISHED done" "and it finishes"
+run KV POINKY_TEST_NOTIFY=open POINKY_TEST_ANSWERS="1=yes" "$BIN" --helper-test "$TMP/KV.txt" "$TMP/proj" fixture:ask-install
+expect "$TMP/KV.txt" "notification removed: 1" "answered out loud instead: its notification goes away"
 
 echo "4d. \"Wait\": a helper stops what it's doing but stays, then takes a new direction"
 run P POINKY_TEST_PAUSE="3|6|Use yarn instead." "$BIN" --helper-test "$TMP/P.txt" "$TMP/proj" fixture:fix-bug

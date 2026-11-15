@@ -559,6 +559,13 @@ private struct ClaudeTab: View {
                     NSWorkspace.shared.open(AgentManager.logDir)
                 }
             }
+            Section("Notifications") {
+                Toggle("Notify me when a helper needs me", isOn: $model.config.helperNotify)
+                Toggle("Also when a helper finishes while I'm away", isOn: $model.config.helperNotifyDone)
+                    .disabled(!model.config.helperNotify)
+                Text("A Mac notification when a helper asks for your OK or asks a question while you're not talking to Poinky, or when nobody answered it out loud. Allow and Don't Allow work like the buttons on its card (Allow needs your Mac unlocked). macOS asks you once, the first time one is needed.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             Section("When you're away") {
                 Toggle("Send helpers' questions to my phone", isOn: Binding(get: { model.config.awayNotify }, set: { on in
                     model.config.awayNotify = on

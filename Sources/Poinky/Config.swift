@@ -58,6 +58,8 @@ struct AppConfig: Codable {
     var ntfyTopic = ""                 // a random, private topic (made when away mode is turned on)
     var awayMinutes = 3.0              // no keyboard or mouse for this long counts as away (or the screen locked)
     var awayDetails = true             // the notification says what it wants (the command); off: only that one is waiting
+    var helperNotify = true            // a Mac notification when a helper needs you and no session runs (or its question went unanswered)
+    var helperNotifyDone = false       // also when a helper finishes while you're away from the Mac (screen locked or idle)
     /// Apps left out of every screenshot (password managers by default).
     var excludedApps = ["com.apple.Passwords", "com.apple.keychainaccess", "com.1password.1password", "com.agilebits.onepassword7",
                         "com.bitwarden.desktop", "com.lastpass.LastPass"]
@@ -124,6 +126,8 @@ struct AppConfig: Codable {
         ntfyTopic = try c.decodeIfPresent(String.self, forKey: .ntfyTopic) ?? d.ntfyTopic
         awayMinutes = try c.decodeIfPresent(Double.self, forKey: .awayMinutes) ?? d.awayMinutes
         awayDetails = try c.decodeIfPresent(Bool.self, forKey: .awayDetails) ?? d.awayDetails
+        helperNotify = try c.decodeIfPresent(Bool.self, forKey: .helperNotify) ?? d.helperNotify
+        helperNotifyDone = try c.decodeIfPresent(Bool.self, forKey: .helperNotifyDone) ?? d.helperNotifyDone
         excludedApps = try c.decodeIfPresent([String].self, forKey: .excludedApps) ?? d.excludedApps
     }
 
