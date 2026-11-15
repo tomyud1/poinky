@@ -67,6 +67,17 @@
     // The cut-away half can't be clicked: the click goes to what's behind it, or nothing.
     const f = click([0.3, 1.4, -6]);   // the middle of the cut face
     check(f === 'Heart' && await waitFor(() => shown('Heart')), `a cut part is picked on its cut face (${f})`);
+
+    // A label on a part that gets cut moves its dot off the cut-away half, onto what's left.
+    kit.run(`kit.clearLabels(); kit.uncut(kit.get('heart'), {dur:0}); kit.view('side', {dur:0.2});
+             const ball = kit.sphere({r:1, at:[0,1,-12], color:'orange', name:'ball'}); window.ballLabel = kit.label('Ball', {to: ball});`);
+    await waitFor(() => shown('Ball'));
+    await wait(300);
+    const z0 = ballLabel.anchor && ballLabel.anchor.frame.localToWorld(ballLabel.anchor.local.clone()).z;
+    kit.run(`kit.cut(kit.get('ball'), {axis:'z', dur:0.3})`);
+    await wait(1200);
+    const z1 = ballLabel.anchor && ballLabel.anchor.frame.localToWorld(ballLabel.anchor.local.clone()).z;
+    check(z0 > -11.2 && z1 != null && z1 < -11.9 && z1 > -12.1, `the label's dot moves from the front (${z0 && z0.toFixed(2)}) to the cut face (${z1 && z1.toFixed(2)})`);
   } catch (e) { check(false, 'threw: ' + (e && e.stack || e)); }
   document.body.textContent = results.join('\n');
   document.title = fail.length ? 'FAIL' : 'PASS';

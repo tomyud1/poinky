@@ -336,7 +336,7 @@
       const plane = new T.Plane(n, 0);
       const setAt = x => { plane.constant = sgn * x; };
       setAt(edge);
-      tween({ dur: o.dur ?? 1.4, delay: o.delay ?? 0 }, e => setAt(edge + (at - edge) * e));
+      tween({ dur: o.dur ?? 1.4, delay: o.delay ?? 0 }, (e, u) => { setAt(edge + (at - edge) * e); if (u >= 1) reanchor(obj); });
       matsOf(obj, true).forEach(m => { m.clippingPlanes = [...(m.clippingPlanes || []), plane]; m.clipShadows = true; m.needsUpdate = true; });
       const caps = [];
       if (fill) {
@@ -830,12 +830,15 @@
         if (!k) return;
         delete obj.userData.cut;
         const finish = () => {
+          const gone = [];   // removed after the walk (removing children while traversing skips some and throws)
           obj.traverse(m => {
-            if (m.userData.helper && m.userData.plane === k.plane) { m.parent && m.parent.remove(m); return; }
+            if (m.userData.helper && m.userData.plane === k.plane) { gone.push(m); return; }
             if (!m.material) return;
             (Array.isArray(m.material) ? m.material : [m.material]).forEach(x => { x.clippingPlanes = (x.clippingPlanes || []).filter(p => p !== k.plane); x.needsUpdate = true; });
           });
+          gone.forEach(m => m.parent && m.parent.remove(m));
           k.caps.forEach(c => { capsGroup.remove(c.cap); capList.splice(capList.indexOf(c), 1); });
+          reanchor(obj);
         };
         if (o.dur === 0) { finish(); return; }
         tween({ dur: o.dur ?? 1.2, delay: o.delay ?? 0 }, (e, u) => { k.setAt(k.at + (k.edge - k.at) * e); if (u >= 1) finish(); });
@@ -1972,7 +1975,7 @@
       const blob = new T.Mesh(new T.PlaneGeometry(size.x * 1.3 || 1, size.z * 1.3 || 1),
         new T.MeshBasicMaterial({ map: new T.CanvasTexture(cv), transparent: true, depthWrite: false, opacity: 0.6 }));
       blob.rotation.x = -Math.PI / 2;
-      const catcher = new T.Mesh(new T.PlaneGeometry(radius * 6, radius * 6), new T.ShadowMaterial({ opacity: 0.22 }));
+      const catcher = new T.Mesh(new T.PlaneGeometry(radius * 6, radius * 6), new T.ShadowMaterial({ opacity: 0.12 }));
       catcher.rotation.x = -Math.PI / 2; catcher.receiveShadow = true; catcher.position.y = 0.001;
       shadow.add(blob, catcher);
       shadow.position.set(center.x, box.min.y - size.y * 0.01, center.z);
@@ -2068,12 +2071,26 @@
       if (!L.anchor && !intros.some(a => isInside(tg, a.o))) {
         const c = boxOf(tg).getCenter(new T.Vector3());
         ray.set(camera.position, c.clone().sub(camera.position).normalize());
-        const hits = ray.intersectObject(tg, true).filter(h => h.object.isMesh && !h.object.userData.helper && h.object.visible);
-        const p = hits.length ? hits[0].point : c;
+        const hits = ray.intersectObject(tg, true).filter(h => h.object.isMesh && !h.object.userData.helper && h.object.visible && !clippedAt(h.object, h.point));
+        let p = hits.length ? hits[0].point : c;
+        let k = null; for (let q = tg; q && !k; q = q.parent) k = q.userData.cut || null;
+        if (k && !hits.length && k.sgn * (k.at - p[k.axis]) < 0) { p = p.clone(); p[k.axis] = k.at; }   // its middle was cut away: the cut face
+        else if (k && hits.length && k.caps.length && hits[0].face &&   // the inside of a far wall, seen through a filled cut face:
+                 hits[0].face.normal.clone().transformDirection(hits[0].object.matrixWorld).dot(ray.ray.direction) > 0) {   // the dot goes on the face
+          const onFace = ray.ray.intersectPlane(k.plane, new T.Vector3());
+          if (onFace && onFace.distanceTo(ray.ray.origin) < hits[0].distance) p = onFace;
+        }
         L.anchor = { frame: tg.parent, local: tg.parent.worldToLocal(p.clone()) };
       }
       return L.anchor ? L.anchor.frame.localToWorld(L.anchor.local.clone()) : worldPoint(tg);
     }
+    // Is this point of a mesh on the side its cut removed?
+    function clippedAt(m, point) {
+      const mat = Array.isArray(m.material) ? m.material[0] : m.material;
+      return !!mat && (mat.clippingPlanes || []).some(pl => pl.distanceToPoint(point) < -1e-4);
+    }
+    // A part was cut or put back together: its labels find their spot on what's visible again.
+    function reanchor(obj) { for (const L of labels) if (L.target && L.target.isObject3D && (isInside(L.target, obj) || isInside(obj, L.target))) L.anchor = null; }
     function fadeLabel(L) {
       if (L.gone) return;
       L.gone = true;                                   // updateLabels hides it (the CSS fades it) and leaves its slot free
@@ -2182,7 +2199,7 @@
         let shown = true; for (let p = m; p; p = p.parent) if (!p.visible) shown = false;
         if (!shown) continue;
         const mat = Array.isArray(m.material) ? m.material[0] : m.material;
-        if (mat && (mat.clippingPlanes || []).some(pl => pl.distanceToPoint(h.point) < -1e-4)) continue;   // cut away
+        if (clippedAt(m, h.point)) continue;   // cut away
         if (mat && mat.transparent && mat.opacity < 0.45) { behindGlass = behindGlass || m; continue; }
         return m;
       }
