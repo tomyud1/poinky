@@ -32,8 +32,12 @@
   const target = { x: Math.round(innerWidth / 2), y: 46 };
   SB.homeGo(target.x, target.y, target.x, 0);
   // Halfway: flying (moving up) or, with Reduced Motion, faded out — never a jump you can see.
-  await wait(150);
-  s = SB.homeState();
+  // Wait for the first change (frames come slower on CI runners than on a Mac), then judge that moment.
+  for (let t = 0; t < 2000; t += 16) {
+    await wait(16);
+    s = SB.homeState();
+    if (calm ? !s.visible : s.y < 423 - 5) break;
+  }
   if (calm) check(!s.visible && s.blink, tag + 'it fades out instead of flying', s);
   else check(s.visible && s.y < 423 - 5 && s.y > target.y + 20, tag + 'it is on its way up', s);
 
