@@ -36,6 +36,8 @@ final class CallController: NSObject, NSMenuDelegate {
     private var helperContext: String?        // for the talker: you asked a finished helper something
     private var searcher: WebSearcher?        // `<search>`: a session with only web tools (made when first needed)
     private var lookupReply = false           // the talker is answering from lookup results: it may only speak and mark
+    private var pendingOffer: PendingOffer?   // the talker's `<offer>`: runs on a clear yes, with no model call (Offer.swift)
+    private var offerNote: String?            // for the talker: the user said yes and Poinky did what it offered
     private var carriedOver = false           // this session's first question got the end of the last one
     private var askingNow: Int?               // the helper next to the buddy with its hand up, waiting for your answer
     private var askSpoken: String?            // its request that Poinky already said out loud
@@ -550,6 +552,8 @@ final class CallController: NSObject, NSMenuDelegate {
         searcher?.stop()
         searcher = nil
         lookupReply = false
+        pendingOffer = nil
+        offerNote = nil
         carriedOver = false
         overlay.bakeContent()
         overlay.setContentVisible(true)
@@ -830,6 +834,7 @@ final class CallController: NSObject, NSMenuDelegate {
             talkToHelper(a.id, intent, said: text)
             return
         }
+        if guide == nil, takeOffer(text) { return }
         let question = mergeNext && !lastQuestion.isEmpty ? lastQuestion + " " + text : text
         mergeNext = false
         clearedForUtterance = false
@@ -1148,6 +1153,7 @@ final class CallController: NSObject, NSMenuDelegate {
         swapTalkerIfReady()
         guard let talker, let screen = overlay.screen else { return }
         releaseReports()   // a new question cut a report short
+        pendingOffer = nil   // its reply may make a new one
         talker.cancelCurrent()   // an older reply still being written is dropped anyway; don't queue behind it
         turn += 1
         let myTurn = turn
@@ -1254,7 +1260,7 @@ final class CallController: NSObject, NSMenuDelegate {
         let q = question.lowercased()
         if ["punchier", "shorter", "rewrite", "reword", "rephrase", "fix the grammar", "more formal", "less formal",
             "tighten", "make it sound", "make this sound"].contains(where: { q.contains($0) }) {
-            return "(New wording: <say> must contain the whole new text itself, word for word, then \"Want me to swap it in?\". Never \"here's a version\" without the words.)"
+            return "(New wording: <say> must contain the whole new text itself, word for word, then \"Want me to swap it in?\", then <offer say=\"Swapping it in.\"><do>Replace the selected text with exactly: …the new text…</do></offer>. Never \"here's a version\" without the words.)"
         }
         if ["short version", "sum it up", "summarize", "summarise", "tl;dr", "tldr", "gist", "in a nutshell", "quick summary"].contains(where: { q.contains($0) }) {
             return "(Summary: at most 3 short sentences, about 40 words, the main point first. Don't list every item.)"
@@ -1330,6 +1336,7 @@ final class CallController: NSObject, NSMenuDelegate {
             lines.append(agents.usageLine())
         }
         if let c = helperContext { lines.append(c); helperContext = nil }
+        if let n = offerNote, !proactive { lines.append(n); offerNote = nil }
         lines.append(contentsOf: videoContext)
         if let h = agents.handsHolder, let a = agents.agents.first(where: { $0.id == h }) {
             lines.append("(\(a.name) is using the mouse and keyboard right now. Don't click or type for the user until it's done; if they ask you to, say \(a.name) is using them.)")
@@ -1518,6 +1525,71 @@ final class CallController: NSObject, NSMenuDelegate {
         }
         handleVideoTags(ev)
         if ev.end { endAfterSpeaking = true }
+        // Prepared for a yes ("Want me to swap it in?"): kept with where the user is now, run by `takeOffer`.
+        if let o = PendingOffer.make(ev.offer, at: ProcessInfo.processInfo.systemUptime,
+                                     app: Self.frontBundle(),
+                                     window: frontContext.window, selection: frontContext.selection) {
+            pendingOffer = o
+            Timeline.log("offer.made", ["do": o.actions.doTask != nil, "agents": o.actions.agents.count, "reminders": o.actions.reminders.count])
+        }
+    }
+
+    // MARK: - Offers ("Want me to swap it in?" → "Yes.")
+
+    /// The talker offered something and prepared it (`<offer>`). A clear yes runs it right away with no
+    /// model call, through `handle` (the same checks as tags written now); a clear no drops it. Anything
+    /// else goes to the talker as usual (it still knows what it offered). True when handled here.
+    private func takeOffer(_ said: String) -> Bool {
+        guard let offer = pendingOffer else { return false }
+        pendingOffer = nil   // one answer per offer
+        let reply = OfferReply.classify(said)
+        guard reply != .other else { return false }
+        mergeNext = false
+        clearedForUtterance = false
+        if reply == .no {
+            Timeline.log("offer", ["answer": "no"])
+            sayQuick("Okay, I'll leave it.", said: said)
+            return true
+        }
+        let app = NSWorkspace.shared.frontmostApplication
+        let now = ProcessInfo.processInfo.systemUptime
+        let front = Self.frontBundle()   // "" while Poinky's own type box is in front: not a change
+        let readFront = config.frontAppContext && !front.isEmpty && (!offer.window.isEmpty || !offer.selection.isEmpty)
+        let myTurn = turn
+        Task { @MainActor in
+            // The window and selection again (a quick accessibility read, like each question's).
+            var ctx: AppContext?
+            if readFront {
+                let excluded = ScreenCapture.excludedBundleIDs
+                ctx = try? await Deadline.run(0.5, "Reading the front app") { AppContextReader.read(app: app, excluded: excluded) }
+            }
+            guard myTurn == self.turn, self.state != .idle else { return }
+            let check = offer.check(now: now, app: front, window: ctx?.window, selection: ctx?.selection)
+            Timeline.log("offer", ["answer": "yes", "check": "\(check)"])
+            if check == .ok { self.runOffer(offer, said: said) } else { self.ask(said) }   // stale: the talker answers
+        }
+        return true
+    }
+
+    private static func frontBundle() -> String {
+        let b = NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? ""
+        return b == Bundle.main.bundleIdentifier ? "" : b
+    }
+
+    private func runOffer(_ offer: PendingOffer, said: String) {
+        lookupReply = false
+        lastActivity = ProcessInfo.processInfo.systemUptime
+        var line = offer.say ?? offer.defaultLine
+        if !offer.actions.agents.isEmpty {   // the names they really get now
+            let names = agents.nextNames(offer.actions.agents.count)
+            let list = names.count == 1 ? names[0] : names.dropLast().joined(separator: ", ") + " and " + names.last!
+            line = "Okay, \(list) \(names.count == 1 ? "is" : "are") on it."
+        }
+        overlay.setCaption(you: said, claude: nil)
+        sayQuick(line, said: "")
+        handle(offer.actions)
+        offerNote = "(The user said \"\(said)\" to what you offered, so Poinky already did it: \(Recall.clip(offer.what, 200)). Don't do it again.)"
+        logExchange(said, line, note: Recall.clip(offer.what, 160))
     }
 
     private func finishedSpeaking() {

@@ -195,11 +195,14 @@ struct TalkEvents {
             || !aboutUser.isEmpty || !aboutSelf.isEmpty || !unlearnUser.isEmpty || !unlearnSelf.isEmpty
             || !reminders.isEmpty || !reminderCancels.isEmpty
             || !tells.isEmpty || !stops.isEmpty || !undos.isEmpty || end || video != nil || recall != nil || search != nil
+            || offer != nil
     }
     var video: (title: String, brief: String)?        // make a video explainer about this
     var videoCancel = false                           // stop the video being made
     var videoClose = false                            // close the video on screen
     var videoPlay = false                             // continue the paused video
+    /// `<offer say="…">action tags</offer>`: prepared for a yes, not run now (see `PendingOffer`).
+    var offer: (say: String?, body: String)?
 }
 
 /// A background job for a Claude Code agent, asked for by the talker.
@@ -248,7 +251,8 @@ struct TalkParser {
     private var doneDone = false
 
     mutating func feed(_ delta: String) -> TalkEvents {
-        text += delta
+        self.text += delta
+        let text = Self.withoutOffers(self.text)   // an offer's tags wait for a yes
         var ev = TalkEvents()
         ev.sentences = takeSentences(final: false)
         if !drew, let d = Self.between(text, "<draw>", "</draw>") {
@@ -280,11 +284,15 @@ struct TalkParser {
     /// Called when the reply is complete; recovers if the format wasn't followed exactly.
     mutating func finish() -> TalkEvents {
         var ev = TalkEvents()
+        if let o = Self.blocks(self.text, "offer").first, !o.body.isEmpty {
+            ev.offer = (Self.attr("say", in: o.attrs), o.body)
+        }
+        let text = Self.withoutOffers(self.text)
         if text.contains("<say>") {
             ev.sentences = takeSentences(final: true)
         } else if sayEmitted == 0 {
             var s = text
-            for tag in ["<draw>", "<visual>", "<guide>", "<do>", "<act", "<ask>", "<done>", "<end", "<set>", "<remember", "<forget", "<agent", "<tell", "<stop", "<undo", "<video", "<recall", "<search", "<remind"] {
+            for tag in ["<draw>", "<visual>", "<guide>", "<do>", "<act", "<ask>", "<done>", "<end", "<set>", "<remember", "<forget", "<agent", "<tell", "<stop", "<undo", "<video", "<recall", "<search", "<remind", "<offer"] {
                 if let r = s.range(of: tag) { s = String(s[..<r.lowerBound]) }
             }
             s = s.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -386,7 +394,7 @@ struct TalkParser {
     /// All <say> blocks so far, joined (a long reading sometimes continues in a second block).
     private func sayBody() -> (body: String, closed: Bool) {
         var parts: [String] = []
-        var rest = Substring(text)
+        var rest = Substring(Self.withoutOffers(text))
         var closed = false
         while let open = rest.range(of: "<say>") {
             let after = rest[open.upperBound...]
@@ -418,6 +426,18 @@ struct TalkParser {
         let (out, start) = SentenceSplit.split(chars, from: sayEmitted, first: sayEmitted == 0, closed: closed || final)
         if final { sayClosed = true }
         sayEmitted = start
+        return out
+    }
+
+    /// The reply without its `<offer>` blocks (and without one that's still arriving): what's in an offer
+    /// is neither said nor done now.
+    static func withoutOffers(_ s: String) -> String {
+        guard s.contains("<offer") else { return s }
+        var out = s
+        if let re = try? NSRegularExpression(pattern: #"<offer(\s[^>]*)?>[\s\S]*?</offer>"#) {
+            out = re.stringByReplacingMatches(in: out, range: NSRange(out.startIndex..., in: out), withTemplate: "")
+        }
+        if let r = out.range(of: "<offer") { out = String(out[..<r.lowerBound]) }
         return out
     }
 
