@@ -1,5 +1,5 @@
 // Runs the browser tests in tools/tests/*.html in headless Chrome and prints their results.
-// Usage: node tools/tests/run-web-tests.mjs   (needs Google Chrome; Node 22+ for WebSocket)
+// Usage: node tools/tests/run-web-tests.mjs [name filter]   (needs Google Chrome; Node 22+ for WebSocket)
 import { spawn } from 'node:child_process';
 import { mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -34,7 +34,7 @@ const send = (method, params = {}) => new Promise(r => { const i = ++id; pending
 await send('Page.enable');
 await send('Runtime.enable');
 let failed = false;
-for (const f of readdirSync(here).filter(f => f.endsWith('.html')).sort()) {
+for (const f of readdirSync(here).filter(f => f.endsWith('.html') && f.includes(process.argv[2] || '')).sort()) {
   pageErrors = [];
   await send('Page.navigate', { url: 'file://' + join(here, f) });
   let r = null;
