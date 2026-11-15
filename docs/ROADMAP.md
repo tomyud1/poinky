@@ -100,6 +100,10 @@ Why: coders who run several Claude Code sessions in terminals should find Poinky
 Built (2026-11-15): a keyboard-first Helpers window (⌃⌥H): needs-you-first overview with each helper's folder, current step and time, Stop all; ⌘N starts a helper by typing (task or /command, folder, model, plan first); ⌘D shows the files it changed and their diff; ⌘T opens its session in Terminal (`claude --resume`); Copy summary; "@Mint …" in the type box; ⌘C/⌘V work in the type box and the window (they did nothing before: no Edit menu).
 Still open: a macOS notification when a helper needs you and no session runs (Allow / Don't allow on it); tokens/cost per helper in the list while it works; reusing a name that's in the list (two "Mint"s); a helper whose overlapping worktree was kept on a `poinky/<name>-…` branch: show that branch's diff.
 
+## 7c. How the voice sounds (status: spoken-text normalizer, sentence splitting, other-language voices done on `up/voice`)
+Done: `SpokenText` (math, symbols, paths, links, dates, markdown, emoji said the way a person would; English voices only), `SentenceSplit` (no cuts after e.g./Dr./list numbers), whole sentences and other-script parts in another language go to Apple's voice for it, captions keep whole sentences. Test: `tools/test-voice.sh`; the voice itself was checked by synthesizing through `phonon_server.py` and transcribing the WAVs with SpeechAnalyzer.
+Open: Phonon sometimes adds a syllable or repeats the last words of a sentence that ends in a number ("is 12 is 12"); Hebrew/Arabic words inside an English sentence switch voices mid-sentence (a short gap while Apple's voice starts); pauses between list items.
+
 ## 8. Later
 - Approve helpers from the phone (`AwayNotifier` is the start).
 - The user's connectors (calendar, email) through helpers.
