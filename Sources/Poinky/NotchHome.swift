@@ -106,11 +106,14 @@ final class NotchModel: ObservableObject {
     //  working   (idle, agents running) a small dot beside the notch: work is happening in the background
     static let buttonRow: CGFloat = 40
     static let lineRow: CGFloat = 22
-    var showsLastLine: Bool { (!lastLine.isEmpty && Date().timeIntervalSince(lastLineAt) < 60) || agentsRunning > 0 }
+    /// The next reminder within a day ("9:00 Email Professor Lee"), refreshed when the panel opens.
+    @Published var nextReminder = ""
+    var showsLastLine: Bool { (!lastLine.isEmpty && Date().timeIntervalSince(lastLineAt) < 60) || agentsRunning > 0 || !nextReminder.isEmpty }
     var infoLine: String {
         let agents = agentsRunning == 0 ? "" : (agentsRunning == 1 ? "1 agent working" : "\(agentsRunning) agents working")
         let recent = !lastLine.isEmpty && Date().timeIntervalSince(lastLineAt) < 60 ? lastLine : ""
-        return [agents, recent].filter { !$0.isEmpty }.joined(separator: " · ")
+        let reminder = nextReminder.isEmpty ? "" : "Reminder: " + nextReminder
+        return [agents, reminder, recent].filter { !$0.isEmpty }.joined(separator: " · ")
     }
     static let dotWing: CGFloat = 26
 
@@ -191,7 +194,8 @@ struct NotchView: View {
                         if m.showsLastLine {
                             Text(m.infoLine)
                                 .font(.system(size: 11.5)).foregroundStyle(.white.opacity(0.62))
-                                .lineLimit(1).truncationMode(.head)
+                                // A sentence keeps its end (what was just said); a reminder alone keeps its start.
+                                .lineLimit(1).truncationMode(m.infoLine.hasPrefix("Reminder: ") ? .tail : .head)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(.horizontal, 16)
                                 .frame(height: NotchModel.lineRow)
@@ -304,6 +308,7 @@ struct NotchView: View {
     private var infoTip: String {
         var parts: [String] = []
         if m.agentsRunning > 0 { parts.append("Background agents are working on your projects. I'll tell you when they finish.") }
+        if !m.nextReminder.isEmpty { parts.append("Your next reminder (see them all in Settings → General).") }
         if !m.lastLine.isEmpty { parts.append("The last thing I said.") }
         return parts.joined(separator: " ")
     }
@@ -599,9 +604,28 @@ final class NotchHome {
 
     private func setExpanded(_ on: Bool) {
         guard model.expanded != on else { return }
+        if on { model.nextReminder = Reminders.nextLine() ?? "" }
         model.expanded = on
         if !on { model.clearTip() }
         panel?.ignoresMouseEvents = !on
+    }
+
+    /// Developer check (`--notch-shot <out.png>`): the hover panel, opened, with sample content, then quit.
+    static func snapshot(to out: String) {
+        let m = NotchModel()
+        m.hasNotch = true; m.notchWidth = 190; m.notchHeight = 32; m.expanded = true
+        m.nextReminder = Reminders.nextLine() ?? "9:00 Email Professor Lee about the lab report"
+        let host = NSHostingView(rootView: NotchView(m: m).frame(width: 420, height: 140).background(Color.gray.opacity(0.35)))
+        let w = NSWindow(contentRect: CGRect(x: -3000, y: 0, width: 420, height: 140), styleMask: [.borderless], backing: .buffered, defer: false)
+        w.contentView = host
+        w.orderFrontRegardless()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+            if let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) {
+                host.cacheDisplay(in: host.bounds, to: rep)
+                try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: out))
+            }
+            NSApp.terminate(nil)
+        }
     }
 
     /// Closes the panel (after one of its buttons was used).

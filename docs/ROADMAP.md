@@ -76,7 +76,8 @@ What was built (2026-11-08): `Reminders.swift` + `CallController.checkReminders`
 Safety: helper reports (`ask(proactive:)`) now may only speak and mark (`lookupReply = proactive`), like lookup replies, since they're built from helper output; found when a fake report re-scheduled reminders.
 Tests: swiftc harness (15 checks: times, repeats, due/late, cancel, region weekends), the app with the fake (`POINKY_REMINDER_TICK`, `POINKY_REMINDERS_FILE`; reminder said at 10.9 s for 11 s, scheduled helper started at 14.9 s), real Haiku (one-off, weekdays, daily helper with the folder).
 Built (2026-11-15): Settings → General → Reminders lists them (when, repeat, helper) with a button to cancel each; empty, it gives two example phrases.
-Still open: the list in the notch's hover panel, triggers (CI failed, a test broke, a file changed, a calendar event soon), and asking before a scheduled helper does anything risky while you're away (it already raises its hand).
+The notch's hover panel shows the next one within a day ("Reminder: Tomorrow 9:00 Email…").
+Still open: triggers (CI failed, a test broke, a file changed, a calendar event soon), and asking before a scheduled helper does anything risky while you're away (it already raises its hand).
 
 ## 6. Easy to install (status: signing deferred; in-app Update and first-run tour done)
 - Signed + notarized `.dmg` with automatic updates (Sparkle), instead of building from source.

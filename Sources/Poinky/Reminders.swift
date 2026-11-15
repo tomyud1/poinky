@@ -44,6 +44,14 @@ enum Reminders {
     }
     static let maxCount = 50
 
+    /// The next one due within a day, for the notch: "9:00 Email Dana" or "Tomorrow 8:00 Mint: News summary".
+    static func nextLine(now: Date = Date()) -> String? {
+        guard let r = all().first(where: { $0.at > now.addingTimeInterval(-60) && $0.at < now.addingTimeInterval(24 * 3600) }) else { return nil }
+        let time = r.at.formatted(date: .omitted, time: .shortened)
+        let day = Calendar.current.isDate(r.at, inSameDayAs: now) ? "" : "Tomorrow "
+        return day + time + " " + (r.agentTitle.map { "Helper: \($0)" } ?? r.text)
+    }
+
     static func all() -> [Reminder] {
         guard let data = try? Data(contentsOf: url) else { return [] }
         let dec = JSONDecoder()

@@ -77,6 +77,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             HelperTest.run(out: args[i + 1], dir: args[i + 2], tasks: Array(args[(i + 3)...]))
             return
         }
+        if let i = args.firstIndex(of: "--notch-shot"), i + 1 < args.count {
+            NotchHome.snapshot(to: args[i + 1])
+            return
+        }
         if let i = args.firstIndex(of: "--welcome-shot"), i + 1 < args.count {
             WelcomeWindowController.shared.snapshot(outDir: args[i + 1])
             return

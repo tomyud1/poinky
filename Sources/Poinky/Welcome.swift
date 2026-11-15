@@ -14,7 +14,7 @@ final class WelcomeModel: ObservableObject {
     enum Page: Int, CaseIterable { case hello, permissions, claude, tryIt, tips }
     enum Access { case unknown, allowed, notAsked, denied }
     enum ClaudeState: Equatable { case checking, missing, signedOut, ready(String), unsure(String) }
-    enum Event { case asked, answered, tapped, typed, reset }
+    enum Event { case asked, answered, tapped, typed }
 
     @Published var page: Page = .hello
     @Published var mic: Access = .unknown
@@ -165,7 +165,6 @@ final class WelcomeModel: ObservableObject {
         case .answered: if asked { answered = true }
         case .tapped: tapped = true
         case .typed: typed = true
-        case .reset: break
         }
     }
 
