@@ -149,7 +149,7 @@ final class SettingsWindowController {
         model.reload()
         let voice = name == "voice"
         let tab = voice ? AnyView(VoiceTab(model: model)) : name == "general" ? AnyView(GeneralTab(model: model)) : AnyView(ClaudeTab(model: model))
-        let h: CGFloat = voice ? 560 : name == "general" ? 1250 : 900
+        let h: CGFloat = voice ? 560 : name == "general" ? 1600 : 900
         let host = NSHostingView(rootView: tab.frame(width: 620, height: h))
         let w = NSWindow(contentRect: CGRect(x: -3000, y: 0, width: 620, height: h), styleMask: [.borderless], backing: .buffered, defer: false)
         w.contentView = host
@@ -261,12 +261,8 @@ private struct GeneralTab: View {
             Section {
                 Text("Hold ⌥ Option and click or drag to mark things on screen any time Poinky is active.")
                     .font(.callout).foregroundStyle(.secondary)
-                HStack {
-                    Text("New to Poinky, or want a refresher?").font(.callout)
-                    Spacer()
-                    Button("Show the Welcome Tour") { WelcomeWindowController.shared.show() }
-                }
             }
+            SetupCheckSection(settings: model)
             if !updateFirst { UpdateSection(model: model) }
         }
         .formStyle(.grouped)
