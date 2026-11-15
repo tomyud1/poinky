@@ -113,7 +113,7 @@ final class WelcomeModel: ObservableObject {
         let path = ClaudeCodeBrain.findClaude(explicit: explicit)
         DispatchQueue.global().async {
             let state = Self.claudeState(path: path)
-            DispatchQueue.main.async { self.claude = state }
+            DispatchQueue.main.async { self.claude = state; Timeline.log("welcome.claude", ["state": "\(state)"]) }
         }
     }
 
@@ -184,7 +184,7 @@ final class WelcomeModel: ObservableObject {
         return .hello
     }
 
-    func saveProgress() { Self.write(Saved(done: false, page: page.rawValue, askedScreen: askedScreen)) }
+    func saveProgress() { if fixing { return }; Self.write(Saved(done: false, page: page.rawValue, askedScreen: askedScreen)) }
     static func markDone() { write(Saved(done: true, page: 0, askedScreen: nil)) }
     private static func write(_ s: Saved) {
         try? FileManager.default.createDirectory(at: AppConfig.dir, withIntermediateDirectories: true)
@@ -196,13 +196,17 @@ final class WelcomeModel: ObservableObject {
         }
     }
 
+    /// Opened to fix one thing (a permission, Claude Code) instead of as the tour: one page, then Done.
+    @Published var fixing = false
+
     func go(_ p: Page) {
         page = p
-        saveProgress()
+        if !fixing { saveProgress() }
         if p == .permissions { refreshAccess() }
         if p == .claude, claude == .checking || claude == .missing || claude == .signedOut { checkClaude() }
     }
     func next() {
+        if fixing { onFinish(); return }
         if let n = Page(rawValue: page.rawValue + 1) { go(n) } else { finish() }
     }
     func back() { if let p = Page(rawValue: page.rawValue - 1) { go(p) } }
@@ -219,7 +223,8 @@ final class WelcomeWindowController: NSObject, NSWindowDelegate {
 
     var isOpen: Bool { window?.isVisible == true }
 
-    func show(at page: WelcomeModel.Page = .hello) {
+    func show(at page: WelcomeModel.Page = .hello, fixing: Bool = false) {
+        model.fixing = fixing
         model.loadSaved()
         keys()
         model.onOpenSettings = { SettingsWindowController.shared.show(tab: $0) }
@@ -231,7 +236,7 @@ final class WelcomeWindowController: NSObject, NSWindowDelegate {
         if window == nil {
             let host = NSHostingController(rootView: WelcomeView(model: model))
             let w = NSWindow(contentViewController: host)
-            w.title = "Welcome to Poinky"
+            w.title = "Poinky"
             w.styleMask = [.titled, .closable, .fullSizeContentView]
             w.titlebarAppearsTransparent = true
             w.isReleasedWhenClosed = false
@@ -271,6 +276,27 @@ final class WelcomeWindowController: NSObject, NSWindowDelegate {
         model.typeKeys = HotKey.displayString(cfg.typeHotkey)
     }
 
+    /// Something a new user can't get past without help: open the page that fixes it. Mid-tour, it just
+    /// turns to that page.
+    func offerFix(_ page: WelcomeModel.Page, askedScreen: Bool = false) {
+        Timeline.log("welcome.fix", ["page": "\(page)", "open": isOpen])
+        if isOpen {
+            if model.fixing { model.page = page } else { model.go(page) }
+            if askedScreen { model.askedScreen = true }
+            model.refreshAccess()
+            NSApp.activate(ignoringOtherApps: true)
+            window?.makeKeyAndOrderFront(nil)
+            return
+        }
+        show(at: page, fixing: true)
+        if askedScreen { model.askedScreen = true; model.refreshAccess() }
+    }
+    /// A question failed: Claude Code missing or not signed in opens its page with the button that fixes it.
+    func offerFix(for error: Error) {
+        let line = SpokenError.line(for: error)
+        if line == SpokenError.notSignedIn || line == SpokenError.notInstalled { offerFix(.claude) }
+    }
+
     func close() {
         poll?.invalidate(); poll = nil
         window?.close()
@@ -305,6 +331,7 @@ final class WelcomeWindowController: NSObject, NSWindowDelegate {
         shots.append(("3c-claude-ready", { m.page = .claude; m.claude = .ready("2.1.300") }))
         shots.append(("4b-try-done", { m.page = .tryIt; m.asked = true; m.answered = true }))
         shots.append(("5b-tips-done", { m.page = .tips; m.tapped = true; m.typed = true }))
+        shots.append(("6-fix-claude", { m.fixing = true; m.page = .claude; m.claude = .signedOut }))
         let host = NSHostingView(rootView: WelcomeView(model: m).background(Color(nsColor: .windowBackgroundColor)))
         let w = NSWindow(contentRect: CGRect(x: -3000, y: 0, width: 560, height: 480),
                          styleMask: [.borderless], backing: .buffered, defer: false)
@@ -352,18 +379,20 @@ struct WelcomeView: View {
             .id(model.page)
             Divider()
             HStack {
-                if model.page == .hello {
+                if model.fixing {
+                    EmptyView()
+                } else if model.page == .hello {
                     Button("Skip the tour") { model.finish() }.buttonStyle(.link)
                 } else {
                     Button("Back") { withAnimation(.spring(duration: 0.35)) { model.back() } }
                 }
                 Spacer()
-                HStack(spacing: 6) {
+                if !model.fixing { HStack(spacing: 6) {
                     ForEach(WelcomeModel.Page.allCases, id: \.rawValue) { p in
                         Circle().fill(p == model.page ? Color.accentColor : Color.secondary.opacity(0.3)).frame(width: 7, height: 7)
                     }
                 }
-                .accessibilityLabel("Step \(model.page.rawValue + 1) of \(WelcomeModel.Page.allCases.count)")
+                .accessibilityLabel("Step \(model.page.rawValue + 1) of \(WelcomeModel.Page.allCases.count)") }
                 Spacer()
                 Button(nextTitle) { withAnimation(.spring(duration: 0.35)) { model.next() } }
                     .keyboardShortcut(.defaultAction)
@@ -375,6 +404,7 @@ struct WelcomeView: View {
     }
 
     private var nextTitle: String {
+        if model.fixing { return "Done" }
         switch model.page {
         case .hello: return "Let's start"
         case .permissions: return model.nextNeeded == nil ? "Continue" : "Later"

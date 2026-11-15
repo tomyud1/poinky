@@ -390,19 +390,17 @@ final class CallController: NSObject, NSMenuDelegate {
         lastActivity = ProcessInfo.processInfo.systemUptime
         let myCall = callID
         Task { @MainActor in
+            // Missing permissions open the permissions page (one at a time, with Allow / Open Settings
+            // and a Restart button for Screen Recording) instead of an alert.
             guard await SpeechListener.requestPermissions() else {
                 state = .idle
-                showAlert("Poinky needs Microphone and Speech Recognition access.",
-                          info: "Turn both on for Poinky in System Settings → Privacy & Security.",
-                          settingsPane: "Privacy_Microphone")
+                WelcomeWindowController.shared.offerFix(.permissions)
                 return
             }
             guard await ScreenCapture.hasPermission() else {
                 state = .idle
                 ScreenCapture.requestPermission()
-                showAlert("Poinky needs Screen Recording access to see your screen.",
-                          info: "Turn it on in System Settings → Privacy & Security → Screen & System Audio Recording, then quit and reopen Poinky.",
-                          settingsPane: "Privacy_ScreenCapture")
+                WelcomeWindowController.shared.offerFix(.permissions, askedScreen: true)
                 return
             }
 
@@ -1220,6 +1218,7 @@ final class CallController: NSObject, NSMenuDelegate {
                 self.askedAt = nil   // an error line isn't an answer: keep it out of the wait times
                 self.overlay.setClaudeCaption("⚠️ \(error.localizedDescription)")
                 self.speaker.enqueue(SpokenError.line(for: error))
+                WelcomeWindowController.shared.offerFix(for: error)
             }
             guard myTurn == self.turn else { return }
             self.overlay.clearMarks()   // your marks were for this question

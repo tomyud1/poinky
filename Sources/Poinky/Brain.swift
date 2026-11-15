@@ -95,10 +95,8 @@ enum SpokenError {
         let m = error.localizedDescription.lowercased()
         func has(_ words: String...) -> Bool { words.contains { m.contains($0) } }
         if has("usage limit", "hit your limit", "limit reached", "rate limit", "rate_limit", "api error: 429") { return limitLine(nil, now: now) }
-        if has("/login", "not logged in", "invalid api key", "authentication", "api error: 401", "oauth") {
-            return "Claude Code isn't signed in. Run claude in Terminal and sign in, then ask me again."
-        }
-        if has("isn't installed") { return "I can't find Claude Code. Install it, or switch to an API key in Settings." }
+        if has("/login", "not logged in", "invalid api key", "authentication", "api error: 401", "oauth") { return notSignedIn }
+        if has("isn't installed") { return notInstalled }
         if has("overloaded", "api error: 5") { return "Claude's servers are busy right now. Try again in a moment." }
         if has("connection", "network", "offline", "timed out", "could not resolve", "internet") {
             return "I can't reach Claude. Check your internet connection and ask again."
@@ -106,6 +104,10 @@ enum SpokenError {
         if has("stopped answering", "stopped unexpectedly") { return "Claude Code got stuck, so I restarted it. Ask me again." }
         return "Sorry, that didn't work. The details are on screen."
     }
+
+    // These two also open the window with the button that fixes it (WelcomeWindowController.offerFix).
+    static let notSignedIn = "Claude Code isn't signed in. I've opened a window with a Sign in button; ask me again after."
+    static let notInstalled = "I can't find Claude Code. I've opened a window with a button that installs it."
 
     static func limitLine(_ resets: Date?, now: Date = Date()) -> String {
         guard let r = resets, r > now else { return "You've hit your Claude usage limit. I'll work again once it resets." }
