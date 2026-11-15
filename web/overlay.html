@@ -54,6 +54,8 @@
   .notes li.now .n{background:#3b6ef6;color:#fff}
   .notes li.viewing{background:rgba(59,110,246,.12);color:#1f2328}
   .notes li.viewing .n{background:#1f2328;color:#fff}
+  .notes li.aside .n{border-radius:5px}
+  .notes li.aside.now .n{background:#e0a400}
   @keyframes note-in{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
   /* A photo of the real thing, pinned like a polaroid next to the model */
   .card.photo{animation:drop .5s cubic-bezier(.2,.9,.3,1.2)}
@@ -290,7 +292,8 @@
             var d = ev.data; if (!d) return;
             if (typeof d.sbFeed === 'string') { writer.feed(d.sbFeed); return; }
             if (d.sbEnd) { end(); return; }
-            if (typeof d.sbRun === 'string') { try { kit.run(d.sbRun, d.note); } catch(e){ fail(e); } }
+            if (typeof d.sbRun === 'string') { try { kit.run(d.sbRun, d.note, {aside: !!d.aside}); } catch(e){ fail(e); } }
+            if (d.sbAsideEnd) { try { kit.endAside(); } catch(e){} }
             if (typeof d.sbRevisit === 'number') { try { kit.revisit(d.sbRevisit); } catch(e){} }
           });
         })();
@@ -350,7 +353,7 @@
       return;
     }
     if (e.data && typeof e.data.sbPicked === 'string') {   // a part of a 3D model was clicked: the talker hears which
-      for (const f of cards.querySelectorAll('iframe')) if (f.contentWindow === e.source) post({kind:'picked', id:f.closest('.card').dataset.id, name:e.data.sbPicked.slice(0, 80)});
+      for (const f of cards.querySelectorAll('iframe')) if (f.contentWindow === e.source) post({kind:'picked', id:f.closest('.card').dataset.id, name:e.data.sbPicked.slice(0, 80), part:String(e.data.part || '').slice(0, 80)});
       return;
     }
     if (!e.data || !e.data.sbError) return;
@@ -456,10 +459,12 @@
       report();
     },
     /** Run more code in an existing 3D model (by id). note: this step's line in the notes beside it. */
-    run3d(id, code, note){
-      const i = note ? addNote(String(id), String(note)) : null;
-      send3d(id, {sbRun: code, note: i});
+    run3d(id, code, note, aside){
+      const i = note ? addNote(String(id), String(note), !!aside) : null;
+      send3d(id, {sbRun: code, note: i, aside: !!aside});
     },
+    /** A step about a clicked part is over (its sentences were heard): the model goes back to the lesson's view. */
+    end3dAside(id){ send3d(id, {sbAsideEnd: true}); },
     /** More code of a model that's still being written, and the end of it. */
     feed3d(id, code){ send3d(id, {sbFeed: code}); },
     end3d(id){ send3d(id, {sbEnd: true}); }
@@ -477,7 +482,7 @@
   }
   // ---------- notes beside a narrated 3D model ----------
   const NOTES_W = 232;
-  function addNote(id, text){
+  function addNote(id, text, aside){
     const c = cards.querySelector(`.card[data-id="${CSS.escape(id)}"][data-type="scene3d"]:not(.leaving)`);
     if (!c) return null;
     let box = c.querySelector('.notes');
@@ -518,7 +523,7 @@
     ol.querySelectorAll('li.now, li.viewing').forEach(o => o.classList.remove('now', 'viewing'));
     const i = ol.children.length;
     const li = document.createElement('li');
-    li.dataset.i = i; li.className = 'now'; li.title = 'Show this step again';
+    li.dataset.i = i; li.className = aside ? 'now aside' : 'now'; li.title = aside ? 'About the part you clicked: show it again' : 'Show this step again';
     li.innerHTML = '<span class="n"></span><span class="t"></span>';
     li.querySelector('.n').textContent = i + 1;
     li.querySelector('.t').textContent = text;
