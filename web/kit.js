@@ -2085,7 +2085,11 @@
         const hits = ray.intersectObject(tg, true).filter(h => h.object.isMesh && !h.object.userData.helper && h.object.visible && !clippedAt(h.object, h.point));
         let p = hits.length ? hits[0].point : c;
         let k = null; for (let q = tg; q && !k; q = q.parent) k = q.userData.cut || null;
-        if (k && !hits.length && k.sgn * (k.at - p[k.axis]) < 0) { p = p.clone(); p[k.axis] = k.at; }   // its middle was cut away: the cut face
+        if (k && !hits.length && k.sgn * (k.at - p[k.axis]) < 0) {   // its middle was cut away: the cut face
+          const bb = boxOf(tg);
+          if (k.sgn * (k.at - (k.sgn > 0 ? bb.min : bb.max)[k.axis]) < 0) { L.anchor = { gone: true }; return null; }   // all of it was cut away: no label
+          p = p.clone(); p[k.axis] = k.at;
+        }
         else if (k && hits.length && k.caps.length && hits[0].face &&   // the inside of a far wall, seen through a filled cut face:
                  hits[0].face.normal.clone().transformDirection(hits[0].object.matrixWorld).dot(ray.ray.direction) > 0) {   // the dot goes on the face
           const onFace = ray.ray.intersectPlane(k.plane, new T.Vector3());
@@ -2093,6 +2097,7 @@
         }
         L.anchor = { frame: tg.parent, local: tg.parent.worldToLocal(p.clone()) };
       }
+      if (L.anchor && L.anchor.gone) return null;
       return L.anchor ? L.anchor.frame.localToWorld(L.anchor.local.clone()) : worldPoint(tg);
     }
     // Is this point of a mesh on the side its cut removed?
