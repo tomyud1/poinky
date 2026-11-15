@@ -140,6 +140,12 @@ final class AgentManager {
 
     /// The name the next helper will get (so Poinky can say "I'll have Mint do that").
     var nextName: String { freeName() }
+    /// The names the next few helpers would get, in order (so "start three helpers" can name all three).
+    func nextNames(_ n: Int) -> [String] {
+        var extra = Set<String>(), out: [String] = []
+        for _ in 0..<n { let name = freeName(also: extra); out.append(name); extra.insert(name) }
+        return out
+    }
     /// Its place in the name list (each helper has its own note in the sounds).
     static func note(for name: String) -> Int { names.firstIndex(of: name.components(separatedBy: " ")[0]) ?? 0 }
 
@@ -851,8 +857,8 @@ final class AgentManager {
     /// Names in use by helpers that aren't agents (a video being made).
     var reservedNames: Set<String> = []
 
-    private func freeName() -> String {
-        Self.pickName(used: agents.map { ($0.name, $0.status == .running || $0.status == .queued) }, reserved: reservedNames)
+    private func freeName(also: Set<String> = []) -> String {
+        Self.pickName(used: agents.map { ($0.name, $0.status == .running || $0.status == .queued) }, reserved: reservedNames.union(also))
     }
 
     /// A name for a new helper that nobody in this run has had, so the Helpers window never lists two

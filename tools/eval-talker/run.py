@@ -8,7 +8,7 @@ the reply. See README.md.
   python3 tools/eval-talker/run.py --runs 2 --label after
   python3 tools/eval-talker/run.py --print-prompt       # just show the assembled system prompt
 """
-import argparse, base64, concurrent.futures as cf, json, os, re, shutil, subprocess, sys, time
+import argparse, base64, tempfile, concurrent.futures as cf, json, os, re, shutil, subprocess, sys, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
@@ -65,23 +65,63 @@ def system_prompt(facts=(), prompt_dir=None):
 
 # ---------- the message, as CallController.talkerText builds it ----------
 
+def _controller():
+    return open(os.path.join(ROOT, "Sources/Poinky/CallController.swift"), encoding="utf-8").read()
+
+
 def wants_sketch(q, marked=False):
+    """CallController.wantsSketch, with its word lists read from the source (so edits to it count)."""
+    src = _controller()
+    body = src[src.index("static func wantsSketch"):]
+    body = body[:body.index("\n    }\n")]
+
+    def words(name):
+        seg = body[body.index("let %s = " % name):]
+        seg = seg[:seg.index("\n        if ") if "\n        if " in seg else len(seg)]
+        seg = re.sub(r"//[^\n]*", "", seg)
+        return [swift_literal(w) for w in re.findall(r'"((?:[^"\\]|\\.)*)"', seg)]
     s = q.lower()
-    if any(w in s for w in ["how do i", "how can i", "how to ", "where do i", "where can i", "help me ", "walk me through", "show me how to"]):
+    if any(w in s for w in words("howTo")):
         return False
-    if any(w in s for w in ["video", "explainer", "long explanation", "in depth", "in-depth", "deep dive", "the whole story", "full story"]):
+    if any(w in s for w in words("long")):
         return False
-    strong = ["explain", "how does", "how do ", "how is ", "how are", "how it works", "show me", "draw", "sketch",
-              "diagram", "in 3d", "3d model", "teach me", "visualize", "what's the difference", "what is the difference", "compare"]
-    if any(w in s for w in strong):
+    if any(w in s for w in words("strong")):
         return True
-    soft = ["what does", "what is", "what's", "what are", "why ", "mean"]
-    return marked and any(w in s for w in soft) and len(s.split()) >= 3
+    return marked and any(w in s for w in words("soft")) and len(s.split()) >= 3
 
 
-def wants_sketch_current(q, marked=False):
-    """The app's own function, if it can be read (so the harness follows edits to it)."""
-    return wants_sketch(q, marked)
+def wants_work_checked(q, work):
+    """CallController.wantsWorkChecked, read from the source."""
+    src = _controller()
+    if "static func wantsWorkChecked" not in src:
+        return False
+    body = src[src.index("static func wantsWorkChecked"):]
+    body = body[:body.index("\n    }\n")]
+    seg = body[body.index("let asks = "):body.index("guard asks")]
+    asks = [swift_literal(w) for w in re.findall(r'"((?:[^"\\]|\\.)*)"', seg)]
+    pat = re.search(r'range\(of: #"(.*?)"#', body).group(1)
+    s = q.lower()
+    return any(w in s for w in asks) and re.search(pat, work) is not None
+
+
+def answer_shape_hint(q):
+    """CallController.answerShapeHint, read from the source."""
+    src = _controller()
+    if "static func answerShapeHint" not in src:
+        return None
+    body = src[src.index("static func answerShapeHint"):]
+    body = body[:body.index("\n    }\n")]
+    s = q.lower()
+    for block in re.findall(r'if \[([\s\S]*?)\]\.contains[\s\S]*?return "((?:[^"\\]|\\.)*)"', body):
+        words = [swift_literal(w) for w in re.findall(r'"((?:[^"\\]|\\.)*)"', block[0])]
+        if any(w in s for w in words):
+            return swift_literal(block[1])
+    return None
+
+
+def teacher_line():
+    m = re.search(r'lines\.append\("(\(The teacher is ALREADY(?:[^"\\]|\\.)*)"\)', _controller())
+    return swift_literal(m.group(1))
 
 
 def message_text(sc):
@@ -100,10 +140,20 @@ def message_text(sc):
     if sc.get("agents"):
         lines.append(sc["agents"])
     used = re.findall(r"#\d+ (\w+)", sc.get("agents", ""))
-    lines.append(f"If you start an agent now, it will be called {next(n for n in NAMES if n not in used)}.")
-    if wants_sketch_current(q):
-        lines.append("(The teacher is ALREADY preparing a narrated sketch for this question. Say ONE short hand-over line, "
-                     "mark what it's about, and do NOT write <visual>.)")
+    free = [n for n in NAMES if n not in used]
+    if "nextNames(3)" in _controller():
+        lines.append(f"If you start an agent now, it will be called {free[0]} (several: {', '.join(free[:3])}, in that order).")
+    else:
+        lines.append(f"If you start an agent now, it will be called {free[0]}.")
+    selection = "".join(re.findall(r"«([\s\S]*)»", "\n".join(sc.get("ctx", []))))
+    if wants_sketch(q) or wants_work_checked(q, selection):
+        lines.append(teacher_line())
+    hint = answer_shape_hint(q)
+    if hint:
+        lines.append(hint)
+    m = re.search(r'static let formatReminder = "((?:[^"\\]|\\.)*)"', _controller())
+    if m:
+        lines.append(swift_literal(m.group(1)))
     return "\n".join(lines)
 
 
@@ -136,11 +186,14 @@ def find_claude():
     return shutil.which("claude")
 
 
-def no_thinking_body():
-    """The CLAUDE_CODE_EXTRA_BODY ClaudeCodeBrain sends for Haiku on Automatic effort (read from the source)."""
+def no_thinking_body(model="haiku"):
+    """The CLAUDE_CODE_EXTRA_BODY ClaudeCodeBrain sends on Automatic effort (`noThinkingBody(for:)`)."""
     src = open(os.path.join(ROOT, "Sources/Poinky/ClaudeCodeBrain.swift"), encoding="utf-8").read()
-    m = re.search(r'\?\? #"(\{"thinking".*?)"#', src)
-    return m.group(1) if m else None
+    if "static func noThinkingBody(for" not in src:
+        return None
+    m = model.lower()
+    kind = "disabled" if "haiku" in m else "between_tools" if "sonnet" in m else None
+    return kind and '{"thinking":{"type":"%s"},"context_management":{"edits":[]}}' % kind
 
 
 def run_once(sc, jpg, model, workdir, prompt, keep_thinking=False):
@@ -151,8 +204,8 @@ def run_once(sc, jpg, model, workdir, prompt, keep_thinking=False):
             "--include-partial-messages", "--model", model, "--tools", "", "--strict-mcp-config",
             "--disable-slash-commands", "--setting-sources", "", "--no-session-persistence",
             "--system-prompt", prompt, "--settings", '{"alwaysThinkingEnabled":false}']
-    env = dict(os.environ, MAX_THINKING_TOKENS="0")
-    body = None if keep_thinking or "haiku" not in model else no_thinking_body()
+    env = dict(os.environ, MAX_THINKING_TOKENS="0", CLAUDE_CODE_DISABLE_AUTO_MEMORY="1")
+    body = None if keep_thinking else no_thinking_body(model)
     if body:
         env["CLAUDE_CODE_EXTRA_BODY"] = body
     p = subprocess.Popen(args, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=workdir, env=env)
@@ -260,12 +313,12 @@ def rescore(labels):
                 s = score(sc, {k: r.get(k) for k in ("raw", "first_token", "first_sentence", "total", "input_tokens")})
                 fails = [n for n, ok in s["checks"] + s["generic"] if not ok]
                 passed[label] += not fails
-                ft = r.get("first_sentence") or 0
+                ft = r.get("first_sentence") or r.get("first_token") or 0
                 parts.append(("pass" if not fails else "FAIL: " + "; ".join(fails)) + f" ({ft:.1f}s)")
             cells.append("<br>".join(parts))
         print(f"| {sc['id']} | " + " | ".join(cells) + " |")
     for label, merged in cols:
-        fs = sorted(r.get("first_sentence") or 99 for runs in merged.values() for r in runs)
+        fs = sorted(r.get("first_sentence") or r.get("first_token") or 99 for runs in merged.values() for r in runs)
         print(f"\n{label}: {passed[label]}/{len(fs)} passed, first spoken words median {fs[len(fs)//2]:.2f}s, max {fs[-1]:.2f}s")
 
 
@@ -292,8 +345,9 @@ def main():
 
     scs = [s for s in S.SCENARIOS if not a.scenarios or s["id"] in a.scenarios]
     out = os.path.join(ROOT, "build", "eval-talker")
-    work = os.path.join(out, "work")   # an empty folder for claude to run in (the app uses its settings folder)
-    os.makedirs(work, exist_ok=True)
+    # An empty folder outside any git repo for claude to run in, like the app's settings folder (inside a
+    # repo, Claude Code would add that project's auto-memory to the context).
+    work = tempfile.mkdtemp(prefix="poinky-eval-")
     jobs = []
     for sc in scs:
         jpg = render(sc, out)
