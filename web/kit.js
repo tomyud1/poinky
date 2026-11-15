@@ -156,6 +156,7 @@
     let t0 = performance.now(), last = t0;
     const cam = { az: 32 * DEG, el: 20 * DEG, dist: 10, target: new T.Vector3(), baseAz: 32 * DEG, sway: true, spin: 0 };
     let lastInteract = -1e9, camTween = null, focused = false, focusCount = 0;
+    let stepAt = 0, focusWhole = null, lastRoom = -1e9;   // when the current step began; the whole model's framing while zoomed in
     let building = false, viewChosen = false;   // building: the model's first code is still arriving
     let clock = 0;                       // seconds since start (for things added later)
     let fitted = false, shadow = null, floor = true;   // floor: the soft shadow under the model (off for things in space)
@@ -733,7 +734,7 @@
         dot.setAttribute('r', '4'); dot.setAttribute('fill', '#fff'); dot.setAttribute('stroke', ink); dot.setAttribute('stroke-width', '2.5');
         linesSvg.appendChild(line); linesSvg.appendChild(dot);
         const target = o.at || o.to || o.target || [0, 0, 0];
-        const L = { text, tag, line, dot, target, temp: !!o.temp, note: o._note ?? curNote,
+        const L = { text, tag, line, dot, target, temp: !!o.temp, note: o._note ?? curNote, born: clock,
                     side: o.side, anchor: null, x: null, y: null,
                     delay: clock + (fitted ? 0.5 : 0.9 + labels.length * 0.15) };
         labels.push(L);
@@ -931,7 +932,7 @@
         if (obj && !obj.isObject3D && !Array.isArray(obj) && typeof obj === 'object') { o = obj; obj = obj.part || obj.on || null; }   // focus({zoom})
         o = o || {};
         if (o.view) kit.view(o.view, { dur: o.dur });
-        if (!obj) { fit(); return; }
+        if (!obj) { focusWhole = null; fit(); return; }
         const whole = contentBox();
         if (whole.isEmpty()) return;
         const b = Array.isArray(obj) ? new T.Box3().setFromCenterAndSize(v3(obj), new T.Vector3(0.5, 0.5, 0.5)) : boxOf(obj);
@@ -944,6 +945,7 @@
         const wholeDist = fitDistance(whole, whole.getCenter(new T.Vector3()), az, el);
         const partDist = Array.isArray(obj) ? wholeDist * 0.5 : fitDistance(b, pc, az, el, obj) * 1.6;
         cam.goalDist = Math.max(partDist / (o.zoom ?? 1), wholeDist * 0.62);
+        focusWhole = { dist: wholeDist * 1.1, center: whole.getCenter(new T.Vector3()) };
         // Something big in the way (the Sun in front of the Earth)? Swing to the nearest clear angle.
         if (!Array.isArray(obj) && !o.view) {
           const clear = clearAngle(obj, pc, cam.goalTarget, cam.goalDist, az, el);
@@ -978,6 +980,7 @@
       /** Run more code in this same scene (a narrated step or a follow-up question). Throws the first error
           after running every statement that works. */
       run(code, note) {
+        stepAt = clock;
         if (note != null) {
           saveView(curNote);
           // You were looking back at an earlier step: return to where the lesson is before it moves on.
@@ -2112,12 +2115,18 @@
       L.gone = true;                                   // updateLabels hides it (the CSS fades it) and leaves its slot free
       setTimeout(() => kit.remove(L), 400);
     }
+    let needRoom = false;
     function updateLabels(t) {
       const cx = W() / 2, gap = 8, items = [];
+      needRoom = false;
       for (const L of labels) {
         const w = anchorOf(L);
         const p = w ? project(w) : [0, 0, 2];
-        const visible = !L.gone && !!w && p[2] < 1 && t > L.delay;
+        // Zoomed in on one part, a part that's out of the picture: its tag would hang at the edge with
+        // its line running off the panel, so it hides until the part is back in view.
+        const out = focused && !!w && (p[0] < 8 || p[0] > W() - 8 || p[1] < 8 || p[1] > H() - 8);
+        if (out && !L.gone && p[2] < 1 && t > L.delay && L.born >= stepAt) needRoom = true;   // this step's own labels: make room
+        const visible = !L.gone && !!w && p[2] < 1 && t > L.delay && !out;
         L.tag.style.opacity = visible ? 1 : 0;
         L.line.style.opacity = L.dot.style.opacity = visible ? 1 : 0;
         if (!visible) continue;
@@ -2191,6 +2200,13 @@
       placeCamera(t);
       renderer.render(scene, camera);
       updateLabels(t);
+      // Zoomed in, but what this step labels is outside the picture: pull back a little at a time
+      // (never past the whole model) until it fits.
+      if (needRoom && focused && focusWhole && t - lastRoom > 0.35 && t - lastInteract > 5 && !camTween) {
+        lastRoom = t;
+        cam.goalDist = Math.min(cam.goalDist * 1.12, Math.max(cam.goalDist, focusWhole.dist));
+        cam.goalTarget.lerp(focusWhole.center, 0.15);
+      }
       requestAnimationFrame(frame);
     }
 

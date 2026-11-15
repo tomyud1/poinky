@@ -1,0 +1,40 @@
+<!doctype html><html><head><meta charset="utf-8">
+<!-- Zooming in on a part: earlier labels whose parts are out of the picture hide (instead of hanging at the
+     edge with their line running off), and this step's labels pull the camera back until they fit. -->
+<link rel="stylesheet" href="../../web/kit.css"></head><body style="width:640px;height:480px">
+<div id="stage"></div><svg id="lines"></svg><div id="tags"></div><div id="err"></div>
+<script src="../../vendor/three.min.js"></script>
+<script src="../../web/kit.js"></script>
+<script>
+(async () => {
+  const results = [], fail = [];
+  const check = (ok, what) => { results.push((ok ? 'ok   ' : 'FAIL ') + what); if (!ok) fail.push(what); };
+  const wait = ms => new Promise(r => setTimeout(r, ms));
+  const tag = text => [...document.querySelectorAll('#tags .tag')].find(t => t.textContent === text);
+  const shown = text => { const t = tag(text); return !!t && +t.style.opacity === 1; };
+  const waitFor = async (fn, ms = 8000) => { for (let t = 0; t < ms && !fn(); t += 100) await wait(100); return fn(); };
+  // Every visible tag and its dot are inside the panel.
+  const inside = () => [...document.querySelectorAll('#lines circle')].every(c => c.style.opacity !== '1' ||
+    (+c.getAttribute('cx') >= 0 && +c.getAttribute('cx') <= innerWidth && +c.getAttribute('cy') >= 0 && +c.getAttribute('cy') <= innerHeight));
+  try {
+    const kit = Kit({ reduceMotion: true }); kit.start(); window.kit = kit;
+    kit.run(`kit.view('side');
+      kit.box({size:[1,1,1], at:[-9,0.5,0], color:'blue', name:'far'});
+      kit.box({size:[16,0.3,1], at:[0,0.15,0], color:'gray'});
+      kit.box({size:[1,1.4,1], at:[6,0.7,0], color:'green', name:'pump'});
+      kit.box({size:[0.6,0.6,0.6], at:[-4.5,0.3,0], color:'orange', name:'valve'});
+      kit.label('Far end', {to: kit.get('far')});`, 0);
+    check(await waitFor(() => shown('Far end')), 'the first label shows');
+    kit.run(`kit.focus(kit.get('pump'), {zoom:3}); kit.label('Pump', {to: kit.get('pump'), color:'green'}); kit.label('Valve', {to: kit.get('valve'), color:'orange'});`, 1);
+    await wait(2500);
+    check(!shown('Far end'), "zoomed in, the earlier label of a part that's out of the picture hides");
+    check(await waitFor(() => shown('Pump') && shown('Valve')), `this step's labels end up in the picture (Pump ${shown('Pump')}, Valve ${shown('Valve')})`);
+    check(inside(), 'no dot is outside the panel');
+    kit.run(`kit.focus()`, 2);
+    check(await waitFor(() => shown('Far end')), 'zooming back out brings the earlier label back');
+  } catch (e) { check(false, 'threw: ' + (e && e.stack || e)); }
+  document.body.textContent = results.join('\n');
+  document.title = fail.length ? 'FAIL' : 'PASS';
+  window.testResults = { pass: !fail.length, lines: results };
+})();
+</script></body></html>
