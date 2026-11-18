@@ -114,6 +114,18 @@
       const b = item(id) && item(id).getBBox();
       check(b && b.x >= 0 && b.x + b.width <= 800, `"${id}" stays on the paper (${b && Math.round(b.x)}–${b && Math.round(b.x + b.width)})`);
     }
+
+    // A curved arrow under a table (a real reply): its label used to land inside the bulge, on the curve.
+    SB.lessonBegin(frame, 'arrow label');
+    SB.lessonStep({ ops: [
+      { op: 'table', id: 'pt', x: 40, y: 120, cols: [170, 190, 190, 190], rows: [['', 'Basic', 'Plus', 'Unlimited'], ['Price', '$25', '$40', '$60'], ['Data', '5GB', '25GB', 'Unlimited'], ['Hotspot', 'none', '5GB', '30GB']] },
+      { op: 'arrow', id: 'ca', from: [500, 320], to: [680, 320], label: '+$20', color: 'orange', curve: -40 },
+    ] }, 1);
+    await done();
+    const cl = item('ca').querySelector('text').getBBox(), shaft = item('ca').querySelector('path'), SL = shaft.getTotalLength();
+    let under = 0;
+    for (let k = 0; k <= 40; k++) { const q = shaft.getPointAtLength(SL * k / 40); if (q.x > cl.x - 2 && q.x < cl.x + cl.width + 2 && q.y > cl.y - 2 && q.y < cl.y + cl.height + 2) under++; }
+    check(under === 0, `a curved arrow's label doesn't sit on its curve (${under} curve points under it)`);
   } catch (e) { check(false, 'threw: ' + e.message + ' ' + (e.stack || '').split('\n')[1]); }
   window.testResults = { pass: !fail.length, lines: results };
 })();

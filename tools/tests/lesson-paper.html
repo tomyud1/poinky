@@ -77,6 +77,18 @@
     const al = item('a').querySelector('text').getBBox();
     check(al.y + al.height < 450 || al.y > 450, `an arrow's label sits beside the arrow, not on it (label ${Math.round(al.y)}–${Math.round(al.y + al.height)}, arrow at 450)`);
 
+    // A mark on a point circles its dot, not the dashed guides down to the axes; operator names in math get room.
+    SB.lessonStep({ ops: [
+      { op: 'point', id: 'pg', graph: 'g', at: [1, 1], guides: true, color: 'green' },
+      { op: 'mark', id: 'pgm', target: 'pg', style: 'circle' },
+      { op: 'math', id: 'sn', x: 480, y: 640, text: 'mg\\sin\\theta', size: 30 },
+    ] }, 1);
+    await done();
+    const mk = item('pgm').querySelector('path').getBBox();
+    check(mk.width < 70 && mk.height < 70, `a mark on a point circles the dot (${Math.round(mk.width)}×${Math.round(mk.height)})`);
+    const snt = [...item('sn').querySelectorAll('text')].map(t => t.textContent).join('');
+    check(/g\u2009sin\u2009θ/.test(snt), `operator names get a little room in math (${JSON.stringify(snt)})`);
+
     // Tables: columns fit the paper, later rows fit their columns, the header is filled.
     SB.lessonStep({ ops: [
       { op: 'table', id: 't', x: 40, y: 700, rows: [['', 'Plant', 'Animal'], ['Cell wall', 'yes', 'no']], color: 'green' },

@@ -533,6 +533,7 @@
     sin: 'sin', cos: 'cos', tan: 'tan', ln: 'ln', log: 'log', exp: 'exp', lim: 'lim', max: 'max', min: 'min',
     left: '', right: '', displaystyle: '', '{': '{', '}': '}', '%': '%', '$': '$', '#': '#', '_': '_', '&': '&',
   };
+  const OPNAMES = new Set(['sin', 'cos', 'tan', 'ln', 'log', 'exp', 'lim', 'max', 'min']);
   /** Mathy text: a hint to draw it as math even without "math": true. */
   const looksMath = s => /\\(frac|sqrt|cdot|times|pi|theta|alpha|Delta|int|sum|le|ge|to)\b|\^[{(\d]|_\{/.test(s);
   // Chemical formulas in plain text (H2O, CO2, C6H12O6) get their numbers written small and low.
@@ -622,6 +623,7 @@
           return { t: 'text', s: '' };
         }
         if (name === 'overline' || name === 'bar' || name === 'vec' || name === 'hat') return { t: 'over', body: argument(), kind: name };
+        if (OPNAMES.has(name)) return { t: 'text', s: '\u2009' + name + '\u2009' };
         return { t: 'text', s: name in SYM ? SYM[name] : name };
       }
       // A run of plain characters (a script attaches after it, which looks the same as after its last letter).
@@ -709,6 +711,12 @@
     measurer.setAttribute('font-weight', bold ? 700 : 400);
     measurer.textContent = str;
     return str ? measurer.getComputedTextLength() : 0;
+  }
+  /** The box the handwriting really takes: width, height and how far above the baseline it starts. */
+  function inkBox(str, size) {
+    measure(str, size);
+    const b = measurer.getBBox();
+    return { w: b.width, h: b.height, up: -9999 - b.y };
   }
 
   /** Draws math at baseline (x, y) in group g; returns the group holding it. */
@@ -841,17 +849,24 @@
     const L = Math.hypot(tx, ty) || 1; tx /= L; ty /= L;
     let nx = -ty, ny = tx;                      // a normal; make it point up (or left for vertical arrows)
     if (ny > 0 || (Math.abs(ny) < .2 && nx > 0)) { nx = -nx; ny = -ny; }
-    const w = measure(label, size) + 6, h = size * 1.1;
-    const spot = side => {
+    const ink = inkBox(label, size), w = ink.w + 6, h = ink.h;
+    // Points along the arrow itself: a label must not sit on them (a curved arrow bulges toward one side).
+    const along = Array.from({ length: 25 }, (_, i) => {
+      const t = i / 24, u = 1 - t;
+      return [u * u * p0[0] + 2 * u * t * c[0] + t * t * p2[0], u * u * p0[1] + 2 * u * t * c[1] + t * t * p2[1]];
+    });
+    const spot = (side, far) => {
       // How far out the label's center must be so its box clears the line: half its extent along the normal.
-      const reach = Math.abs(nx) * w / 2 + Math.abs(ny) * h / 2 + 6;
+      const reach = (Math.abs(nx) * w / 2 + Math.abs(ny) * h / 2 + 6) * far;
       const cx = mx + side * nx * reach, cy = my + side * ny * reach;
-      return { x: cx - w / 2, y: cy - h / 2, w, h };
+      return { x: cx - w / 2, y: cy - h / 2, w, h, side, far };
     };
-    const cost = r => used.reduce((t, b) => t + overlap(r, b), 0) + (r.x < 4 || r.x + r.w > UNITS - 4 || r.y < 4 ? 1e6 : 0);
-    const a = spot(1), b = spot(-1), r = cost(b) < cost(a) * .6 ? b : a;
+    const cost = r => used.reduce((t, b) => t + overlap(r, b), 0)
+      + along.filter(([px, py]) => px > r.x - 3 && px < r.x + r.w + 3 && py > r.y - 3 && py < r.y + r.h + 3).length * 1e4
+      + (r.x < 4 || r.x + r.w > UNITS - 4 || r.y < 4 ? 1e6 : 0) + (r.far - 1) * 60 + (r.side < 0 ? 40 : 0);
+    const r = [1, -1].flatMap(side => [1, 1.6, 2.3].map(far => spot(side, far))).reduce((best, q) => cost(q) < cost(best) ? q : best);
     claim(r, id);
-    await writeText(g, { x: r.x + r.w / 2, y: r.y + r.h / 2 + size * .33, text: label, size, align: 'center', color: 'gray', free: false, fit: false });
+    await writeText(g, { x: r.x + r.w / 2, y: r.y + ink.up, text: label, size, align: 'center', color: 'gray', free: false, fit: false });
   }
 
   async function line(o) {
@@ -1122,7 +1137,7 @@
       const d = `M${px},${py} L${px},${gr.Y(Math.max(gr.yr[0], Math.min(gr.yr[1], 0)))} M${px},${py} L${gr.X(Math.max(gr.xr[0], Math.min(gr.xr[1], 0)))},${py}`;
       el('path', { d, stroke: stroke, 'stroke-width': 1.6, 'stroke-dasharray': '5 6', fill: 'none', opacity: .7 }, g);
     }
-    const p = el('path', { d: circlePath(px, py, 5), fill: stroke, stroke, 'stroke-width': 2 }, g);
+    const p = el('path', { d: circlePath(px, py, 5), fill: stroke, stroke, 'stroke-width': 2, 'data-core': 1 }, g);
     await drawPath(p, onScreen, 300);
     if (o.label) {
       // Of the four corners around the dot, the one that covers the least of the curves and other labels.
@@ -1145,7 +1160,8 @@
   async function mark(o) {
     const target = items[o.target];
     if (!target) return;
-    const bb = target.getBBox();
+    // A point is circled at its dot (its group also holds the dashed guides down to the axes).
+    const bb = (target.querySelector(':scope > [data-core]') || target).getBBox();
     const g = group(o);
     let d;
     if (o.style === 'underline') d = `M${bb.x - 4},${bb.y + bb.height + 6} Q${bb.x + bb.width / 2},${bb.y + bb.height + 8} ${bb.x + bb.width + 4},${bb.y + bb.height + 5}`;
