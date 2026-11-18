@@ -195,6 +195,7 @@ final class CallController: NSObject, NSMenuDelegate {
     private var askedAt: TimeInterval?        // you finished asking (keys released, or the pause ended): for the wait time
     private var firstTokenTurn = -1
     private var lookingUp = false             // a `<search>` / `<recall>` is running for the current question
+    private var lookupTurn = -1               // …for this turn (an interrupted one doesn't count)
     /// Longer than this in one state means Poinky is stuck (nothing legitimate takes this long:
     /// replies have their own 75 s watchdog, captures 6 s, web searches 30 s).
     /// Tests: the session takes this long to start (a speech engine that doesn't come up).
@@ -238,7 +239,7 @@ final class CallController: NSObject, NSMenuDelegate {
         speaker.onTurnFinished = { [weak self] in self?.finishedSpeaking() }
         // Looking something up: once "One sec, let me check." has been heard, it's working, not speaking.
         speaker.onDrained = { [weak self] in
-            guard let self, self.lookingUp, self.state == .speaking else { return }
+            guard let self, self.lookingUp, self.lookupTurn == self.turn, self.state == .speaking else { return }
             self.state = .thinking
         }
         // Captions follow the voice: each sentence appears as it's spoken.
@@ -491,6 +492,7 @@ final class CallController: NSObject, NSMenuDelegate {
             // (After each wait: a session reset meanwhile (stuck, Start Fresh) must not be set up by this one.)
             guard await SpeechListener.requestPermissions() else {
                 guard myCall == callID else { return }
+                typedAfterStart = nil   // not asked minutes later, once permissions are given
                 state = .idle
                 WelcomeWindowController.shared.offerFix(.permissions)
                 return
@@ -498,6 +500,7 @@ final class CallController: NSObject, NSMenuDelegate {
             guard myCall == callID else { return }
             guard await ScreenCapture.hasPermission() else {
                 guard myCall == callID else { return }
+                typedAfterStart = nil
                 state = .idle
                 ScreenCapture.requestPermission()
                 WelcomeWindowController.shared.offerFix(.permissions, askedScreen: true)
@@ -526,6 +529,7 @@ final class CallController: NSObject, NSMenuDelegate {
                 talker = try BrainFactory.make(config: config, role: .talker)
                 artist = config.artistEnabled ? try BrainFactory.make(config: config, role: .artist) : nil
             } catch {
+                typedAfterStart = nil
                 state = .idle
                 showAlert("Couldn't start the brain.", info: error.localizedDescription)
                 return
@@ -822,6 +826,7 @@ final class CallController: NSObject, NSMenuDelegate {
             turn += 1
             talker?.cancelCurrent()
             speaker.stop()
+            lookingUp = false; home.model.lookingUp = false
             clearMarksOnInterrupt()
             stopLesson()
             state = restingState
@@ -858,6 +863,7 @@ final class CallController: NSObject, NSMenuDelegate {
         case .thinking:
             // Claude hasn't answered yet: what you say now is the rest of that question.
             turn += 1
+            lookingUp = false; home.model.lookingUp = false
             talker?.cancelCurrent()
             speaker.stop()
             mergeNext = true
@@ -1334,6 +1340,7 @@ final class CallController: NSObject, NSMenuDelegate {
     private func interrupt(maybeMore: Bool = true) {
         turn += 1
         talker?.cancelCurrent()   // it may still be writing the rest: don't make the next question wait for it
+        lookingUp = false; home.model.lookingUp = false
         Timeline.log("interrupt", ["turn": turn])
         speaker.stop()
         // Talking again within a few seconds of asking usually means you weren't done:
@@ -1393,12 +1400,12 @@ final class CallController: NSObject, NSMenuDelegate {
     /// `proactive`: nobody asked; Poinky has something to tell the user (an agent finished).
     private func ask(_ question: String, proactive: Bool = false) {
         swapTalkerIfReady()
+        if !proactive, mode == .push { followMouseScreen() }   // (typed: the question is about the screen you're on)
         guard let talker, let screen = overlay.screen else { return }
         releaseTeacher()   // an older teacher's lines aren't waiting for this talker
         releaseReports()   // a new question cut a report short
         pendingOffer = nil   // its reply may make a new one
         talker.cancelCurrent()   // an older reply still being written is dropped anyway; don't queue behind it
-        if !proactive, mode == .push { followMouseScreen() }   // (typed: the question is about the screen you're on)
         turn += 1
         let myTurn = turn
         lastActivity = ProcessInfo.processInfo.systemUptime
@@ -1497,6 +1504,7 @@ final class CallController: NSObject, NSMenuDelegate {
                     if ev.search != nil, said.isEmpty { self.speaker.enqueue("One sec, let me check."); self.state = .speaking }
                     // While it looks: "speaking" only as long as something is heard, then working on it.
                     self.lookingUp = true
+                    self.lookupTurn = myTurn
                     self.home.model.lookingUp = true
                     if !self.speaker.isSpeaking { self.state = .thinking }
                     let found = await self.lookUp(recall: ev.recall, search: ev.search, question: question, turn: myTurn)
