@@ -27,7 +27,8 @@ for name in sorted(os.listdir(os.path.join(root, "tools", "listen-test"))):
                "conversationLog": False, "memoryEnabled": False, "checkForUpdates": False}, open(os.path.join(support, "config.json"), "w"))
     env = {"POINKY_SUPPORT_DIR": support, "POINKY_CLAUDE_CMD": os.path.join(root, "tools", "fake-claude.py"),
            "POINKY_MUTE": "1", "POINKY_OVERLAY_LOG": os.path.join(run, "overlay.log"),
-           "POINKY_TIMELINE_DIR": os.path.join(run, "timeline"), **(scenario.get("env") or {})}
+           "POINKY_TIMELINE_DIR": os.path.join(run, "timeline"),
+           **{k: v.replace("{root}", root) for k, v in (scenario.get("env") or {}).items()}}
     out = os.path.join(run, "out.txt")
     cmd = ["open", "-n", "-g", "-W"] + sum([["--env", f"{k}={v}"] for k, v in env.items()], []) + \
           [app, "--args", "--listen-test", path, out, "--quit-after", "30"]

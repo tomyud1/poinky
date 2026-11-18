@@ -603,6 +603,14 @@ final class CallController: NSObject, NSMenuDelegate {
         askAfterStart = false
         typedAfterStart = nil
         pendingLine = nil
+        // Per question or per hold: none of it may reach the next session ("start fresh" said while pointing at
+        // a helper sent the next session's first question to that helper).
+        endHelperListen()
+        helperContext = nil
+        clearedForUtterance = false
+        lastAskAt = 0
+        lastSnapshot = nil
+        focusTask?.cancel(); focusTask = nil
         listener.stop()
         speaker.stop()
         audio.stop()
@@ -724,6 +732,8 @@ final class CallController: NSObject, NSMenuDelegate {
     // Tests (`--listen-test`, ListenTest.swift): the talk keys and the words, scripted.
     func testKeys(down: Bool) { ptt.fakeFlags = down ? ptt.combo : [] }
     func testWords(_ text: String, final: Bool, live: Bool) { listener.fakeResult(text, isFinal: final, live: live) }
+    /// A helper (POINKY_HELPER_CMD=tools/fake-helper.py for no tokens); its id, or nil if it didn't start.
+    func testStartHelper(_ task: String) -> Int? { agents.start(AgentRequest(title: "Test helper", dir: nil, task: task), config: config)?.id }
     var testState: String { "\(state)" }
 
     /// The talk keys went down: open the mic right away (so your first word isn't cut off).
