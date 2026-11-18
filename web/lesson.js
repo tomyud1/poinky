@@ -64,7 +64,7 @@
   style.textContent = FACES + `
     #pen{position:absolute;left:0;top:0;width:26px;height:26px;pointer-events:none;opacity:0;transition:opacity .4s;z-index:50;
       filter:drop-shadow(0 1px 2px rgba(0,0,0,.35))}
-    .card.lpaper{border-radius:14px;overflow:hidden;background-color:#fbf8f0;
+    .card.lpaper{isolation:isolate;border-radius:14px;overflow:hidden;background-color:#fbf8f0;
       background-image:linear-gradient(rgba(0,0,0,.035) 1px,transparent 1px),linear-gradient(90deg,rgba(0,0,0,.035) 1px,transparent 1px);
       background-size:22px 22px;box-shadow:0 22px 60px rgba(0,0,0,.35),0 0 0 1px rgba(0,0,0,.08);animation:lp-in .5s cubic-bezier(.2,.9,.3,1.1)}
     .lpaper .lsvg{display:block;width:100%;overflow:hidden}
@@ -330,7 +330,14 @@
     toTop = false; yShift = 0; contentBottom = 0;
     c.innerHTML = '<div class="bar"><span></span><div class="saves"><button class="save" title="Save a picture of this page">Save</button>' +
       '<button class="save all" hidden title="Save every page of this session as one PDF">Save all</button></div><button class="x" title="Close">✕</button></div>';
-    c.querySelector('.bar span').textContent = title || '';
+    const name = c.querySelector('.bar span');
+    name.textContent = title || '';
+    // Hebrew, Arabic, CJK… in the bar's monospace font get spaced apart letter by letter: use the system font.
+    if (/[^\u0000-\u024F\u2000-\u206F]/.test(title || '')) { name.style.font = '500 13px -apple-system, system-ui'; name.dir = 'auto'; }
+    // The title stays clear of the Save buttons (it's centered, so it gives up as much room on the left).
+    const saves = c.querySelector('.saves');
+    const fitTitle = () => { const room = c.clientWidth - 2 * (saves.offsetWidth + 48); name.style.maxWidth = Math.max(40, room) + 'px'; };
+    try { new ResizeObserver(fitTitle).observe(saves); } catch (e) {}
     svg = el('svg', { class: 'lsvg', preserveAspectRatio: 'xMidYMin meet' }, c);
     view = { h: 0, y: 0, vh: 0 };
     defs = el('defs', {}, svg);
@@ -351,6 +358,7 @@
     });
     setHeight(f.h0 || 240);
     X.cards.appendChild(c);
+    fitTitle();
     for (const k in items) delete items[k];
     for (const k in graphs) delete graphs[k];
     for (const k in tables) delete tables[k];
@@ -544,7 +552,7 @@
   const BINOPS = new Set(['cdot', 'times', 'div', 'pm', 'mp', 'to', 'rightarrow', 'Rightarrow', 'implies', 'leftarrow', 'leftrightarrow',
     'iff', 'le', 'leq', 'ge', 'geq', 'ne', 'neq', 'approx', 'equiv', 'propto']);
   /** Mathy text: a hint to draw it as math even without "math": true. */
-  const looksMath = s => /\\(frac|sqrt|cdot|times|pi|theta|alpha|Delta|int|sum|le|ge|to)\b|\^[{(\d]|_\{/.test(s);
+  const looksMath = s => /\\(frac|sqrt|cdot|times|pi|theta|alpha|Delta|int|sum|le|ge|to)\b|\^[{(\d]|_\{|[\d)]\s*·\s*[-−(\d]/.test(s);   // 5·2 too: its dot gets drawn
   // Chemical formulas in plain text (H2O, CO2, C6H12O6) get their numbers written small and low.
   const ELEMENTS = new Set('H He Li Be B C N O F Ne Na Mg Al Si P S Cl Ar K Ca Ti Cr Mn Fe Co Ni Cu Zn Br Ag Sn I Au Hg Pb U'.split(' '));
   const NOT_CHEM = new Set(['PS2', 'PS3', 'PS4', 'PS5', 'CS2', 'K2', 'B12', 'F35', 'F16', 'C4', 'U2']);
@@ -584,7 +592,7 @@
   function parseTex(src) {
     let i = 0;
     const s = chemTex(unescapeTex(src)).replace(/->/g, '→').replace(/-/g, '−').replace(/<=/g, '≤').replace(/>=/g, '≥').replace(/!=/g, '≠')
-      .replace(/(\S)\s*\*\s*(?=\S)/g, '$1 · ').replace(/'/g, '′');
+      .replace(/(\S)\s*\*\s*(?=\S)/g, '$1\\cdot ').replace(/·/g, '\\cdot ').replace(/'/g, '′');
     function group(stop) {
       const out = [];
       while (i < s.length && s[i] !== stop) {
@@ -639,6 +647,8 @@
         }
         if (name === 'overline' || name === 'bar' || name === 'vec' || name === 'hat') return { t: 'over', body: argument(), kind: name };
         if (OPNAMES.has(name)) return { t: 'text', s: '\u2009' + name + '\u2009' };
+        // The handwriting's middle dot is a speck ("5·2" read as "52"): it's drawn as a real dot.
+        if (name === 'cdot') return { t: 'cdot', bin: true };
         if (BINOPS.has(name)) return { t: 'text', s: ' ' + SYM[name] + ' ', bin: true };   // the same room on both sides
         return { t: 'text', s: name in SYM ? SYM[name] : name };
       }
@@ -663,6 +673,10 @@
     function row(list, sz) { return layoutTex(list, sz, color, measure); }
     const boxes = nodes.map(n => {
       if (n.t === 'text') return text(n.s);
+      if (n.t === 'cdot') {
+        const w = size * .62, r = Math.max(1.7, size * .075);
+        return { w, a: size * .74, d: size * .24, draw(p, x, y) { el('circle', { cx: x + w / 2, cy: y - size * .3, r, fill: color }, p); } };
+      }
       if (n.t === 'row') return row(n.items, size);
       if (n.t === 'script') {
         const b = layoutTex([n.base], size, color, measure);
@@ -1246,10 +1260,12 @@
         let c = (gr.pts || []).filter(([qx, qy]) => qx > r.x && qx < r.x + r.w && qy > r.y && qy < r.y + r.h).length * 40;
         c += used.reduce((t, b) => t + (b.id === gr.id ? 0 : overlap(r, b)), 0);
         if (r.x < 4 || r.x + r.w > UNITS - 4) c += 1e6;
+        if (r.x < gr.x + 2 || r.y + r.h > gr.y + gr.h - 2) c += 5000;   // over the axes and their numbers
         return c;
       };
       const [x, y] = spots.reduce((best, sp) => cost(sp) < cost(best) ? sp : best);
       await writeText(g, { x, y, text: o.label, size, color: o.color || 'red', free: false, fit: false, math: o.math });
+      if (g.lastElementChild) g.lastElementChild.setAttribute('data-core', 1);
       claim({ x, y: y - lh * .8, w: lw, h: lh }, o.id);
     }
   }
@@ -1295,8 +1311,12 @@
   async function mark(o) {
     const target = items[o.target];
     if (!target) return;
-    // A point is circled at its dot (its group also holds the dashed guides down to the axes).
-    const bb = (target.querySelector(':scope > [data-core]') || target).getBBox();
+    // A point is circled round its dot and label (its group also holds the dashed guides down to the axes).
+    const cores = [...target.querySelectorAll(':scope > [data-core]')].map(n => n.getBBox());
+    const bb = cores.length ? cores.reduce((a, b) => {
+      const x = Math.min(a.x, b.x), y = Math.min(a.y, b.y);
+      return { x, y, width: Math.max(a.x + a.width, b.x + b.width) - x, height: Math.max(a.y + a.height, b.y + b.height) - y };
+    }) : target.getBBox();
     const g = group(o);
     let d;
     if (o.style === 'underline') d = `M${bb.x - 4},${bb.y + bb.height + 6} Q${bb.x + bb.width / 2},${bb.y + bb.height + 8} ${bb.x + bb.width + 4},${bb.y + bb.height + 5}`;

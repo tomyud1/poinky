@@ -110,6 +110,19 @@
     const nt = item('note').getBBox();
     check(nt.y < T.graphs.gq.y + T.graphs.gq.h, `a note written inside the graph stays where it was put (y ${Math.round(nt.y)})`);
 
+    // Bars the teacher draws by hand as boxes inside a numeric graph (a real reply) stay where they were put.
+    SB.lessonBegin({ x: 700, y: 60, w: 640, h: 800 }, 'hand bars');
+    SB.lessonStep({ ops: [
+      { op: 'text', id: 'hh', x: 40, y: 60, text: 'Groceries vs eating out', size: 34, bold: true },
+      { op: 'graph', id: 'gh', x: 90, y: 130, w: 620, h: 380, xrange: [0, 4], yrange: [0, 700], ylabel: 'spent' },
+      { op: 'text', id: 'k1', x: 120, y: 110, text: 'Groceries', size: 22, color: 'green' },
+      { op: 'box', id: 'hb1', x: 150, y: 272, w: 60, h: 238, color: 'green', text: '520', size: 20 },
+      { op: 'box', id: 'hb2', x: 215, y: 404, w: 60, h: 106, color: 'orange', text: '230', size: 20 },
+    ] }, 1);
+    await done();
+    const hb1 = item('hb1').querySelector('rect').getBBox(), hb2 = item('hb2').querySelector('rect').getBBox();
+    check(Math.abs(hb1.y - 272) < 1 && Math.abs(hb2.y - 404) < 1, `boxes drawn as bars inside a graph stay on it (tops ${Math.round(hb1.y)}, ${Math.round(hb2.y)})`);
+
     // An x label on a plain graph that wouldn't fit at the end of the axis goes under it instead.
     SB.lessonStep({ ops: [{ op: 'graph', id: 'gx', x: 80, y: 500, w: 640, h: 160, xrange: [0, 10], yrange: [0, 5], xlabel: 'time in seconds' }] }, 1);
     await done();

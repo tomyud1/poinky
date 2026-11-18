@@ -175,6 +175,26 @@
     check(shown === 0, `while the drawings are hidden the pen stays hidden (${shown} of 20 looks)`);
     SB.setVisible(true);
     await done();
+
+    // The bar: a long title stops short of the Save buttons; a Hebrew title isn't spaced out in monospace.
+    SB.lessonBegin({ x: 700, y: 60, w: 520, h: 600 }, 'tickets per team, the same data drawn as a line this time');
+    await wait(500);
+    const bp = papers().pop(), span = bp.querySelector('.bar span').getBoundingClientRect(), save = bp.querySelector('.saves').getBoundingClientRect();
+    check(span.right <= save.left - 4, `a long title stops before the Save button (title ends ${Math.round(span.right)}, Save starts ${Math.round(save.left)})`);
+    SB.lessonBegin({ x: 700, y: 60, w: 520, h: 600 }, 'משפט פיתגורס');
+    await wait(300);
+    const hs = papers().pop().querySelector('.bar span');
+    check(!/mono|Menlo/i.test(W.getComputedStyle(hs).fontFamily), `a Hebrew title uses the system font, not monospace (${W.getComputedStyle(hs).fontFamily})`);
+    // A card opened later (a 3D model) covers an older paper's Save and close buttons, not the other way round.
+    const hp = papers().pop(), sv = hp.querySelector('.save').getBoundingClientRect();
+    const later = W.document.createElement('div');
+    later.className = 'card'; later.id = 'later-card';
+    Object.assign(later.style, { left: (sv.left - 40) + 'px', top: (sv.top - 20) + 'px', width: '300px', height: '200px', background: '#eee' });
+    W.SBX.cards.appendChild(later);
+    await wait(500);
+    const top = W.document.elementFromPoint(sv.left + sv.width / 2, sv.top + sv.height / 2);
+    check(top && top.closest('#later-card'), `the later card is on top of the older paper's buttons (${top && (top.className || top.tagName)})`);
+    later.remove();
   } catch (e) { check(false, 'threw: ' + e.message + ' ' + (e.stack || '').split('\n')[1]); }
   window.testResults = { pass: !fail.length, lines: results };
 })();

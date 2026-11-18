@@ -24,7 +24,9 @@
     check(f('x^2', 3) === 9 && f('2x+1', 2) === 5 && Math.abs(f('sin(pi/2)', 0) - 1) < 1e-9 && f('3(x+1)^2', 1) === 12, 'functions of x evaluate (x^2, 2x+1, sin(pi/2), 3(x+1)^2)');
     check(Math.abs(f('e^x', 1) - Math.E) < 1e-9 && f('-x^2', 2) === -4 && f('sqrt(x)/2', 16) === 2, 'e^x, -x^2 is -(x^2), sqrt(x)/2');
     const flatTex = src => JSON.stringify(T.parseTex(src)).match(/"s":"[^"]*"/g).map(m => m.slice(5, -1)).join('');
-    check(flatTex('5\\cdot 5 - 9') === '5 · 5−9' || flatTex('5\\cdot 5 - 9') === '5 · 5 − 9', `\\cdot gets the same room on both sides however it's typed (${flatTex('5\\cdot 5 - 9')})`);
+    const kinds = src => JSON.stringify(T.parseTex(src)).match(/"t":"cdot"/g) || [];
+    check(kinds('5\\cdot 2').length === 1 && kinds('5*2').length === 1 && kinds('5·2').length === 1, 'a middle dot (\\cdot, *, ·) is its own drawn dot, not the font\'s speck');
+    check(flatTex('5\\cdot 5 - 9') === '55−9' || flatTex('5\\cdot 5 - 9') === '55 − 9', `and the space after \\cdot doesn't make one side wider (${flatTex('5\\cdot 5 - 9')})`);
     check(flatTex('2 \\times 3') === '2 × 3' && flatTex('a\\le b') === 'a ≤ b', `so do \\times and \\le (${flatTex('2 \\times 3')}, ${flatTex('a\\le b')})`);
     const near = (a, b) => Math.abs(a - b) < 1e-9;
     check(near(f('sin x', Math.PI / 2), 1) && f('x²', 3) === 9 && f('|x|', -4) === 4 && f('sqrt x', 9) === 3 && near(f('2pi x', 1), 2 * Math.PI),
@@ -89,10 +91,16 @@
       { op: 'point', id: 'pg', graph: 'g', at: [1, 1], guides: true, color: 'green' },
       { op: 'mark', id: 'pgm', target: 'pg', style: 'circle' },
       { op: 'math', id: 'sn', x: 480, y: 640, text: 'mg\\sin\\theta', size: 30 },
+      { op: 'math', id: 'cd', x: 480, y: 700, text: '5\\cdot 2', size: 30 },
+      { op: 'text', id: 'cdt', x: 480, y: 760, text: 'Test: 5·2 − 9 = 1', size: 24 },
     ] }, 1);
     await done();
     const mk = item('pgm').querySelector('path').getBBox();
     check(mk.width < 70 && mk.height < 70, `a mark on a point circles the dot (${Math.round(mk.width)}×${Math.round(mk.height)})`);
+    const cdot = item('cd').querySelector('circle'), cdt = [...item('cd').querySelectorAll('text')].map(t => t.getBBox());
+    const cb = cdot && cdot.getBBox(), gapL = cb && cb.x - (cdt[0].x + cdt[0].width), gapR = cb && cdt[1].x - (cb.x + cb.width);
+    check(cdot && +cdot.getAttribute('r') >= 1.7 && gapL > 2 && gapR > 2 && Math.abs(gapL - gapR) < 4, `5·2 shows a clear dot with room on both sides (${cb && Math.round(gapL)} / ${cb && Math.round(gapR)})`);
+    check(item('cdt').querySelector('circle') != null, 'a middle dot between numbers in plain text is drawn as a real dot too');
     const snt = [...item('sn').querySelectorAll('text')].map(t => t.textContent).join('');
     check(/g\u2009sin\u2009θ/.test(snt), `operator names get a little room in math (${JSON.stringify(snt)})`);
 
