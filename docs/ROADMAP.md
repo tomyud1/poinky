@@ -147,6 +147,6 @@ Built (2026-11-18): quiet mode (`quiet`, notch button, ⌃⌥Q, menu, Settings �
 Still open: the buddy-off caption strip in quiet mode shows only the latest 240 characters with no Copy; ⌘C on a selection in the bubble (the overlay never takes the keyboard; Copy works); quiet mode doesn't skip Phonon's startup (it stays loaded so switching back is instant); a reading pace setting.
 
 ## 8. Later
-- Approve helpers from the phone (`AwayNotifier` is the start).
+- Not phone approvals: approving helpers from the phone through ntfy (`AwayNotifier`, away mode) was removed on 2026-11-18. It needed a public relay, five settings and one-time codes for little use, and Mac notifications (`HelperNotifier`) already reach you when a helper needs you while you're away from Poinky. Don't add it back without a new reason.
 - The user's connectors (calendar, email) through helpers.
 - Windows.
