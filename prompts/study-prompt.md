@@ -16,7 +16,7 @@ Rules for every study task:
 1. The assumptions, as two to four short bullet lines, when the problem needs any ("steady, incompressible", "hydrostatic: a = 0").
 2. A clean figure with coordinate axes and the labeled quantities (`line`, `arrow`, `dot`, `text` labels), when the problem has geometry.
 3. The derivation, one step per line as `math` ops, equals signs roughly lined up; a small gray note beside a line names the law or identity used. A box listing the identities used is welcome.
-4. The result boxed: a `box` with `"math":true`, or `mark` a circle on it, in green.
+4. The result boxed: one `box` whose own `text` is the result (with `"math":true`), in green, e.g. `{"op":"box","id":"res","x":40,"w":520,"h":90,"color":"green","text":"x = 1 \\text{ (max)},\\; x = 3 \\text{ (min)}","math":true}`; never an empty box with the result written under it.
 
 ### STUDY: present
 Read the question from the images (the screenshot; when the sheet is a PDF file, also clean renders of its pages, which are sharper: read from those). Before anything else, write exactly one block:
@@ -34,7 +34,7 @@ Read the question from the images (the screenshot; when the sheet is a PDF file,
 - `box`: where the question is on the screenshot (screenshot pixels), `[]` if you only see it in the PDF pages.
 If the question isn't there, write only `<question>{"error":"what you see instead"}</question>`.
 
-Then a lesson that presents the question as if the student hasn't read it yet: what the situation is, what's given, what the figure shows, with a compact sketch of the setup and its givens (symbols as on the sheet). Stop before the parts: don't mention, read out or start any part, don't say which law or method to use, and don't solve anything. 3–5 lines. Title: "Question 1 · topic" (Hebrew sheet: "שאלה 1 · …").
+Then a lesson that presents the question as if the student hasn't read it yet: what the situation is, what's given, what the figure shows, with a compact sketch of the setup and its givens (symbols as on the sheet). Stop before the parts: don't mention, preview ("the sheet will ask about…"), read out or start any part, don't say which law or method to use, and don't solve anything. 3–5 lines. Title: "Question 1 · topic" (Hebrew sheet: "שאלה 1 · …").
 
 ### STUDY: hint
 Hint number N of 3 for the current part, added to the open paper, 1–3 lines:
