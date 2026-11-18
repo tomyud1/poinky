@@ -387,16 +387,15 @@ final class MicFeeder: @unchecked Sendable {
     let gain = InputGain()
 }
 
-/// Brings a quiet voice up to a level the recognizers like (only up, at most +24 dB, never clipping). The plain
-/// built-in mic (holding the keys has no voice processing, so no automatic gain) gives a soft voice at -50 to
-/// -60 dBFS, where Apple's engine made twice the word errors it makes at -38 (tools/stt-test).
-/// `POINKY_STT_GAIN=0` turns it off.
+/// Brings a quiet voice up toward -26 dBFS (only up, at most +24 dB, never clipping). Off unless
+/// `POINKY_STT_GAIN=1`: on the bench it changed nothing (soft voice at -60 dBFS: 18.2 % → 17.8 % word errors,
+/// soft voice with a fan: 14.5 % → 16.0 %). Apple's engine copes with level; what hurts is the room's noise.
 final class InputGain: @unchecked Sendable {
     private let lock = NSLock()
     private var gainDB: Float = 0
     private var voiceDB: Float?
     private var floorDB: Float = -70
-    private let enabled = ProcessInfo.processInfo.environment["POINKY_STT_GAIN"] != "0"
+    private let enabled = ProcessInfo.processInfo.environment["POINKY_STT_GAIN"] == "1"
     static let target: Float = -26
 
     var currentDB: Float { lock.lock(); defer { lock.unlock() }; return gainDB }
