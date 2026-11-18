@@ -367,6 +367,8 @@ final class Overlay: NSObject, WKNavigationDelegate {
     /// for the notebook, how many pages.
     var onLessonSaved: ((URL?, Int?) -> Void)?
     var onStudyPDF: (() -> Void)?   // a study paper's PDF button (CallController+Study.swift)
+    var onWorkPhoto: (([String: Any]) -> Void)?   // the photo card's buttons, the paper's photo button (CallController+Photo.swift)
+
 
     /// Screen rectangles of things currently drawn (cards and the paper), in points.
     var occupiedRects: [CGRect] { cardRects }
@@ -476,6 +478,13 @@ final class Overlay: NSObject, WKNavigationDelegate {
         kill(pid, SIGKILL)
     }
 
+    /// The page never goes anywhere else (a file dropped where nothing takes it would replace the overlay with it).
+    func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction, decisionHandler: @escaping @MainActor (WKNavigationActionPolicy) -> Void) {
+        let main = action.targetFrame?.isMainFrame ?? true
+        let ours = action.request.url?.lastPathComponent == "overlay.html"
+        decisionHandler(!main || ours ? .allow : .cancel)
+    }
+
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         loaded = true
         for s in pendingJS { webView.evaluateJavaScript(s, completionHandler: nil) }
@@ -533,6 +542,8 @@ final class Overlay: NSObject, WKNavigationDelegate {
             if let id = Int("\(msg["id"] ?? "")"), let action = msg["action"] as? String { onHelperAction?(id, action) }
         case "studyPDF":
             onStudyPDF?()
+        case "workPhoto":
+            onWorkPhoto?(msg)
         case "saveLesson":
             // The paper's Save button (or "save this page"): a picture of the page on the Desktop.
             let title = msg["title"] as? String ?? "", png = msg["png"] as? String, svg = msg["svg"] as? String

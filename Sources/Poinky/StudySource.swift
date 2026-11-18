@@ -72,21 +72,28 @@ enum StudySource {
 
     /// A photo of handwritten work made readable: the sheet of paper found and flattened (perspective),
     /// cropped to it, upright, the light evened out. Falls back to the photo as it is.
-    static func cleanPhoto(_ url: URL) -> CGImage? {
+    static func cleanPhoto(_ url: URL, flat: Bool = false) -> CGImage? { cleanPhotoInfo(url, flat: flat)?.image }
+
+    /// Also says how much of the photo the paper took up (1: nothing was cropped). `flat`: a scan or a PDF
+    /// page (already straight and cropped): only the light is evened out.
+    static func cleanPhotoInfo(_ url: URL, flat: Bool = false) -> (image: CGImage, kept: Double)? {
         guard let src = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
         let opts = [kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceCreateThumbnailWithTransform: true,
                     kCGImageSourceThumbnailMaxPixelSize: 4000] as CFDictionary
         guard let cg = CGImageSourceCreateThumbnailAtIndex(src, 0, opts) else { return nil }
-        return clean(cg)
+        return cleanInfo(cg, flat: flat)
     }
 
-    static func clean(_ cg: CGImage) -> CGImage {
+    static func clean(_ cg: CGImage) -> CGImage { cleanInfo(cg).image }
+
+    static func cleanInfo(_ cg: CGImage, flat: Bool = false) -> (image: CGImage, kept: Double) {
         var image = CIImage(cgImage: cg)
         let size = image.extent.size
+        var kept = 1.0
         // Find the paper.
         let req = VNDetectDocumentSegmentationRequest()
         let handler = VNImageRequestHandler(cgImage: cg, options: [:])
-        if (try? handler.perform([req])) != nil, let doc = req.results?.first, doc.confidence > 0.5 {
+        if !flat, (try? handler.perform([req])) != nil, let doc = req.results?.first, doc.confidence > 0.5 {
             func pt(_ p: CGPoint) -> CIVector { CIVector(x: p.x * size.width, y: p.y * size.height) }
             let area = abs((doc.topRight.x - doc.bottomLeft.x) * (doc.topRight.y - doc.bottomLeft.y))
             // Only when it's really a sheet (not a tiny box inside the page).
@@ -96,7 +103,7 @@ enum StudySource {
                 f.setValue(pt(doc.topRight), forKey: "inputTopRight")
                 f.setValue(pt(doc.bottomLeft), forKey: "inputBottomLeft")
                 f.setValue(pt(doc.bottomRight), forKey: "inputBottomRight")
-                if let out = f.outputImage { image = out }
+                if let out = f.outputImage { image = out; kept = Double(area) }
             }
         }
         // Even out the light: the photo divided by the paper alone (the ink taken out by a local maximum, then
@@ -110,7 +117,7 @@ enum StudySource {
             if let out = f.outputImage { image = out }
         }
         let ctx = CIContext(options: [.useSoftwareRenderer: false])
-        return ctx.createCGImage(image, from: image.extent.integral) ?? cg
+        return (ctx.createCGImage(image, from: image.extent.integral) ?? cg, kept)
     }
 
     /// The image divided by an estimate of the bare paper under it (flat-field correction).

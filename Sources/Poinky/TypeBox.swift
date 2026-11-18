@@ -11,6 +11,9 @@ final class TypeBox: NSObject, NSTextViewDelegate, NSWindowDelegate {
     var onSend: ((_ text: String, _ helper: Int?) -> Void)?
     /// The Copy button: the text to put on the clipboard.
     var onCopy: ((String) -> Void)?
+    /// A picture pasted (⌘V), dropped, or brought from the iPhone (right-click → Import from iPhone) into the box:
+    /// it goes with the question you type (CallController+Photo.swift).
+    var onPhotos: (([URL], PhotoOrigin) -> Void)?
 
     fileprivate var panel: TypePanel?
     fileprivate var text: PlaceholderTextView?
@@ -197,6 +200,15 @@ final class TypeBox: NSObject, NSTextViewDelegate, NSWindowDelegate {
         tv.autoresizingMask = [.width]
         tv.textContainer?.widthTracksTextView = true
         tv.onReturn = { [weak self] in self?.send() }
+        tv.onPictures = { [weak self] pb in
+            guard let self, self.helper == nil else { return false }
+            let files = PhotoFiles.fromPasteboard(pb, origin: .paste)
+            guard !files.isEmpty else { return false }
+            self.onPhotos?(files, .paste)
+            self.text?.placeholder = "Ask about the picture…"
+            self.text?.needsDisplay = true
+            return true
+        }
         tv.onEscape = { [weak self] in self?.close() }
         scroll.documentView = tv
         fx.addSubview(scroll)
@@ -443,6 +455,22 @@ final class PlaceholderTextView: NSTextView {
     var placeholder = "" { didSet { needsDisplay = true } }
     var onReturn: (() -> Void)?
     var onEscape: (() -> Void)?
+    /// A picture pasted or dropped (or from Continuity Camera): true when it was taken.
+    var onPictures: ((NSPasteboard) -> Bool)?
+
+    override var readablePasteboardTypes: [NSPasteboard.PasteboardType] {
+        onPictures == nil ? super.readablePasteboardTypes : super.readablePasteboardTypes + ContinuityCamera.returnTypes
+    }
+    override func readSelection(from pboard: NSPasteboard, type: NSPasteboard.PasteboardType) -> Bool {
+        // A picture file, or picture data with no text (copied text that also carries an image stays text).
+        let files = (pboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []).filter(PhotoFiles.isPicture)
+        if let onPictures, !files.isEmpty || (pboard.string(forType: .string) == nil && PhotoFiles.hasPicture(pboard)), onPictures(pboard) { return true }
+        return super.readSelection(from: pboard, type: type)
+    }
+    override func validRequestor(forSendType sendType: NSPasteboard.PasteboardType?, returnType: NSPasteboard.PasteboardType?) -> Any? {
+        if sendType == nil, onPictures != nil, let r = returnType, PhotoFiles.isPictureType(r) { return self }
+        return super.validRequestor(forSendType: sendType, returnType: returnType)
+    }
 
     override func keyDown(with event: NSEvent) {
         if event.keyCode == 36 || event.keyCode == 76 {   // Return, Enter

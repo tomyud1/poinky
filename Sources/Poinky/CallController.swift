@@ -415,6 +415,7 @@ final class CallController: NSObject, NSMenuDelegate {
         m.onReceipts = { [weak self] in self?.home.collapse(); ReceiptsWindow.shared.show() }
         m.onQuiet = { [weak self] in self?.toggleQuiet() }
         m.onCopy = { [weak self] text in self?.copyText(text, from: "notch") }
+        photoSetUp()   // photos of your work: the notch's camera, drops, ⌃⌥P (CallController+Photo.swift)
         m.quiet = config.quiet
         video.window.quiet = config.quiet
         ReceiptsWindow.shared.model.onSettings = { SettingsWindowController.shared.show(tab: "privacy") }
@@ -694,6 +695,7 @@ final class CallController: NSObject, NSMenuDelegate {
         talker = nil
         artist = nil
         studySessionEnded()   // CallController+Study.swift (what you did is already saved)
+        photoSessionEnded()   // CallController+Photo.swift (pictures not used yet are deleted)
         freshTalker?.stop()
         freshTalker = nil
         talkerTurns = 0
@@ -1129,6 +1131,7 @@ final class CallController: NSObject, NSMenuDelegate {
         let question = mergeNext && !lastQuestion.isEmpty ? lastQuestion + " " + text : text
         mergeNext = false
         clearedForUtterance = false
+        if guide == nil, photoHeard(question) { return }   // photos of your work (CallController+Photo.swift)
         if guide == nil, studyHeard(question) { return }   // study sessions (CallController+Study.swift)
         if guide != nil {
             // While guiding, what you say goes to the guide ("next", "I did it", a question, "stop").
@@ -1457,7 +1460,7 @@ final class CallController: NSObject, NSMenuDelegate {
         typeBox.testSend(text)
     }
     /// Tests (`POINKY_ASK_WAIT`): nothing is being thought, said or sketched, so the next typed question can go.
-    var quietForTests: Bool { state == .ready && !speaker.isSpeaking && !artistBusy && !StudySession.shared.working }
+    var quietForTests: Bool { state == .ready && !speaker.isSpeaking && !artistBusy && !StudySession.shared.working && !PhotoInbox.shared.capturing }
 
     /// `box`: typed in the type box (its answer is written there, not said); otherwise as if said (`--ask` tests).
     private func typed(_ text: String, helper: Int?, box: Bool = false) {
@@ -1621,11 +1624,13 @@ final class CallController: NSObject, NSMenuDelegate {
                 guard myTurn == self.turn else { return }
                 self.lastSnapshot = snap
                 self.replyScale = snap.scale
+                // A photo of something on paper waiting for this question (CallController+Photo.swift).
+                let photos = proactive ? nil : self.photoClaim(turn: myTurn)
                 // What the question is (TalkerRoute): clearly "explain / show me" starts the teacher now, alongside
                 // the talker; their own work ("did I get number 2 right?", or "is this right?" about selected or
                 // marked math) gets the teacher's careful check (the fast talker answers without a thinking step
                 // and got checks wrong).
-                let route = TalkerRoute.classify(proactive ? "" : question, marked: marked,
+                let route = TalkerRoute.classify(proactive ? "" : question, marked: marked || photos != nil,
                                                  work: self.frontContext.selection + "\n" + (snap.focus?.text ?? ""))
                 let teacherNow = partQ == nil && !proactive && self.artist != nil
                 let sketchNow = teacherNow && route.teacher == .sketch
@@ -1643,9 +1648,11 @@ final class CallController: NSObject, NSMenuDelegate {
                         ? "Check the user's work step by step (what they selected or marked, else the problem their question names on screen, like \"number 2\"): say plainly whether it's right, show exactly which step went wrong and the fix. Started in parallel with the talker; the talker only says a short hand-over line."
                         : "Explain this to the user (2D lesson, or a 3D model if they asked for 3D). Started in parallel with the talker; the talker only says a short hand-over line.")
                 }
-                let q = BrainQuestion(text: self.talkerText(question, snap, route: route, proactive: proactive), snapshot: snap)
+                let q = BrainQuestion(text: self.talkerText(question, snap, route: route, proactive: proactive) + (photos.map { "\n" + $0.note } ?? ""),
+                                      snapshot: snap, extraImages: photos?.images ?? [])
                 if !snap.isBlind { self.overlay.glance() }
                 self.addReceipt(q, question: proactive ? "" : question, snap: snap, turn: myTurn)
+                if let photos { self.receiptAlso(photos.receipt) }
                 if sketchNow || checkNow { self.receiptAlso("The teacher (\(self.config.model(for: .artist))) got the same screenshot to sketch an answer") }
                 _ = try await talker.ask(q) { delta in self.received(delta, turn: myTurn) }
                 guard myTurn == self.turn else { return }
@@ -2481,7 +2488,9 @@ final class CallController: NSObject, NSMenuDelegate {
         let box = Box()
         Task { @MainActor in
             do {
-                let q = BrainQuestion(text: job.text, snapshot: job.study?.sendShot == false ? nil : job.snapshot, extraImages: job.study?.images ?? [])
+                let photos = job.study == nil ? self.photoImages(turn: job.turn) : (images: [], note: "")   // a photo that came with the question
+                let q = BrainQuestion(text: job.text + photos.note, snapshot: job.study?.sendShot == false ? nil : job.snapshot,
+                                      extraImages: job.study?.images ?? photos.images)
                 _ = try await artist.ask(q) { delta in
                     guard myCall == self.callID, myGen == self.artistGen, myLesson == self.lessonToken else { return }
                     let delta = job.study?.tap(delta) ?? delta
@@ -3940,6 +3949,23 @@ final class CallController: NSObject, NSMenuDelegate {
 
     
 
+}
+
+// MARK: - Photos of your work: what CallController+Photo.swift may use.
+extension CallController {
+    var photoIdle: Bool { state == .idle }
+    var photoOverlayReady: Bool { state != .idle && state != .starting && overlay.screen != nil }
+    var photoCall: Int { callID }
+    var photoFront: AppContext { frontContext }
+    var photoHome: NotchHome { home }
+    var photoTypeBox: TypeBox { typeBox }
+    var photoHotkeySpec: String { config.photoHotkey }
+    /// The card lives on the overlay: a session is started if none is running (as typing does).
+    func photoStartSession() { if state == .idle { startSession(.push) } }
+    /// A short line now, or once the session is up.
+    func photoSay(_ line: String) { if state == .idle || state == .starting { pendingLine = line } else { sayQuick(line, said: "") } }
+    /// A question asked with the pictures (they wait in `PhotoInbox.forQuestion`, `ask` takes them).
+    func photoAsk(_ q: String) { askTyped(q) }
 }
 
 // MARK: - Study sessions: what CallController+Study.swift may use (it lives in another file, so it can't read

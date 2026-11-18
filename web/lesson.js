@@ -529,6 +529,16 @@
     b.addEventListener('mousedown', e => e.stopPropagation());
     b.addEventListener('click', e => { e.stopPropagation(); X.post({ kind: 'studyPDF' }); });
     c.querySelector('.saves').prepend(b);
+    // Your own work, from your iPhone (or a file): CallController+Photo.swift shows the device menu at the button.
+    const ph = document.createElement('button'); ph.className = 'save photo'; ph.textContent = '📷 My work';
+    ph.title = 'Show me your work: a photo from your iPhone (or drop a picture on the paper)';
+    ph.addEventListener('mousedown', e => e.stopPropagation());
+    ph.addEventListener('click', e => {
+      e.stopPropagation();
+      const r = ph.getBoundingClientRect();
+      X.post({ kind: 'workPhoto', action: 'capture', x: Math.round(r.left + r.width / 2), y: Math.round(r.bottom) });
+    });
+    c.querySelector('.saves').prepend(ph);
   }
   /** The pages of one part, as pictures (the open paper as it is now). */
   SB.studyPictures = async tag => {

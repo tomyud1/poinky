@@ -48,6 +48,7 @@ struct AppConfig: Codable {
     var buddyHotkey = "ctrl+option+b"  // hides / shows the buddy
     var typeHotkey = "ctrl+option+t"   // opens a box to type to Poinky (or to the helper under the mouse)
     var helpersHotkey = "ctrl+option+h" // opens the Helpers window (on the helper under the mouse)
+    var photoHotkey = "ctrl+option+p"   // a photo of your work from your iPhone (Continuity Camera; CallController+Photo.swift)
     var buddyAutoHide = 0.0            // hide the buddy after this many idle seconds (0 = never); it's back when you ask something
     var memoryEnabled = true           // remember things about you between sessions (stored only on this Mac)
     var conversationLog = true         // keep what you and Poinky said (conversations/*.jsonl, only on this Mac) so it can look it up later
@@ -122,6 +123,7 @@ struct AppConfig: Codable {
         buddyHotkey = try c.decodeIfPresent(String.self, forKey: .buddyHotkey) ?? d.buddyHotkey
         typeHotkey = try c.decodeIfPresent(String.self, forKey: .typeHotkey) ?? d.typeHotkey
         helpersHotkey = try c.decodeIfPresent(String.self, forKey: .helpersHotkey) ?? d.helpersHotkey
+        photoHotkey = try c.decodeIfPresent(String.self, forKey: .photoHotkey) ?? d.photoHotkey
         buddyAutoHide = try c.decodeIfPresent(Double.self, forKey: .buddyAutoHide) ?? d.buddyAutoHide
         memoryEnabled = try c.decodeIfPresent(Bool.self, forKey: .memoryEnabled) ?? d.memoryEnabled
         conversationLog = try c.decodeIfPresent(Bool.self, forKey: .conversationLog) ?? d.conversationLog
