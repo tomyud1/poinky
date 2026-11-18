@@ -1173,9 +1173,13 @@ final class CallController: NSObject, NSMenuDelegate {
                 let lines = all.filter { $0.hasPrefix("- ") }
                 if !lines.isEmpty { note = lines.prefix(4).joined(separator: "\n") }
                 // Lasting facts about the user that came up: "About me" learns them over time.
+                // Only with the user's own words quoted, and found in what they said (`UserFacts.aboutLines`).
                 if config.memoryEnabled {
-                    for a in all.filter({ $0.hasPrefix("ABOUT:") }).prefix(2) {
-                        Identity.learn(String(a.dropFirst(6)).trimmingCharacters(in: .whitespaces), into: Identity.userURL)
+                    let userLines = exchanges.map(\.user) + UserFacts.pinned(in: summary)
+                    let known = Memory.facts()   // the talker's <remember> already kept it ("my sister's birthday…")
+                    for fact in UserFacts.aboutLines(all.joined(separator: "\n"), userLines: userLines)
+                    where !known.contains(where: { UserFacts.similar($0, fact) }) {
+                        Identity.learn(fact, into: Identity.userURL)
                     }
                 }
             }
@@ -1776,7 +1780,12 @@ final class CallController: NSObject, NSMenuDelegate {
             for f in ev.forget { Memory.forget(f) }
             // The two files that shape every session: changed only by tags in the talker's own reply
             // (lookup replies can't, see `onlySpeech`), and only their "Learned over time" part.
-            for f in ev.aboutUser { Identity.learn(f, into: Identity.userURL) }
+            // "About me" keeps only what the user said about themselves (never the screen, the app, a name on a page).
+            let said = history.suffix(3).map(\.user) + [lastQuestion]
+            for f in ev.aboutUser {
+                if UserFacts.fromUser(f, said: said) { Identity.learn(f, into: Identity.userURL) }
+                else { Timeline.log("aboutUser.dropped", [:]) }
+            }
             for f in ev.aboutSelf { Identity.learn(f, into: Identity.identityURL) }
             for f in ev.unlearnUser { Identity.unlearn(f, from: Identity.userURL) }
             for f in ev.unlearnSelf { Identity.unlearn(f, from: Identity.identityURL) }
