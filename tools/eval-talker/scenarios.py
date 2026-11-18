@@ -171,6 +171,78 @@ DENTIST = screen("Mail", ["File", "Edit", "View", "Mailbox", "Message", "Format"
 <b>before 5 PM today</b> to confirm, or we'll have to give the slot to someone else.</p><p>Brightsmile Dental</p>""")
 
 
+# The first-run tour's sample (Welcome.swift `Sample`), in the tour window.
+TOUR = """<!doctype html><html><head><meta charset="utf-8"><style>%s</style></head><body>
+<div class="menubar"><b>Poinky</b><span>Edit</span></div>
+<div class="win" style="left:330px;top:150px;width:680px;height:520px">
+<div class="bar"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span><span class="title">Welcome to Poinky</span></div>
+<div class="content" style="height:490px"><h2 style="margin:0 0 6px">Ask your first question</h2>
+<p style="color:#666;margin-top:0">Here's something to ask about. Hold the keys, say your question, and let go.</p>
+<div style="display:flex;gap:30px;align-items:center;margin-top:30px">
+<div style="border:1px solid #ddd;border-radius:10px;padding:18px 26px;background:#fafafa">
+<div style="font-size:12px;font-weight:600;color:#888">Homework, question 3</div>
+<div style="font:500 30px Georgia,serif;margin:8px 0">2x + 3 = 11</div><div style="font:15px Georgia,serif">Find x.</div></div>
+<div><p><span style="border:1px solid #bbb;border-radius:5px;padding:2px 7px">⌃ control</span> <span style="border:1px solid #bbb;border-radius:5px;padding:2px 7px">⌥ option</span> hold</p>
+<p style="font:italic 20px -apple-system">“How do I solve this?”</p><p style="color:#888">then let go</p></div></div>
+<p style="margin-top:40px;color:#555">○ I heard you<br>○ I answered (and pointed at the screen)</p></div></div></body></html>""" % CSS
+
+# Homework with the student's own work shown, all of it correct (the tester's r15): nothing selected.
+HOMEWORK_WORK = screen("Safari", ["File", "Edit", "View", "History", "Bookmarks", "Window", "Help"],
+                       "Algebra 2 — Homework 7 (my work)", """
+<h2 style="margin-top:0">Homework 7 — Dana K.</h2>
+<p>1. Solve by factoring: x² − 5x + 6 = 0<br><i style="color:#245">(x − 2)(x − 3) = 0 → x = 2 or x = 3</i></p>
+<p>2. Solve with the quadratic formula: 2x² + 3x − 2 = 0<br><i style="color:#245">a = 2, b = 3, c = −2<br>
+x = (−3 ± √(9 + 16)) / 4 = (−3 ± 5) / 4<br>x = 1/2 or x = −2</i></p>
+<p>3. Simplify: (3x²y)(4xy³)<br><i style="color:#245">12x³y⁴</i></p>
+<p>4. Sketch y = x² − 4 and say where it crosses the x-axis.</p>""")
+
+CHART_DATA = [("Billing", 668), ("Onboarding", 590), ("Accounts", 412), ("Web", 325), ("Mobile", 236), ("Security", 148)]
+CHART = screen("Safari", ["File", "Edit", "View", "History", "Bookmarks", "Window", "Help"], "Support dashboard — Q3 review", """
+<h2 style="margin-top:0">Q3 review</h2><p style="color:#555">Tickets closed per team, July–September</p>
+<div style="position:relative;height:420px;margin:10px 0 0 60px;border-left:2px solid #444;border-bottom:2px solid #444;width:760px">
+""" + "".join(f'<div style="position:absolute;bottom:0;left:{30 + i * 120}px;width:70px;height:{v // 2}px;background:#4a7fd6"></div>'
+              f'<div style="position:absolute;bottom:{v // 2 + 6}px;left:{30 + i * 120}px;width:70px;text-align:center;font-weight:600">{v}</div>'
+              f'<div style="position:absolute;bottom:-26px;left:{20 + i * 120}px;width:90px;text-align:center;color:#333">{n}</div>'
+              for i, (n, v) in enumerate(CHART_DATA)) + "</div>")
+CHART_CTX = ["Front app: Safari, window “Support dashboard — Q3 review”.", "Web page: https://dash.example.com/support/q3"]
+
+PHYSICS = screen("Keynote", ["File", "Edit", "Insert", "Slide", "Format", "Arrange", "View", "Play", "Window", "Help"],
+                 "PHYS 101 — Week 4 — Newton's laws.key", """
+<h1 style="margin-top:10px">Newton's second law: F = ma</h1>
+<div style="display:flex;align-items:center;gap:20px;margin:40px 0 30px 60px;font-size:20px">
+<span style="color:#b33">← friction 4 N</span><div style="width:160px;height:90px;background:#e9c46a;border:2px solid #333;text-align:center;line-height:90px">cart, 2 kg</div>
+<span style="color:#264">pull 10 N →</span></div>
+<p style="font-size:22px">Net force: F = 10 N − 4 N = 6 N</p><p style="font-size:22px">Acceleration: a = F / m = 6 N / 2 kg = 3 m/s²</p>""")
+PHYSICS_CTX = ["Front app: Keynote, window “PHYS 101 — Week 4 — Newton's laws.key”.",
+               "Open document: ~/Documents/School/PHYS 101/PHYS 101 — Week 4 — Newton's laws.key."]
+
+TEXTEDIT = screen("TextEdit", ["File", "Edit", "Format", "View", "Window", "Help"], "summer-job.txt", """
+<p style="font:15px Helvetica">My summer job</p>
+<p style="font:15px Helvetica">This summer I worked at a small bakery near my house. The owner, Mrs. Alvarez, taught me how to run the
+register, how to box cakes without smudging them, and how to talk to customers who were in a hurry.</p>
+<p style="font:15px Helvetica">By the end of August I was helping decorate cakes for two weddings.</p>""")
+TEXTEDIT_CTX = ["Front app: TextEdit, window “summer-job.txt”.", "Open document: ~/Documents/summer-job.txt."]
+
+LANG = screen("Safari", ["File", "Edit", "View", "History", "Bookmarks", "Window", "Help"], "Trip to Lyon — packing list", """
+<h2 style="margin-top:0">Lyon, December</h2><p>Flights: Dec 12 → Dec 19</p><p>☐ adapter &nbsp; ☐ scarf &nbsp; ☐ phrasebook</p>""")
+
+# An engineering problem sheet in Hebrew (a PDF in Preview), with formulas and a figure.
+HEB_SHEET = screen("Preview", ["File", "Edit", "View", "Go", "Tools", "Window", "Help"],
+                   "סטטיקה - תרגיל בית 3.pdf — Page 1 of 2", """
+<div dir="rtl" style="font-family:'Arial Hebrew',Arial;font-size:16px">
+<h2 style="margin-top:0">סטטיקה ותורת החוזק — תרגיל בית 3</h2>
+<p><b>שאלה 1.</b> קורה פשוטה AB באורך L = 4 m נשענת על סמכים בקצותיה. במרכז הקורה פועל כוח מרוכז F = 10 kN כלפי מטה.
+חשבו את כוחות הריאקציה R<sub>A</sub> ו-R<sub>B</sub>, ואת המומנט המקסימלי בקורה.</p>
+<svg width="520" height="150" style="display:block;margin:10px auto"><line x1="40" y1="80" x2="480" y2="80" stroke="#222" stroke-width="8"/>
+<polygon points="40,84 25,112 55,112" fill="#888"/><polygon points="480,84 465,112 495,112" fill="#888"/>
+<line x1="260" y1="20" x2="260" y2="72" stroke="#c00" stroke-width="3"/><polygon points="260,76 252,60 268,60" fill="#c00"/>
+<text x="270" y="35" fill="#c00">F = 10 kN</text><text x="30" y="135">A</text><text x="478" y="135">B</text>
+<text x="230" y="140">L = 4 m</text></svg>
+<p>רמז: M<sub>max</sub> = F·L / 4</p>
+<p><b>שאלה 2.</b> מוט פלדה בקוטר d = 20 mm נמתח בכוח P = 30 kN. חשבו את המאמץ הנורמלי σ = P / A.</p></div>""")
+HEB_CTX = ["Front app: Preview, window “סטטיקה - תרגיל בית 3.pdf — Page 1 of 2”.",
+           "Open document: ~/Documents/Technion/סטטיקה/סטטיקה - תרגיל בית 3.pdf."]
+
 def offered(tag):
     """The reply's `<offer>` holds this tag (prepared for a yes)."""
     return lambda r: bool(r.get("offer") and r["offer"]["tags"].get(tag))
@@ -196,6 +268,12 @@ def rewrite_ready(r):
     said = set(re.findall(r"[a-z']+", r["say"].lower()))
     w = re.findall(r"[a-z']+", re.split(r"exactly[:,]?|with:|text:", new, 1)[-1].lower())
     return len(w) >= 6 and sum(x in said for x in w) >= 0.7 * len(w)
+
+
+def verdict(text):
+    """A right/wrong call in the hand-over line ("Mostly yes…", "that's right", "you got it"), not "let me check if it's right"."""
+    t = re.sub(r"(?i)\b(if|whether)\b[^.?!]*", "", text)
+    return re.search(r"(?i)\b(mostly|not quite|nailed|perfect|good job|well done|slip)\b|\b(it'?s|that'?s|you'?re|you got( it)?|looks|is|are) (all )?(right|correct|wrong|off|fine)\b|^\W*(yes|yep|yeah|nope)\b", t) is not None
 
 
 def has(tag):
@@ -408,4 +486,61 @@ SCENARIOS = [
          checks=[("writes the whole rewrite", lambda r: len(re.sub(r"(?i)want me to.*|^.*?here'?s an?( \w+)? version[.:]?", "", r["say"]).split()) >= 8),
                  ("offers to put it in", lambda r: offered("do")(r) or say(r"want me to|should I|shall I|swap|put it in|replace")(r)),
                  ("no agent", lacks("agent"))]),
+
+    # Round 3: real findings (the tester's runs). Routing in code decides whether the teacher starts in parallel;
+    # the message then says so, and these check what the talker does with it.
+    dict(id="tour-solve", who="student", html=TOUR, ctx=["Front app: Poinky, window “Welcome to Poinky”."],
+         said="How do I solve this?", cursor=(470, 360),
+         checks=[("the teacher sketches it (routing): no <guide>/<do>", lacks("guide", "do", "agent")),
+                 ("one short hand-over line, no <visual> (the teacher already started)", lambda r: not r["tags"].get("visual") and len(r["say"].split()) <= 15),
+                 ("doesn't give the answer away", lambda r: not re.search(r"x (is|=|equals) (4|four)\b", r["say"], re.I))]),
+    dict(id="say-french", who="curious", html=LANG, ctx=["Front app: Safari, window “Trip to Lyon — packing list”."],
+         said="how do you say nice to meet you in French", cursor=(600, 300),
+         checks=[("says the French", say(r"enchant|ravi")),
+                 ("no paper for it", lacks("visual", "video")),
+                 ("brief", say_words_max(40)),
+                 ("doesn't act", lacks(*ACTING))]),
+    dict(id="explain-briefly", who="student", html=LECTURE, ctx=LECTURE_CTX[:2], said="explain briefly what Rubisco does",
+         cursor=(520, 330),
+         checks=[("answers it (carbon fixation / CO2)", say(r"carbon|CO2|C O 2|fix")),
+                 ("no paper: they asked for brief", lacks("visual", "video")),
+                 ("brief", say_words_max(45))]),
+    dict(id="check-noselect", who="student", html=HOMEWORK_WORK,
+         ctx=["Front app: Safari, window “Algebra 2 — Homework 7 (my work)”.", "Web page: https://classroom.example.edu/algebra2/hw7"],
+         said="did I get number 2 right?", cursor=(640, 420),
+         checks=[("the teacher checks it: short hand-over, no <visual>", lambda r: not r["tags"].get("visual") and len(r["say"].split()) <= 15),
+                 ("no verdict guessed before the check", lambda r: not verdict(r["say"])),
+                 ("marks number 2 (or nothing)", lambda r: not r["draw"] or "2" in r["draw"]),
+                 ("no agent", lacks("agent", "do"))]),
+    dict(id="physics-why", who="student", html=PHYSICS, ctx=PHYSICS_CTX, said="why is it 6 newtons and not 14", cursor=(500, 420),
+         checks=[("says it once: a short answer alone, or one hand-over line with <visual>", lambda r: len(r["say"].split()) <= (15 if r["tags"].get("visual") else 50)),
+                 ("the answer: opposite directions / subtract", lambda r: bool(r["tags"].get("visual")) or say(r"opposite|subtract|minus|against")(r)),
+                 ("no agent", lacks("agent", "do"))]),
+    dict(id="chart-say", who="office", html=CHART, ctx=CHART_CTX, said="what does this chart say", cursor=(600, 450),
+         checks=[("says it once: a short answer alone, or one hand-over line with <visual>", lambda r: len(r["say"].split()) <= (15 if r["tags"].get("visual") else 55)),
+                 ("names the top team", lambda r: bool(r["tags"].get("visual")) or say(r"Billing")(r)),
+                 ("doesn't act", lacks(*ACTING))]),
+    dict(id="chart-line", who="office", html=CHART, ctx=CHART_CTX, said="show this as a line", cursor=(600, 450),
+         checks=[("asks the teacher (<visual>)", has("visual")),
+                 ("the brief has the data", lambda r: sum(str(v) in "".join(b for _, b in r["tags"].get("visual") or []) for _, v in CHART_DATA) >= 5),
+                 ("the brief says where the chart is", body("visual", r"\b\d{2,4}\s*[,x×]\s*\d{2,4}\b|around \(?\d|at \(?\d|\b[xy]\s*=?\s*\d{2,4}")),
+                 ("one short hand-over line", say_words_max(15)),
+                 ("doesn't act", lacks("agent", "do"))]),
+    dict(id="textedit-bigger", who="writer", html=TEXTEDIT, ctx=TEXTEDIT_CTX, said="how do I make the title bigger", cursor=(400, 300),
+         checks=[("walks them through it (<guide>) or does it (<do>)", lambda r: bool(r["tags"].get("guide") or r["tags"].get("do"))),
+                 ("no spoken how-to (one short line)", say_words_max(15)),
+                 ("no paper", lacks("visual"))]),
+
+    # The owner's own case: engineering homework in Hebrew, asked about in English or in Hebrew.
+    dict(id="hebrew-sheet-en", who="student", html=HEB_SHEET, ctx=HEB_CTX, said="explain question 1", cursor=(700, 300),
+         checks=[("answers in English", lambda r: not re.search(r"[֐-׿]{3,}", r["say"])),
+                 ("one short hand-over line, no <visual> (the teacher already started)", lambda r: not r["tags"].get("visual") and len(r["say"].split()) <= 15),
+                 ("marks question 1 (or nothing)", lambda r: not r["draw"] or not re.search(r"שאלה 2|P = 30|σ", r["draw"])),
+                 ("doesn't act", lacks("agent", "do", "video"))]),
+    dict(id="hebrew-sheet-he", who="student", html=HEB_SHEET, ctx=HEB_CTX, said="מה עושים בשאלה 1?", cursor=(700, 300),
+         checks=[("answers in Hebrew", lambda r: len(re.findall(r"[֐-׿]", r["say"])) > 0.5 * max(1, len(re.findall(r"[A-Za-z֐-׿]", r["say"])))),
+                 ("hands it to the sketch (<visual>)", has("visual")),
+                 ("the brief names question 1", body("visual", r"question 1|שאלה 1|problem 1|\b1\b")),
+                 ("the brief has the data (4 m, 10 kN)", body("visual", r"10\s*kN") ),
+                 ("doesn't act", lacks("agent", "do", "video"))]),
 ]

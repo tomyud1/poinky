@@ -110,6 +110,9 @@ final class CallController: NSObject, NSMenuDelegate {
     private var freshTalkerSince: TimeInterval = 0
     private var needsRecap = false
     private var swappedTalker = false   // this session's talker was swapped: the summary's key facts go with each question
+    private var sayGate: (turn: Int, passed: [String], held: [String], settled: Bool) = (-1, [], [], false)
+    private var handOverTurn = -1            // the turn `handOverSaid` belongs to
+    private var handOverSaid: [String] = []  // what the talker said so far while the teacher sketches the answer
     private var sentOnce: [String: String] = [:]   // context that rarely changes: sent again only when it does
     // Swap when the talker's conversation gets this big (Claude Code reports it with each answer), or after
     // this many questions (a fallback, and for the API brain, which doesn't report it and drops old screenshots).
@@ -1209,9 +1212,13 @@ final class CallController: NSObject, NSMenuDelegate {
                 let lines = all.filter { $0.hasPrefix("- ") }
                 if !lines.isEmpty { note = lines.prefix(4).joined(separator: "\n") }
                 // Lasting facts about the user that came up: "About me" learns them over time.
+                // Only with the user's own words quoted, and found in what they said (`UserFacts.aboutLines`).
                 if config.memoryEnabled {
-                    for a in all.filter({ $0.hasPrefix("ABOUT:") }).prefix(2) {
-                        Identity.learn(String(a.dropFirst(6)).trimmingCharacters(in: .whitespaces), into: Identity.userURL)
+                    let userLines = exchanges.map(\.user) + UserFacts.pinned(in: summary)
+                    let known = Memory.facts()   // the talker's <remember> already kept it ("my sister's birthday…")
+                    for fact in UserFacts.aboutLines(all.joined(separator: "\n"), userLines: userLines)
+                    where !known.contains(where: { UserFacts.similar($0, fact) }) {
+                        Identity.learn(fact, into: Identity.userURL)
                     }
                 }
             }
@@ -1429,7 +1436,7 @@ final class CallController: NSObject, NSMenuDelegate {
             PartQuestion.isAbout(question, part: $0.name.isEmpty ? $0.part : $0.name) ? $0 : nil
         }
         if partQ != nil { overlay.markPickAsked() }
-        let sketchNow = partQ == nil && !proactive && artist != nil && Self.wantsSketch(question, marked: !marks.isEmpty || focusCrop != nil)
+        let marked = !marks.isEmpty || focusCrop != nil
         talkTask = Task { @MainActor in
             do {
                 let capStart = ProcessInfo.processInfo.systemUptime
@@ -1444,11 +1451,16 @@ final class CallController: NSObject, NSMenuDelegate {
                 guard myTurn == self.turn else { return }
                 self.lastSnapshot = snap
                 self.replyScale = snap.scale
-                // Clearly a "explain / show me" question: start the teacher now, alongside the talker.
-                // "Is this right?" about selected or marked work with math in it: the teacher checks it (the fast
-                // talker answers without a thinking step and can get a check wrong).
-                let checkNow = !sketchNow && partQ == nil && !proactive && self.artist != nil
-                    && Self.wantsWorkChecked(question, work: self.frontContext.selection + "\n" + (snap.focus?.text ?? ""))
+                // What the question is (TalkerRoute): clearly "explain / show me" starts the teacher now, alongside
+                // the talker; their own work ("did I get number 2 right?", or "is this right?" about selected or
+                // marked math) gets the teacher's careful check (the fast talker answers without a thinking step
+                // and got checks wrong).
+                let route = TalkerRoute.classify(proactive ? "" : question, marked: marked,
+                                                 work: self.frontContext.selection + "\n" + (snap.focus?.text ?? ""))
+                let teacherNow = partQ == nil && !proactive && self.artist != nil
+                let sketchNow = teacherNow && route.teacher == .sketch
+                let checkNow = teacherNow && route.teacher == .check
+                if sketchNow || checkNow { Timeline.log("route", ["teacher": route.teacher.rawValue, "why": route.reason, "turn": myTurn]) }
                 if partQ != nil || sketchNow || checkNow { self.heldTeacher = [] }
                 if let p = partQ {
                     self.teacherStartedTurn = myTurn
@@ -1458,10 +1470,10 @@ final class CallController: NSObject, NSMenuDelegate {
                 } else if sketchNow || checkNow {
                     self.teacherStartedTurn = myTurn
                     self.requestVisual(checkNow
-                        ? "Check the user's work (the selected or marked text) step by step: say plainly whether it's right, show exactly which step went wrong and the fix. Started in parallel with the talker; the talker only says a short hand-over line."
+                        ? "Check the user's work step by step (what they selected or marked, else the problem their question names on screen, like \"number 2\"): say plainly whether it's right, show exactly which step went wrong and the fix. Started in parallel with the talker; the talker only says a short hand-over line."
                         : "Explain this to the user (2D lesson, or a 3D model if they asked for 3D). Started in parallel with the talker; the talker only says a short hand-over line.")
                 }
-                let q = BrainQuestion(text: self.talkerText(question, snap, proactive: proactive), snapshot: snap)
+                let q = BrainQuestion(text: self.talkerText(question, snap, route: route, proactive: proactive), snapshot: snap)
                 self.overlay.glance()
                 self.addReceipt(q, question: proactive ? "" : question, snap: snap, turn: myTurn)
                 if sketchNow || checkNow { self.receiptAlso("The teacher (\(self.config.model(for: .artist))) got the same screenshot to sketch an answer") }
@@ -1469,6 +1481,7 @@ final class CallController: NSObject, NSMenuDelegate {
                 guard myTurn == self.turn else { return }
                 let ev = self.parser.finish()
                 self.handle(ev)
+                if self.sayGateOn { self.settleSayGate(finished: true) }
                 self.releaseTeacher()
                 var said = self.parser.sayPreview
                 var note = Self.logNote(ev)
@@ -1515,26 +1528,25 @@ final class CallController: NSObject, NSMenuDelegate {
         }
     }
 
-    /// Two asks the fast talker kept getting wrong, said right where it reads last.
-    static func answerShapeHint(_ question: String) -> String? {
+    /// The teacher started with the talker (`TalkerRoute.teacher`): the talker only hands over.
+    static func teacherLine(checking: Bool, question: String) -> String {
+        let like = TalkerRoute.handOverExample(question, checking: checking)
+        return checking
+            ? "(The teacher is ALREADY checking their work step by step in a narrated sketch. Say ONE short hand-over line in your own voice and in the user's language, like \"\(like)\" (never mention a teacher, and don't say whether it's right: the sketch will), mark the work it's about, and do NOT write <visual> or <agent>.)"
+            : "(The teacher is ALREADY preparing a narrated sketch for this question. Say ONE short hand-over line in your own voice and in the user's language, like \"\(like)\" (never mention a teacher, don't explain it yourself), mark what it's about, and do NOT write <visual>.)"
+    }
+
+    /// Asking to stop or start talking out loud, in words the app doesn't switch by itself (`QuietPhrase`): quiet mode.
+    static func quietHint(_ question: String) -> String? {
         let q = question.lowercased()
-        if ["punchier", "shorter", "rewrite", "reword", "rephrase", "fix the grammar", "more formal", "less formal",
-            "tighten", "make it sound", "make this sound"].contains(where: { q.contains($0) }) {
-            return "(New wording: <say> must contain the whole new text itself, word for word, then \"Want me to swap it in?\", then <offer say=\"Swapping it in.\"><do>Replace the selected text with exactly: …the new text…</do></offer>. Rewrite only the selected words: no greeting or sign-off they didn't select. Never \"here's a version\" without the words.)"
-        }
-        if ["short version", "sum it up", "summarize", "summarise", "tl;dr", "tldr", "gist", "in a nutshell", "quick summary"].contains(where: { q.contains($0) }) {
-            return "(Summary: at most 3 short sentences, about 40 words, the main point first. Don't list every item.)"
-        }
-        if ["quiet", "out loud", "aloud", "your voice", "keep it down", "talk normally", "talk to me normally", "speak normally",
-            "silent", "mute", "stop talking", "write to me", "just write", "no talking", "without talking", "without you talking"].contains(where: { q.contains($0) }) {
-            return "(If they want you to stop or start talking out loud, that's quiet mode: add <set>{\"quiet\": true}</set> (false to talk again) and say so in a few words.)"
-        }
-        return nil
+        guard ["quiet", "out loud", "aloud", "your voice", "keep it down", "talk normally", "talk to me normally", "speak normally",
+               "silent", "mute", "stop talking", "write to me", "just write", "no talking", "without talking", "without you talking"].contains(where: { q.contains($0) }) else { return nil }
+        return "(If they want you to stop or start talking out loud, that's quiet mode: add <set>{\"quiet\": true}</set> (false to talk again) and say so in a few words.)"
     }
 
     static let keyFactsHeader = "Still true from earlier in this session (use it when it matters for the answer): "
 
-    static let formatReminder = "(Reply only with the tags: start with <say>, then any of <visual>, <draw>, <agent>, <do>, <search>, <recall>, <remind>… Nothing outside them, no markdown.)"
+    static let formatReminder = "(Reply only with the tags: start with <say>, then any of <visual>, <draw>, <agent>, <do>, <search>, <recall>, <remind>… Nothing outside them, no markdown. With <visual>, <say> is only one short hand-over line.)"
 
     /// "Now: Sunday, 8 November 2026, 6:42 PM (Asia/Jerusalem)", so "what time is it?", "is it late?",
     /// "what did I do this morning?" get real answers. A few tokens per question.
@@ -1546,8 +1558,8 @@ final class CallController: NSObject, NSMenuDelegate {
         return "Now: \(f.string(from: date)) (\(zone.identifier))."
     }
 
-    private func talkerText(_ question: String, _ snap: Snapshot, proactive: Bool = false) -> String {
-        var lines = [proactive ? "(Nobody asked anything: this is a background update for you to pass on.) \(question)"
+    private func talkerText(_ question: String, _ snap: Snapshot, route: TalkerRoute, proactive: Bool = false) -> String {
+        var lines = [proactive ? "(Nobody asked anything: this is a background update for you to pass on in one or two short sentences: what was done and what to check. Don't mark anything.) \(question)"
                                : "User said: \"\(question)\"",
                      Self.nowLine(),
                      "Screenshot size: \(snap.width)x\(snap.height) px (coordinates use this size)."]
@@ -1575,11 +1587,8 @@ final class CallController: NSObject, NSMenuDelegate {
                 }
             }
         }
-        // Questions about Poinky itself get the current settings.
-        let q = question.lowercased()
-        let aboutApp = ["poinky", "poinky", "setting", "voice", "speed", "faster", "slower", "buddy", "shortcut",
-                        "sound", "teacher", "notch", "memory", "remember", "forget", "hotkey", "keyboard"].contains { q.contains($0) }
-        if aboutApp && !proactive { lines.append("Current Poinky settings: " + settingsSummary()) }
+        // Questions about Poinky itself get the current settings (and the manual, below).
+        if route.aboutApp && !proactive { lines.append("Current Poinky settings: " + settingsSummary()) }
         // Background agents, and any results the user hasn't heard yet.
         let status = agents.statusLines()
         if !status.isEmpty { lines.append("Background agents:\n" + status.joined(separator: "\n")) }
@@ -1587,21 +1596,19 @@ final class CallController: NSObject, NSMenuDelegate {
             "- \(p.name) \"\(p.title)\" in \(p.dir.path), \(p.status) \(Self.ago(p.started)) (key \(p.key)): \(HelperStream.clip(p.summary, 220))"
         }
         // (Rarely changes: sent when it does, or when the question is about helpers. The talker remembers it.)
-        let aboutHelpers = ["agent", "helper", "continue", "earlier", "last time", "resume", "undo"].contains { q.contains($0) }
-        if !earlier.isEmpty, sendOnce("earlier", earlier.joined()) || aboutHelpers {
+        if !earlier.isEmpty, sendOnce("earlier", earlier.joined()) || route.aboutHelpers {
             lines.append("Earlier agents (to continue one, `<agent resume=\"KEY\">what to do now</agent>`; it remembers its work):\n" + earlier.joined(separator: "\n"))
         }
         let next = agents.nextNames(3)
         lines.append("If you start an agent now, it will be called \(next[0]) (several: \(next.joined(separator: ", ")), in that order).")
         let scheduled = Reminders.summary()
-        let aboutTime = ["remind", "schedul", "alarm", "every ", "tomorrow", "later", "timer"].contains { q.contains($0) }
-        if !scheduled.isEmpty, sendOnce("reminders", scheduled) || aboutTime { lines.append(scheduled) }
+        if !scheduled.isEmpty, sendOnce("reminders", scheduled) || route.aboutTime { lines.append(scheduled) }
         let commands = AgentManager.commands
-        if !commands.isEmpty, sendOnce("commands", commands.joined(separator: ",")) || aboutHelpers {
+        if !commands.isEmpty, sendOnce("commands", commands.joined(separator: ",")) || route.aboutHelpers {
             lines.append("The user's commands and skills an agent can run (start one whose task begins with it, like `/review`): " + commands.prefix(40).map { "/" + $0 }.joined(separator: ", "))
         }
-        if ["usage", "used", "cost", "spent", "limit", "tokens", "how much", "plan"].contains(where: { q.contains($0) }), !agents.agents.isEmpty || !pastHelpers(limit: 1).isEmpty {
-            lines.append(agents.usageLine())
+        if route.aboutUsage, !agents.agents.isEmpty || !pastHelpers(limit: 1).isEmpty {
+            lines.append(agents.usageLine() + " (On a subscription this counts toward the plan's limits, not a bill.)")
         }
         if let c = helperContext { lines.append(c); helperContext = nil }
         if let n = offerNote, !proactive { lines.append(n); offerNote = nil }
@@ -1620,18 +1627,35 @@ final class CallController: NSObject, NSMenuDelegate {
         if partTurn == turn {
             lines.append(PartQuestion.talkerLine(name: overlay.lastPickName))
         } else if teacherStartedTurn == turn {
-            lines.append("(The teacher is ALREADY preparing a narrated sketch for this question. Say ONE short hand-over line in your own voice and in the user's language, like \"Sure, let me show you.\" (never mention a teacher), mark what it's about, and do NOT write <visual>.)")
+            lines.append(Self.teacherLine(checking: route.teacher == .check, question: question))
         } else if artistBusy {
             lines.append("(The teacher is still drawing your last visual request.)")
         }
-        if !proactive, let hint = Self.answerShapeHint(question) { lines.append(hint) }
+        if !proactive, let hint = route.shapeHint { lines.append(hint) }
+        if !proactive, let hint = Self.quietHint(question) { lines.append(hint) }
         if silent {
             lines.append(textTurn ? "(The user typed this: your reply is shown as text in their box, not said out loud.)"
                                   : "(Quiet mode is on: the user reads your reply; nothing is said out loud.)")
         }
         // Last, where a model that answers without a thinking step still sees it: the shape of the reply.
         lines.append(Self.formatReminder)
-        return lines.joined(separator: "\n")
+        // Instructions this question can use that the always-sent system prompt leaves out (see `TalkerExtras`),
+        // first in the message so the question and the format reminder stay last.
+        var extras: [TalkerExtras.Part] = []
+        if route.aboutApp && !proactive { extras.append(.app) }
+        if !status.isEmpty || route.aboutHelpers { extras.append(.helpers) }
+        if route.wantsVideo || video.window.isOpen || video.job?.status == .cooking { extras.append(.video) }
+        let sections = extras.filter { sendExtra($0) }.map { TalkerExtras.text($0) }.filter { !$0.isEmpty }
+        return (sections + lines).joined(separator: "\n")
+    }
+
+    /// True when the talker hasn't been given `part` recently: it stays in the conversation, so it's sent again
+    /// only after `TalkerExtras.resendAfter` questions (or to a fresh talker).
+    private func sendExtra(_ part: TalkerExtras.Part) -> Bool {
+        let key = "extra." + part.rawValue
+        if let at = sentOnce[key].flatMap(Int.init), talkerTurns - at < TalkerExtras.resendAfter { return false }
+        sentOnce[key] = String(talkerTurns)
+        return true
     }
 
     // MARK: - Receipts (what each question sent)
@@ -1779,13 +1803,54 @@ final class CallController: NSObject, NSMenuDelegate {
         }
     }
 
+    /// The talker's own hand-overs (`TalkerRoute.afterSay`): not for lookup answers, background updates or
+    /// while the teacher already sketches in parallel (that has its own gate), and only when there is a teacher.
+    private var sayGateOn: Bool { !lookupReply && artist != nil && teacherStartedTurn != turn && config.artistEnabled }
+
+    /// Lets the held rest of the `<say>` play, or drops it when a `<visual>` follows (then a short hand-over line).
+    private func settleSayGate(finished: Bool) {
+        guard sayGate.turn == turn, !sayGate.settled else { return }
+        switch TalkerRoute.afterSay(parser.text, finished: finished) {
+        case .wait:
+            return
+        case .visual:
+            sayGate.settled = true
+            if !sayGate.held.isEmpty {
+                Timeline.log("talker.cut", ["turn": turn, "pieces": sayGate.held.count, "why": "visual"])
+                speaker.enqueue(TalkerRoute.sketchLine(lastQuestion))
+            }
+        case .other:
+            sayGate.settled = true
+            for s in sayGate.held { speaker.enqueue(s) }
+            if !sayGate.held.isEmpty { state = .speaking }
+        }
+        sayGate.held = []
+    }
+
     private func handle(_ ev: TalkEvents) {
         // Answering from web pages or old transcripts: they can't make Poinky do anything.
         let ev = lookupReply ? ev.onlySpeech() : ev
         for s in ev.sentences {
+            var s = s
+            // The teacher is explaining it: the talker's part is one short hand-over (`TalkerRoute.handOver`).
+            if teacherStartedTurn == turn, partTurn != turn {
+                if handOverTurn != turn { handOverTurn = turn; handOverSaid = [] }
+                guard let kept = TalkerRoute.handOver(piece: s, before: handOverSaid, question: lastQuestion) else {
+                    Timeline.log("talker.cut", ["turn": turn, "words": s.split(separator: " ").count])
+                    continue
+                }
+                if kept != s { Timeline.log("talker.cut", ["turn": turn, "replaced": true]) }
+                handOverSaid.append(kept)
+                s = kept
+            } else if sayGateOn {
+                if sayGate.turn != turn { sayGate = (turn, [], [], false) }
+                if !sayGate.settled, TalkerRoute.firstSentenceDone(sayGate.passed) { sayGate.held.append(s); continue }
+                sayGate.passed.append(s)
+            }
             speaker.enqueue(s)
             state = .speaking
         }
+        if sayGateOn { settleSayGate(finished: false) }
         if !ev.sentences.isEmpty, spokenCaption.isEmpty, !answerInBox { overlay.setClaudeCaption("…") }
         let lines = lastSnapshot?.text.lines ?? []
         let shotSize = lastSnapshot.map { CGSize(width: $0.width, height: $0.height) } ?? .zero
@@ -1807,7 +1872,12 @@ final class CallController: NSObject, NSMenuDelegate {
             for f in ev.forget { Memory.forget(f) }
             // The two files that shape every session: changed only by tags in the talker's own reply
             // (lookup replies can't, see `onlySpeech`), and only their "Learned over time" part.
-            for f in ev.aboutUser { Identity.learn(f, into: Identity.userURL) }
+            // "About me" keeps only what the user said about themselves (never the screen, the app, a name on a page).
+            let said = history.suffix(3).map(\.user) + [lastQuestion]
+            for f in ev.aboutUser {
+                if UserFacts.fromUser(f, said: said) { Identity.learn(f, into: Identity.userURL) }
+                else { Timeline.log("aboutUser.dropped", [:]) }
+            }
             for f in ev.aboutSelf { Identity.learn(f, into: Identity.identityURL) }
             for f in ev.unlearnUser { Identity.unlearn(f, from: Identity.userURL) }
             for f in ev.unlearnSelf { Identity.unlearn(f, from: Identity.identityURL) }
@@ -2238,39 +2308,6 @@ final class CallController: NSObject, NSMenuDelegate {
         var avoid = extra + overlay.occupiedRects
         if let f = focusRegion { avoid.append(f) }
         overlay.captionsAtTop(Placement.captionsAtTop(screen: size, avoid: avoid))
-    }
-
-    /// Questions that deserve a sketch right away (so the teacher can start with the talker).
-    /// "Is this right?" / "check my answer" about work that has math in it (digits with =, ², ×…).
-    static func wantsWorkChecked(_ q: String, work: String) -> Bool {
-        let s = q.lowercased()
-        let asks = ["is this right", "is this correct", "is that right", "is that correct", "is it right", "is it correct",
-                    "am i right", "did i get", "check this", "check my", "is my answer", "where did i go wrong", "any mistakes",
-                    "זה נכון", "צדקתי", "תבדוק"]
-        guard asks.contains(where: { s.contains($0) }) else { return false }
-        return work.range(of: #"\d\s*[=+×÷^²³√<>≤≥−-]|[=²³√≤≥]\s*\d"#, options: .regularExpression) != nil
-    }
-
-    static func wantsSketch(_ q: String, marked: Bool) -> Bool {
-        let s = q.lowercased()
-        // "How do I…" / "where do I…" questions get a step-by-step guide instead.
-        let howTo = ["how do i", "how can i", "how to ", "where do i", "where can i", "help me ", "walk me through", "show me how to"]
-        if howTo.contains(where: { s.contains($0) }) { return false }
-        // A video or a long explanation: the talker decides (it may make a video instead of a sketch).
-        let long = ["video", "explainer", "long explanation", "in depth", "in-depth", "deep dive", "the whole story", "full story"]
-        if long.contains(where: { s.contains($0) }) { return false }
-        let strong = ["explain", "how does", "how do ", "how is ", "how are", "how it works", "show me", "draw", "sketch",
-                      "diagram", "in 3d", "3d model", "teach me", "visualize", "what's the difference",
-                      "what is the difference", "compare"]
-            // Checking their work (math, science): the teacher checks carefully; the fast talker can slip.
-            + ["check my work", "check my answer", "is my answer", "did i solve", "did i get it right", "where did i go wrong"]
-            // The same asks in other languages people talk to Poinky in (Hebrew, Spanish, French, German).
-            + ["תסביר", "הסבר", "תסבירי", "איך עובד", "איך זה עובד", "תראה לי", "תראי לי", "תצייר", "מה ההבדל",
-               "explica", "cómo funciona", "explique", "comment ça marche", "erklär", "wie funktioniert"]
-        if strong.contains(where: { s.contains($0) }) { return true }
-        // Marked something and asked what/why about it.
-        let soft = ["what does", "what is", "what's", "what are", "why ", "mean"]
-        return marked && soft.contains(where: { s.contains($0) }) && s.split(separator: " ").count >= 3
     }
 
     // MARK: - Guide mode

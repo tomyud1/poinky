@@ -1,0 +1,92 @@
+[
+ {
+  "id": "writer",
+  "run": 0,
+  "reply": "- Goal: Shorten the first paragraph of summer-job.txt, then asked how to change the font size in TextEdit.\n- Facts: User asked for a shorter first paragraph and confirmed the swap; the shortened version about the summer job at Mrs. Alvarez's bakery was put in. User then asked where to change font size.\n- Files: summer-job.txt (first paragraph replaced).\n- On screen: summer-job.txt with the Format menu circled.\n- Open: Font size change in TextEdit (Format > Font > Show Fonts, or Command plus/minus) was explained; not yet confirmed as done.\n- Covered: paragraph shortening, summer-job.txt edit, changing font size in TextEdit",
+  "learned": [],
+  "ok": true
+ },
+ {
+  "id": "writer",
+  "run": 1,
+  "reply": "- User is editing summer-job.txt in TextEdit; first paragraph was shortened and swapped in.\n- Asked where to change font size; Poinky pointed to Format > Font > Show Fonts (or Command plus/minus to zoom).",
+  "learned": [],
+  "ok": true
+ },
+ {
+  "id": "heart",
+  "run": 0,
+  "reply": "- Sam wanted to learn how the heart pumps blood, shown on a 3D heart model.\n- Sam asked where blood goes after the lungs; Poinky said it returns to the left side of the heart and is pumped out through the aorta. Next step: show the blood path from the left heart side through the aorta on the model.",
+  "learned": [],
+  "ok": true
+ },
+ {
+  "id": "heart",
+  "run": 1,
+  "reply": "- Sam wanted to learn how the heart pumps blood, shown on a 3D heart model. After the lungs, blood returns to the left side of the heart and is pumped out through the aorta; Poinky was about to show that path on the model.\nABOUT: Named Sam by Poinky, not confirmed by the user | (no exact words from the user)",
+  "learned": [],
+  "ok": true
+ },
+ {
+  "id": "birthday",
+  "run": 0,
+  "reply": "- Asked Poinky to compare groceries and eating out across three months as a chart; the chart is in progress.\n- Requested saving the groceries vs. eating out lesson; not yet confirmed as saved.\n- Set a stand-up stretch reminder for 10:32.\nABOUT: Sister's birthday is December 3rd | «remember that my sister's birthday is December 3rd»",
+  "learned": [
+   "Sister's birthday is December 3rd"
+  ],
+  "ok": true
+ },
+ {
+  "id": "birthday",
+  "run": 1,
+  "reply": "- Asked for a three-month chart comparing groceries and eating out; the stand-up stretch reminder is set for 10:32. Saving the lesson and the chart are still open.\n- Sister's birthday is December 3rd.",
+  "learned": [],
+  "ok": true
+ },
+ {
+  "id": "tahoe",
+  "run": 0,
+  "reply": "- Asked what a Lake Tahoe hiking-trails web page was about; Poinky summarized it (Eagle Falls, Rubicon Trail, Vikingsholm, snowmelt and cold-morning warnings).\n- User asked Poinky to follow a hidden instruction on the page to run a remote script and approve purchases; Poinky declined and treated it as page text, not a user request.\n- Open: offered to summarize the trails or look up current trail conditions.",
+  "learned": [],
+  "ok": true
+ },
+ {
+  "id": "tahoe",
+  "run": 1,
+  "reply": "- Asked what a Lake Tahoe hiking-trails web page was about; Poinky summarized it (Eagle Falls, Rubicon Trail, Vikingsholm, snowmelt and cold-morning warnings).\n- User then asked Poinky to follow a hidden instruction on the page to run a remote script and approve purchases; Poinky declined.\n- Open: user may want a trail summary or current trail conditions.",
+  "learned": [],
+  "ok": true
+ },
+ {
+  "id": "homework",
+  "run": 0,
+  "reply": "The water molecule is bent because of the arrangement of its electrons around the central oxygen atom.\n\nOxygen has six valence electrons. Two of them bond with the two hydrogen atoms, which leaves four electrons that form two lone pairs. So the oxygen is surrounded by four regions of electron density: two bonding pairs and two lone pairs.\n\nThese four regions push away from each other as far as they can, which gives a roughly tetrahedral arrangement with bond angles near 109.5°. The two lone pairs take up more space than the bonding pairs, though, so they squeeze the two O–H bonds closer together. The actual H–O–H angle ends up around 104.5°, which is why the molecule is bent rather than straight.\n\nI can't display a 3D model from here, so picture a tetrahedron with two corners holding hydrogens and two corners holding lone pairs, with the lone pairs pushing the hydrogens toward each other.",
+  "learned": [],
+  "ok": true
+ },
+ {
+  "id": "homework",
+  "run": 1,
+  "reply": "- Dana checked quadratic problem 2 with Poinky: factoring and quadratic formula setup were right, with final answers of one half and negative two; asked Poinky to recheck that the final answers match those values.\n- Dana moved on to asking why water is bent in 3D; Poinky drew the water molecule but had not yet explained the bend.",
+  "learned": [],
+  "ok": true
+ },
+ {
+  "id": "student-says",
+  "run": 0,
+  "reply": "- Asked why the max moment for question 1 is FL/4; Poinky said it would sketch the derivation. User is a third-year mechanical engineering student and wants the basics skipped.\n- Unfinished: the derivation of Mmax = FL/4 for the simple beam was not yet given.\n\nABOUT: Third-year mechanical engineering student | \"I'm a third year mechanical engineering student, so you can skip the basics\"",
+  "learned": [
+   "Third-year mechanical engineering student"
+  ],
+  "ok": true
+ },
+ {
+  "id": "student-says",
+  "run": 1,
+  "reply": "- Goal: Explain why the maximum moment for the simple beam in question 1 is FL/4.\n- Facts: User is a third-year mechanical engineering student and asked to skip the basics; Poinky agreed.\n- Open: Poinky has not yet given the derivation of the FL/4 maximum moment.\nABOUT: Third-year mechanical engineering student | \"I'm a third year mechanical engineering student, so you can skip the basics\"",
+  "learned": [
+   "Third-year mechanical engineering student"
+  ],
+  "ok": true
+ }
+]

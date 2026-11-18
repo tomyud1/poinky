@@ -125,12 +125,8 @@ enum SpokenError {
 enum BrainFactory {
     static func make(config: AppConfig, role: PromptRole) throws -> Brain {
         var prompt = SystemPrompt.load(role)
-        // The talker also knows Poinky itself (to answer "how do I…" about the app) and,
-        // like the guide, what it remembers about the user.
-        if role == .talker, let url = Bundle.main.url(forResource: "poinky-manual", withExtension: "md"),
-           let manual = try? String(contentsOf: url, encoding: .utf8) {
-            prompt += "\n\n" + manual
-        }
+        // The talker, like the guide, knows what it remembers about the user. (What it needs only for some
+        // questions, like the app manual, goes with those questions: `TalkerExtras`.)
         if role == .talker || role == .guide || role == .doer {
             prompt += Identity.promptSection()
             prompt += Memory.promptSection(enabled: config.memoryEnabled)
