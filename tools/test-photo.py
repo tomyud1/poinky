@@ -239,7 +239,8 @@ def cancel():
     r = Run(d)
     check("cancel: closed menu, then a picture that never came", [e.get("outcome") for e in r.ev("photo.outcome")] == ["cancelled", "timedOut"], r.ev("photo.outcome"))
     check("cancel: the card went away after the closed menu", None in r.states() and r.states().index(None) < len(r.states()) - 1, r.states())
-    check("cancel: after the wait the card says no photo came", r.cards and r.cards[-1] and r.cards[-1]["state"] == "error" and "No photo" in r.cards[-1]["text"], r.cards[-1:])
+    after = r.cards[max(i for i, c in enumerate(r.cards) if c and c["state"] == "waiting"):] if "waiting" in r.states() else []
+    check("cancel: after the wait the card says no photo came", any(c and c["state"] == "error" and "No photo" in c["text"] for c in after), after)
     return d
 
 

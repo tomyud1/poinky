@@ -101,17 +101,21 @@ enum StudyEval {
                 if needsRef, let t = solverTask { await t.value }
                 var images: [String] = []
                 var note: String?
-                if kind == .check, let clean = StudySource.cleanPhoto(URL(fileURLWithPath: arg)) {
-                    if let data = StudySource.jpeg(clean, maxSide: 1568) {
-                        images = [data.base64EncodedString()]
-                        try? data.write(to: out.appendingPathComponent("photo-\(n + 1).jpg"))
+                if kind == .check {
+                    // check:<photo>[,<photo>…]: pages of one piece of work, cleaned as the app does.
+                    for (k, path) in arg.split(separator: ",").enumerated() {
+                        let url = URL(fileURLWithPath: String(path))
+                        guard let (clean, kept) = StudySource.cleanPhotoInfo(url, flat: url.pathExtension.lowercased() == "pdf"),
+                              let data = StudySource.jpeg(clean, maxSide: 1568) else { continue }
+                        images.append(data.base64EncodedString())
+                        try? data.write(to: out.appendingPathComponent("photo-\(n + 1)-\(k + 1).jpg"))
+                        if kept < 0.45, let orig = PhotoFiles.forClaude(url) { images.append(orig); note = "a photo whose page took up little of it is also sent uncropped, right after its cleaned copy" }
                     }
-                    note = nil
                 } else if kind == .ask { said = arg } else if !shot.isNil { images = [] }
                 let tag = "\(sheet.current)-\(sheet.part)"
                 let newPaper = !paperOpen || paperTag != tag && !(paperTag == "0" && sheet.part == 0)
                 paperOpen = true; paperTag = tag
-                let msg = StudyBrief.message(kind, sheet: sheet, said: said, newPaper: newPaper, note: note) + "\n" + context.joined(separator: "\n")
+                let msg = StudyBrief.message(kind, sheet: sheet, said: said, newPaper: newPaper, note: note, photos: max(1, images.count)) + "\n" + context.joined(separator: "\n")
                 let (reply, stream) = await ask(teacher, msg, images: images)
                 save(cmd, reply)
                 said = ""
