@@ -31,7 +31,7 @@ if [ ! -x "$D/bin/poinky-stt" ] || [ "$HERE/Sources/poinky-stt/main.swift" -nt "
   progress 0.02 "Building the speech recognizer (a few minutes, once)…"
   rm -rf "$D/src"; mkdir -p "$D/src"
   cp -R "$HERE/Package.swift" "$HERE/Sources" "$D/src/"
-  [ -f "$HERE/Package.resolved" ] && cp "$HERE/Package.resolved" "$D/src/"
+  if [ -f "$HERE/Package.resolved" ]; then cp "$HERE/Package.resolved" "$D/src/"; fi
   if ! swift build -c release --package-path "$D/src" --scratch-path "$D/build" > "$D/build.log" 2>&1; then
     tail -20 "$D/build.log" >&2
     fail "The build didn't work (log: $D/build.log)."
