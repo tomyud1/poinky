@@ -197,6 +197,9 @@
       if (a.y + a.h <= frame.y + 8) lo = Math.max(lo, a.y + a.h + 12);    // it's above the paper
       else if (a.y >= frame.y) hi = Math.min(hi, a.y - 12);               // it's below
     }
+    // The band the app found free (it never covers what's being explained).
+    if (frame.lo != null) lo = Math.max(lo, frame.lo);
+    if (frame.hi != null) hi = Math.min(hi, frame.hi);
     lo = Math.min(lo, frame.y); hi = Math.max(hi, frame.y + 200);
     return { lo, hi };
   }
@@ -1294,6 +1297,16 @@
     if (!paper || !paper.isConnected) return;
     queue.push({ ops: (spec && spec.ops) || [], k: k || 1 });
     run();
+  };
+  /** The app moves the open paper off what the next question is about (same width); one you dragged stays. */
+  SB.lessonPlace = f => {
+    if (!paper || !paper.isConnected || paper.dataset.moved) return;
+    frame = { ...frame, x: f.x, y: f.y, lo: f.lo, hi: f.hi, avoid: null };
+    const ease = '.45s cubic-bezier(.3,.9,.3,1)';
+    paper.style.transition = matchMedia('(prefers-reduced-motion: reduce)').matches ? 'opacity .2s' : `left ${ease}, top ${ease}`;
+    paper.style.left = f.x + 'px'; paper.style.top = f.y + 'px'; top = f.y;
+    setHeight(H);
+    setTimeout(() => X.report(), 500);
   };
   /** Still drawing (for tests and tools). */
   SB.lessonBusy = () => running || queue.length > 0;

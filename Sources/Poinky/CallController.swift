@@ -139,6 +139,12 @@ final class CallController: NSObject, NSMenuDelegate {
     private var narrationOpen = false        // the teacher is adding spoken lines to the voice
     private var lessonScale: CGFloat = 1
     private var focusRegion: CGRect?          // what's being explained (screen points): the paper and captions avoid it
+    /// What this question is about, each on its own (screen points): your marks, the talker's marks, the
+    /// place its brief names, the teacher's screen marks. The paper never covers them when it can help it.
+    private var paperSubjects: [CGRect] = []
+    private var cursorBox: CGRect?           // around the cursor when you asked: avoided if there's room anyway
+    private var pendingPaper: (title: String, token: Int)?   // a new lesson's paper, opened with its first step
+    private var pendingPaperToken = 0
     private var pendingFocus: FocusCrop?      // close-up of what you marked, taken when you marked it
     private var focusTask: Task<Void, Never>?
     private var anchor: (id: CGWindowID, origin: CGPoint)?   // the window the drawings belong to
@@ -608,6 +614,9 @@ final class CallController: NSObject, NSMenuDelegate {
         anchor = nil
         pendingFocus = nil
         focusRegion = nil
+        paperSubjects = []
+        cursorBox = nil
+        pendingPaper = nil
         endGuide()
         guideBrain?.stop()
         guideBrain = nil
@@ -1247,6 +1256,7 @@ final class CallController: NSObject, NSMenuDelegate {
 
     /// You talked over a lesson: stop drawing (what's drawn stays) and free the artist for your next question.
     private func stopLesson() {
+        pendingPaper = nil
         guard lessonOpen || narrationOpen || !pendingSteps.isEmpty || artistBusy else { return }
         lessonToken += 1
         lessonOpen = false
@@ -1314,14 +1324,18 @@ final class CallController: NSObject, NSMenuDelegate {
         let focusCrop = pendingFocus
         pendingFocus = nil
         // What's being asked about: your marks, else what you marked before scrolling, else around the cursor.
+        cursorBox = cursor.map { CGRect(x: $0.x - 140, y: $0.y - 70, width: 280, height: 140) }
         if let r = ScreenCapture.focusRect(marks: marks, screen: screen.frame.size) {
             focusRegion = r
         } else if let f = focusCrop {
             focusRegion = f.rectPoints
-        } else if let c = cursor {
-            focusRegion = CGRect(x: c.x - 140, y: c.y - 70, width: 280, height: 140)
         } else {
-            focusRegion = nil
+            focusRegion = cursorBox
+        }
+        paperSubjects = []
+        if let r = ScreenCapture.focusRect(marks: marks, screen: screen.frame.size) ?? focusCrop?.rectPoints {
+            paperSubjects = [r]
+            movePaperOff()   // an open paper over what you just marked moves aside
         }
         anchorDrawings(to: focusRegion, on: screen)
         placeCaptions()
@@ -1680,6 +1694,7 @@ final class CallController: NSObject, NSMenuDelegate {
             // What the talker marked is what's being explained: keep the paper and captions off it.
             if let b = Placement.bounds(ofDraw: snapped, scale: replyScale) {
                 focusRegion = focusRegion.map { $0.union(b) } ?? b
+                addPaperSubject(b)
                 placeCaptions()
             }
         }
@@ -1861,6 +1876,11 @@ final class CallController: NSObject, NSMenuDelegate {
 
     private func requestVisual(_ brief: String, aside: String? = nil) {
         guard artist != nil, let snap = lastSnapshot else { return }
+        // "Relates to the diagram, around 570,540": the paper keeps off that too.
+        if let r = Placement.region(inBrief: brief), snap.scale > 0 {
+            let pts = CGRect(x: r.minX / snap.scale, y: r.minY / snap.scale, width: r.width / snap.scale, height: r.height / snap.scale)
+            addPaperSubject(pts, move: false)
+        }
         var lines = ["Brief from the talker: \(brief)",
                      "User said: \"\(lastQuestion)\"",
                      "Talker said: \"\(parser.sayPreview)\"",
@@ -1923,7 +1943,20 @@ final class CallController: NSObject, NSMenuDelegate {
         lessonScale = snapshot.scale
         switch ev {
         case .lessonStart(let title, let continuing):
-            openPaper(title: title, continuing: continuing)
+            if continuing && overlay.scene.contains(where: { $0.type == "lesson" }) {
+                openPaper(title: title, continuing: true)
+            } else {
+                // The paper opens with the first step, so it can keep off what that step marks on the screen too
+                // (or after a moment without one).
+                pendingPaperToken += 1
+                let token = pendingPaperToken
+                pendingPaper = (title, token)
+                currentTag = nil
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { [weak self] in
+                    guard let self, let p = self.pendingPaper, p.token == token, self.state != .idle else { return }
+                    self.openPendingPaper()
+                }
+            }
         case .say(let line):
             openNarration()
             nextTag += 1
@@ -1933,6 +1966,10 @@ final class CallController: NSObject, NSMenuDelegate {
             speaker.enqueue(line, tag: nextTag)
             state = .speaking
         case .step(let json):
+            if pendingPaper != nil {
+                if let b = Placement.bounds(ofStep: json, scale: snapshot.scale) { addPaperSubject(b, move: false) }
+                openPendingPaper()
+            }
             if !lessonOpen { openPaper(title: "", continuing: true) }
             schedule(.paper(snapScreenMarks(json, snapshot: snapshot)))
         case .step3d(let id, let code, let note):
@@ -1942,6 +1979,7 @@ final class CallController: NSObject, NSMenuDelegate {
             if aside { if asideNoted { n = nil } else if n != nil { asideNoted = true } }
             schedule(.model(id: id, code: code, note: n, aside: aside))
         case .lessonEnd:
+            pendingPaper = nil   // a lesson with no steps: no empty paper
             lessonOpen = false
         case .card(let spec):
             overlay.apply(placeCards(spec, scale: snapshot.scale), scale: snapshot.scale)
@@ -1966,7 +2004,7 @@ final class CallController: NSObject, NSMenuDelegate {
               var items = obj["items"] as? [[String: Any]] else { return json }
         let size = overlay.screen?.frame.size ?? CGSize(width: 1440, height: 900)
         for i in items.indices where items[i]["type"] as? String == "scene3d" {
-            let room = Placement.paper(screen: size, focus: focusRegion, occupied: [], maxWidth: 900)
+            let room = Placement.paper(screen: size, room: paperRoom(except: "scene3d"), maxWidth: 900)
             let w = room.width, h = min(room.height, w * 0.85)
             items[i]["x"] = room.minX * scale; items[i]["y"] = room.minY * scale
             items[i]["w"] = w * scale; items[i]["h"] = h * scale
@@ -1976,15 +2014,23 @@ final class CallController: NSObject, NSMenuDelegate {
         return out
     }
 
-    private func openPaper(title: String, continuing: Bool) {
+    private func openPaper(title: String, continuing: Bool, keepTag: Bool = false) {
         lessonOpen = true
-        currentTag = nil
+        if !keepTag { currentTag = nil }
         let frame = paperFrame()
         // A dark screen behind the paper gets a chalkboard (or what the setting says).
         let light = config.paperLook == "auto" ? lastSnapshot.flatMap { PaperLook.brightness(of: $0, in: frame) } : nil
-        overlay.lessonBegin(frame: frame, title: title, continuing: continuing, avoid: focusRegion,
+        // The frame's height is the room it may grow into: the paper stays inside it (`lo`/`hi`).
+        overlay.lessonBegin(frame: frame, title: title, continuing: continuing, avoid: nil,
                             look: PaperLook.pick(setting: config.paperLook, brightness: light), session: callID)
         placeCaptions(extra: [frame])
+    }
+
+    /// The paper of a new lesson, waiting for its first step: open it now (its first line may already be playing).
+    private func openPendingPaper() {
+        guard let p = pendingPaper else { return }
+        pendingPaper = nil
+        openPaper(title: p.title, continuing: false, keepTag: true)
     }
 
     /// The teacher's lines join the voice queue (after anything the talker is still saying).
@@ -1996,6 +2042,7 @@ final class CallController: NSObject, NSMenuDelegate {
 
     /// The teacher finished writing: no more lines are coming.
     private func finishTeacherOutput() {
+        pendingPaper = nil
         lessonOpen = false
         if narrationOpen {
             narrationOpen = false
@@ -2078,17 +2125,53 @@ final class CallController: NSObject, NSMenuDelegate {
     /// Where the paper goes: the largest free space beside, above or below what's being explained.
     private func paperFrame() -> CGRect {
         let size = overlay.screen?.frame.size ?? CGSize(width: 1440, height: 900)
-        let others = overlay.scene.filter { $0.type != "lesson" }.compactMap { item -> CGRect? in
+        return Placement.paper(screen: size, room: paperRoom(except: "lesson"))
+    }
+
+    /// What a paper or 3D model keeps off: what the question is about first, then other cards, the text
+    /// on the screen (an empty part of it is better) and the cursor.
+    private func paperRoom(except type: String) -> Placement.Room {
+        let others = overlay.scene.filter { $0.type != type }.compactMap { item -> CGRect? in
             guard let b = item.box, b.count == 4 else { return nil }
             return CGRect(x: b[0], y: b[1], width: b[2], height: b[3])
         }
-        return Placement.paper(screen: size, focus: focusRegion, occupied: others)
+        let k = lastSnapshot?.scale ?? 1
+        let text = k > 0 ? (lastSnapshot?.text.lines ?? []).map { CGRect(x: $0.rect.minX / k, y: $0.rect.minY / k, width: $0.rect.width / k, height: $0.rect.height / k) } : []
+        // Nothing marked or named yet: what's around the cursor is all there is to go on.
+        let subjects = paperSubjects.isEmpty ? (focusRegion.map { [$0] } ?? []) : paperSubjects
+        return Placement.Room(subjects: subjects, soft: cursorBox.map { [$0] } ?? [], occupied: others, text: text)
+    }
+
+    /// Something this question is about. An open paper that covers it moves aside (`move`), unless you
+    /// dragged it somewhere yourself.
+    private func addPaperSubject(_ r: CGRect, move: Bool = true) {
+        let size = overlay.screen?.frame.size ?? CGSize(width: 1440, height: 900)
+        let r = r.intersection(CGRect(origin: .zero, size: size))
+        // A "place" that's most of the screen says nothing about where the paper can go.
+        guard !r.isNull, r.width > 2, r.height > 2, r.width * r.height < size.width * size.height * 0.75 else { return }
+        if !paperSubjects.contains(r) { paperSubjects.append(r) }
+        if move { movePaperOff() }
+    }
+
+    /// The open paper covers what this question is about: move it to a spot that doesn't (same width,
+    /// so its drawing stays the same size). The page leaves alone a paper you dragged.
+    private func movePaperOff() {
+        guard let paper = overlay.scene.first(where: { $0.type == "lesson" }), let b = paper.box, b.count == 4 else { return }
+        let rect = CGRect(x: b[0], y: b[1], width: b[2], height: b[3])
+        // A mark mostly on the paper is about the paper ("what does this step mean?"): it stays.
+        func onPaper(_ r: CGRect) -> Bool { let i = r.intersection(rect); return !i.isNull && i.width * i.height >= 0.6 * r.width * r.height }
+        guard !paperSubjects.contains(where: onPaper), paperSubjects.contains(where: { $0.intersects(rect) }) else { return }
+        let size = overlay.screen?.frame.size ?? CGSize(width: 1440, height: 900)
+        let frame = Placement.paper(screen: size, room: paperRoom(except: "lesson"), width: rect.width, minHeight: min(rect.height, Placement.minPaperHeight))
+        guard !paperSubjects.contains(where: { $0.intersects(frame) }) else { return }   // nowhere better: leave it
+        overlay.lessonPlace(frame: frame)
+        placeCaptions(extra: [frame])
     }
 
     /// Captions move to the top when the bottom has what's being explained (or the paper).
     private func placeCaptions(extra: [CGRect] = []) {
         let size = overlay.screen?.frame.size ?? CGSize(width: 1440, height: 900)
-        var avoid = extra + overlay.occupiedRects
+        var avoid = extra + overlay.occupiedRects + paperSubjects
         if let f = focusRegion { avoid.append(f) }
         overlay.captionsAtTop(Placement.captionsAtTop(screen: size, avoid: avoid))
     }
