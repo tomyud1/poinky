@@ -1,6 +1,6 @@
 # Talker eval
 
-Checks the main agent (the talker: fast model, short spoken answer, screen marks, and tags like `<agent>`, `<do>`, `<search>`, `<recall>`, `<remind>`) on 20 realistic moments from different kinds of users, with the **real** prompt and message the app builds.
+Checks the main agent (the talker: fast model, short spoken answer, screen marks, and tags like `<agent>`, `<do>`, `<search>`, `<recall>`, `<remind>`) on 33 realistic moments from different kinds of users, with the **real** prompt and message the app builds.
 
 ```
 POINKY_EVAL_CLAUDE=/path/to/claude python3 tools/eval-talker/run.py            # all 20, once (~1.5 min, Haiku)
@@ -27,8 +27,8 @@ python3 tools/eval-talker/run.py --rescore after-fix8,offer1,offer2,offer3,offer
 New failures are either a real regression (fix the prompt or code) or a check that's too strict (fix the check). Then add the run to the fixtures with `--record-fixtures` so CI keeps checking those replies.
 
 ## How it mirrors the app
-- System prompt as `BrainFactory.make(.talker)`: `prompts/talker-prompt.md` + `poinky-manual.md` + the default `identity.md` (read from `Identity.swift`) + memory for a made-up user ("Alex Rivera") + `LookUp.promptSection` (read from `Recall.swift`, history and web search on).
-- Message as `CallController.talkerText`: what was said, the time (fixed: Sunday 15 Nov 2026, 2:10 PM), screenshot size, front app / document / web page / selected text (`AppContext.lines` format), cursor, the helpers list, the next helper names, the parallel-teacher line when `wantsSketch` / `wantsWorkChecked` say so (word lists read from `CallController.swift`), and the format reminder.
+- System prompt as `BrainFactory.make(.talker)`: `prompts/talker-prompt.md` + the default `identity.md` (read from `Identity.swift`) + memory for a made-up user ("Alex Rivera", the line read from `Memory.swift`) + `LookUp.promptSection` (read from `Recall.swift`, history and web search on).
+- Message as `CallController.talkerText`: the `TalkerExtras` parts first when the question gets them (`poinky-manual.md` for questions about the app, `talker-helpers.md` when helpers are listed or the question is about them, `talker-video.md` for a video), then what was said, the time (fixed: Sunday 15 Nov 2026, 2:10 PM), screenshot size, front app / document / web page / selected text (`AppContext.lines` format), cursor, the helpers list, the next helper names, the teacher line (`CallController.teacherLine`) and reply hint when `TalkerRoute` says so (the app's own router, built from the source into `build/eval-talker/talker-route`), and the format reminder.
 - Screens are small HTML pages (`scenarios.py`) rendered with headless Chrome at 1330×864 (what a 14" MacBook sends) and sent as JPEG. Never a capture of the real screen.
 - `claude -p` with the same flags as `ClaudeCodeBrain` (Haiku, no tools, stream-json, `CLAUDE_CODE_EXTRA_BODY` no-thinking body read from the source), started 4 s before the question like the app's warm talker, in an empty temp folder outside any repo.
 - Scores: each scenario's checks (routing, the right tag and attributes, correctness, safety) plus general ones (has `<say>`, no markdown/URLs/emoji, math said for the ear, valid `<draw>` JSON, nothing outside the tags). "First words" is the time from sending to the first complete phrase inside `<say>`.
@@ -66,6 +66,23 @@ Without the thinking step Haiku followed the reply format less well (the first f
 
 Per-run detail: `python3 tools/eval-talker/run.py --rescore before,before-extra after,after2,after3,after-fix,after-fix2,after-fix3,after-fix4,after-fix5,after-fix6,after-fix7,after-fix8`.
 
+## Round 3 (2026-11-18): routing, a smaller prompt, what's heard
+Eight scenarios from a tester's real runs, plus two for engineering homework in Hebrew: `tour-solve` (the first-run tour's "How do I solve this?"), `say-french`, `explain-briefly`, `check-noselect` ("did I get number 2 right?" with nothing selected, all work correct), `physics-why` and `chart-say` (said twice: explained, then handed to the sketch), `chart-line` (the brief needs the data and where the chart is), `textedit-bigger` (routing to `<guide>`), `hebrew-sheet-en` / `hebrew-sheet-he`. Two general checks were added: no "good question" opener, and with `<visual>` the spoken line is at most 20 words.
+
+What changed: one router in code (`TalkerRoute`, phrase table in `tools/tests/talker-route/cases.tsv`); the app manual, the helpers' finer tags and the video section go only with questions that need them (`TalkerExtras`); the prompt was rewritten shorter (one rule each, the hand-over rule first). Always-sent system prompt as the eval builds it: **34,854 → 16,315 characters**; input tokens per question (screenshot included) **14.9k → 8.5k**. First token median 0.69–0.74 s → 0.75–0.79 s (noise: first spoken words 0.85–0.93 s → 0.94–1.03 s).
+
+Scores with today's checks (`--rescore r3-base1,r3-newbase r3-base2 r3-final2 r3-final3`):
+
+| group | before (2 runs) | after (2 runs) |
+|---|---|---|
+| the 23 earlier scenarios | 14/23, 16/23 | 20/23, 16/23 |
+| the 8 new ones from the tester | 6/16 (2 runs each) | 8/8, 6/8 |
+| Hebrew homework sheet (new) | – | 1/2, 2/2 |
+
+Run-to-run noise is large (the same prompt went 25/33 and 26/33 in two runs, then 28/33 and 24/33). Passing in both after-runs, failing in both before: `tour-solve`, `check-noselect` (routing in code), `textedit-bigger` and `recall-yesterday` (routing plus a hint), `hebrew` (the hand-over example in Hebrew), `office-remind` (a prompt line: a name they say is that name). Still failing at the model: the talker still explains before handing over in about 1 of 4 replies where it decides by itself (`offer-helper`, `physics-why`, `curious-painting`, `explain-briefly` once): the app now plays only the first sentence of such a reply and drops the rest when `<visual>` follows (`TalkerRoute.afterSay`), and while the teacher already sketches, only a short hand-over is spoken (`TalkerRoute.handOver`); the eval scores the model's reply, not what's heard. `offer-rewrite` (a greeting copied into the swap) and `offer-remind` fail as before.
+
+"About me" (`about-me.py`): six real sessions (five that had added trivia to user.md, one where the user says what they study). The old writer added a line in all five; now 12/12 over two runs (nothing learned, or exactly the user's own fact).
+
 ## Offers (2026-11-15)
 `offer-rewrite`, `offer-helper`, `offer-remind`: when the talker ends with an offer ("Want me to swap it in?"), it writes the action ready in `<offer say="…">…</offer>` and does nothing yet (see Offer.swift). Haiku, 2 runs each: the rewrite and the reminder were offered with the exact `<do>` / `<remind>` ready every time (1.0–1.6 s to first words); for "why is this crashing?" it explained and sketched but didn't offer a fix (the check only requires a prepared helper when it does offer). `writer-punchier` also carried the offer (4 of 4).
 For a selected sentence in an email, Haiku often puts the greeting it sees above it ("Hi Sam,") into the new text, which a swap would then repeat: 0 of 4 runs clean with only the prompt line, 1 of 2 after the rewrite hint also says so (`answerShapeHint`). Still open.
@@ -92,6 +109,7 @@ python3 tools/eval-talker/continuity.py --rescore continuity-v1 continuity-v2 co
 The old recap can't carry it at all (question 2 is the 9th exchange back). In the recap block alone the fast talker often ignored the fact; placed right before the question it used it every time, and pinning keeps it even when the summary loses it.
 
 ## Known gaps
+- Without a thinking step the talker sometimes still explains and then writes `<visual>`; the app cuts what's heard (see Round 3), the eval still counts it.
 - "Short version" summaries sometimes still list every item.
 - The talker still writes math symbols when it explains math itself (Phonon reads them poorly); the teacher route avoids most of it.
 
