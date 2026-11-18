@@ -994,7 +994,9 @@ final class CallController: NSObject, NSMenuDelegate {
 
     private func heard(utterance text: String) {
         guard state != .idle, state != .starting else { return }
-        if askedAt == nil { askedAt = ProcessInfo.processInfo.systemUptime }
+        // (A question that cuts off the last answer starts its own wait: the old one's start, never answered out
+        // loud, made it look 1.7 s slow.)
+        if askedAt == nil || state == .speaking || state == .thinking { askedAt = ProcessInfo.processInfo.systemUptime }
         if state == .speaking {
             if mode == .handsFree, isEcho(text) { return }
             interrupt()
