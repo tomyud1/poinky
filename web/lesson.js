@@ -1040,23 +1040,46 @@
     return (v < 0 && s !== '0' ? '−' : '') + s;
   };
 
+  /** How category names fit under a graph: as big as fits in each one's slot, else tilted (depth: room below the graph). */
+  function catLayout(cats, x, w) {
+    const slot = w / cats.length, widest = sz => Math.max(0, ...cats.map(c => measure(c, sz)));
+    let size = 17;
+    if (widest(17) > slot - 8) size = Math.max(12, 17 * (slot - 8) / widest(17));
+    if (widest(size) <= slot - 4) return { size, tilt: 0, depth: 30 };
+    // Tilted 35°: each name ends under its tick and runs down to the left (the first must stay on the paper).
+    const cos = Math.cos(TILT), sin = Math.sin(TILT);
+    size = 15;
+    const w0 = measure(cats[0], size), room0 = x + slot / 2 - 4;
+    if (w0 * cos > room0) size = Math.max(10, size * room0 / (w0 * cos));
+    return { size, tilt: 1, depth: widest(size) * sin + size + 16 };
+  }
+  const TILT = 35 * Math.PI / 180;
+
   async function graph(o) {
     const g = group(o);
     const x = o.x ?? 60, w = Math.min(o.w || 320, UNITS - 20 - x), h = o.h || 220;
-    const xr = range(o.xrange || o.x_range, [-5, 5]), yr = range(o.yrange || o.y_range, [-5, 5]);
-    const y = o.y + freeShift({ x: x - 30, y: o.y - 14, w: w + 50, h: h + 44 });
-    claim({ x: x - 30, y: y - 14, w: w + 50, h: h + 44 }, o.id);
-    grow(y + h + 34);
+    // Categories (labs, countries, months…): one slot each along x, named under the axis, no numbers.
+    const catList = o.categories || o.cats;
+    const cats = Array.isArray(catList) && catList.length ? catList.map(c => String(c ?? '').trim()) : null;
+    const xr = cats ? [-.5, cats.length - .5] : range(o.xrange || o.x_range, [-5, 5]);
+    const yr = range(o.yrange || o.y_range, cats ? [0, 10] : [-5, 5]);
+    const names = cats ? catLayout(cats, x, w) : null;
+    // An x label goes at the end of the axis, or under the graph when there's no room there (or names are there).
+    const xlabUnder = !!o.xlabel && (!!cats || x + w + 14 + measure(o.xlabel, 20) > UNITS - 8);
+    const under = Math.max(34, names ? names.depth : 0) + (xlabUnder ? 30 : 0);
+    const y = o.y + freeShift({ x: x - 30, y: o.y - 14, w: w + 50, h: h + 10 + under });
+    claim({ x: x - 30, y: y - 14, w: w + 50, h: h + 10 + under }, o.id);
+    grow(y + h + under);
     const X = v => x + (v - xr[0]) / (xr[1] - xr[0]) * w, Y = v => y + h - (v - yr[0]) / (yr[1] - yr[0]) * h;
-    graphs[o.id || '_'] = { X, Y, xr, yr, x, y, w, h, g, id: o.id };
+    graphs[o.id || '_'] = { X, Y, xr, yr, x, y, w, h, g, id: o.id, cats };
     graphs._last = graphs[o.id || '_'];
     const col = MUTED;
-    // Axes cross at 0 when 0 is in range, otherwise sit on the edge.
-    const ax = Math.max(xr[0], Math.min(xr[1], 0)), ay = Math.max(yr[0], Math.min(yr[1], 0));
+    // Axes cross at 0 when 0 is in range, otherwise sit on the edge (with categories, the y axis is on the left).
+    const ax = cats ? xr[0] : Math.max(xr[0], Math.min(xr[1], 0)), ay = Math.max(yr[0], Math.min(yr[1], 0));
     if (o.grid) {
       const sx = tickStep(o.xstep, xr[1] - xr[0]), sy = tickStep(o.ystep, yr[1] - yr[0]);
       let d = '';
-      for (let v = Math.ceil(xr[0] / sx) * sx; v <= xr[1] + 1e-9; v += sx) d += `M${X(v)},${y} L${X(v)},${y + h} `;
+      if (!cats) for (let v = Math.ceil(xr[0] / sx) * sx; v <= xr[1] + 1e-9; v += sx) d += `M${X(v)},${y} L${X(v)},${y + h} `;
       for (let v = Math.ceil(yr[0] / sy) * sy; v <= yr[1] + 1e-9; v += sy) d += `M${x},${Y(v)} L${x + w},${Y(v)} `;
       el('path', { d, stroke: look.grid, 'stroke-width': 1, fill: 'none' }, g).animate([{ opacity: 0 }, { opacity: 1 }], { duration: 300, fill: 'forwards' });
     }
@@ -1067,7 +1090,7 @@
       const sx = tickStep(o.xstep, xr[1] - xr[0]), sy = tickStep(o.ystep, yr[1] - yr[0]);
       const tg = el('g', {}, g);
       let d = '';
-      for (let v = Math.ceil(xr[0] / sx) * sx; v <= xr[1] + 1e-9; v += sx) {
+      if (!cats) for (let v = Math.ceil(xr[0] / sx) * sx; v <= xr[1] + 1e-9; v += sx) {
         if (Math.abs(v - ax) < sx / 2 && ax !== xr[0]) continue;
         d += `M${X(v)},${Y(ay) - 4} L${X(v)},${Y(ay) + 4} `;
         const t = el('text', { x: X(v), y: Math.min(y + h + 26, Y(ay) + 21), 'font-size': 14, fill: col, 'text-anchor': 'middle' }, tg); t.textContent = fmtTick(v);
@@ -1080,11 +1103,54 @@
       el('path', { d, stroke: col, 'stroke-width': 1.6, fill: 'none', 'stroke-linecap': 'round' }, tg);
       tg.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 350, fill: 'forwards' });
     }
-    if (o.xlabel) await writeText(g, { x: x + w + 14, y: Y(ay) + 6, text: o.xlabel, size: 20, color: 'gray', free: false, fit: false });
-    if (o.ylabel) await writeText(g, { x: X(ax) + 10, y: y - 6, text: o.ylabel, size: 20, color: 'gray', free: false, fit: false });
+    if (cats) {
+      const ng = el('g', { class: 'cats' }, g);
+      let d = '';
+      cats.forEach((c, i) => {
+        d += `M${X(i)},${Y(ay) - 4} L${X(i)},${Y(ay) + 4} `;
+        const tx = names.tilt ? X(i) + 4 : X(i), ty = names.tilt ? y + h + 16 : y + h + 22;
+        const t = el('text', { x: tx, y: ty, 'font-size': names.size, fill: INK, 'text-anchor': names.tilt ? 'end' : 'middle',
+          transform: names.tilt ? `rotate(-35 ${tx} ${ty})` : undefined }, ng);
+        t.textContent = c;
+      });
+      el('path', { d, stroke: col, 'stroke-width': 1.6, fill: 'none', 'stroke-linecap': 'round' }, ng);
+      ng.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 350, fill: 'forwards' });
+    }
+    if (o.xlabel && xlabUnder) await writeText(g, { x: x + w / 2, y: y + h + under - 8, text: o.xlabel, size: 20, color: 'gray', align: 'center', free: false, fit: false });
+    else if (o.xlabel) await writeText(g, { x: x + w + 14, y: Y(ay) + 6, text: o.xlabel, size: 20, color: 'gray', free: false, fit: false });
+    if (o.ylabel) graphs._last.ylab = await writeText(g, { x: X(ax) + 10, y: y - 6, text: o.ylabel, size: 20, color: 'gray', free: false, fit: false });
   }
 
-  /** A curve on a graph: "fn" (a function of x) or "points" (data, joined). */
+  /** An x on graph gr: a number, or a category's name ("Meta", or its start "Anthro"). */
+  function xOf(gr, v) {
+    if (gr.cats && typeof v === 'string' && !isFinite(+v)) {
+      const k = v.trim().toLowerCase();
+      let i = gr.cats.findIndex(c => c.toLowerCase() === k);
+      if (i < 0 && k) i = gr.cats.findIndex(c => c.toLowerCase().startsWith(k) || k.startsWith(c.toLowerCase()));
+      return i < 0 ? NaN : i;
+    }
+    return num(v) ?? NaN;
+  }
+  /** An op's data as [x, y] pairs: "values" (one y per category, in order; on a plain graph x = 1, 2, 3…) or "points". */
+  function dataOf(o, gr) {
+    if (Array.isArray(o.values)) return o.values.map((v, i) => [gr.cats ? i : i + 1, num(v) ?? NaN]);
+    if (Array.isArray(o.points)) return o.points.filter(Array.isArray).map(p => [xOf(gr, p[0]), num(p[1]) ?? NaN]).filter(([xv]) => isFinite(xv));
+    return [];
+  }
+  /** Points every few units along a polyline (labels check what they'd cover against these). */
+  function densify(seg) {
+    const out = [];
+    for (let k = 0; k < seg.length; k++) {
+      out.push(seg[k]);
+      if (k + 1 < seg.length) {
+        const [ax, ay] = seg[k], [bx, by] = seg[k + 1], n = Math.min(60, Math.floor(Math.hypot(bx - ax, by - ay) / 6));
+        for (let j = 1; j < n; j++) out.push([ax + (bx - ax) * j / n, ay + (by - ay) * j / n]);
+      }
+    }
+    return out;
+  }
+
+  /** A curve on a graph: "fn" (a function of x), or data ("points" or "values"), joined. */
   async function plot(o) {
     const gr = graphs[o.graph] || graphs._last;
     if (!gr) return;
@@ -1093,7 +1159,7 @@
     let pts = [];
     const from = Math.max(gr.xr[0], o.from ?? gr.xr[0]), to = Math.min(gr.xr[1], o.to ?? gr.xr[1]);
     const xspan = gr.xr[1] - gr.xr[0];
-    if (Array.isArray(o.points)) pts = o.points.filter(p => Array.isArray(p)).map(p => [+p[0], +p[1]])
+    if (Array.isArray(o.points) || Array.isArray(o.values)) pts = dataOf(o, gr)
       .filter(([xv]) => xv >= gr.xr[0] - xspan * .02 && xv <= gr.xr[1] + xspan * .02);
     else if (o.fn) {
       let f; try { f = compileFn(o.fn); } catch (e) { return; }
@@ -1108,7 +1174,7 @@
       cur.push([gr.X(xv), gr.Y(yv)]);
     }
     if (cur.length > 1) segs.push(cur);
-    gr.pts = (gr.pts || []).concat(...segs);
+    gr.pts = (gr.pts || []).concat(...segs.map(densify));
     for (const seg of segs) {
       const p = el('path', { d: seg.map((q, k) => (k ? 'L' : 'M') + q[0].toFixed(1) + ',' + q[1].toFixed(1)).join(' '), fill: 'none', stroke: col,
         'stroke-width': o.width || 2.8, 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'stroke-dasharray': o.dashed ? '7 7' : undefined }, g);
@@ -1128,11 +1194,11 @@
   async function point(o) {
     const gr = graphs[o.graph] || graphs._last;
     if (!gr || !Array.isArray(o.at)) return;
-    const ax = +o.at[0], ay = +o.at[1], sx = (gr.xr[1] - gr.xr[0]) * .02, sy = (gr.yr[1] - gr.yr[0]) * .02;
+    const ax = xOf(gr, o.at[0]), ay = num(o.at[1]) ?? NaN, sx = (gr.xr[1] - gr.xr[0]) * .02, sy = (gr.yr[1] - gr.yr[0]) * .02;
     if (!(ax >= gr.xr[0] - sx && ax <= gr.xr[1] + sx && ay >= gr.yr[0] - sy && ay <= gr.yr[1] + sy)) return;   // off the graph
     const g = group(o);
     const [stroke] = theme(o.color) || THEME.red;
-    const px = gr.X(+o.at[0]), py = gr.Y(+o.at[1]);
+    const px = gr.X(ax), py = gr.Y(ay);
     if (o.guides) {
       const d = `M${px},${py} L${px},${gr.Y(Math.max(gr.yr[0], Math.min(gr.yr[1], 0)))} M${px},${py} L${gr.X(Math.max(gr.xr[0], Math.min(gr.xr[1], 0)))},${py}`;
       el('path', { d, stroke: stroke, 'stroke-width': 1.6, 'stroke-dasharray': '5 6', fill: 'none', opacity: .7 }, g);
@@ -1142,7 +1208,8 @@
     if (o.label) {
       // Of the four corners around the dot, the one that covers the least of the curves and other labels.
       const size = 18, lw = measure(o.label, size), lh = size;
-      const spots = [[px + 10, py - 10], [px - 10 - lw, py - 10], [px + 10, py + 10 + lh * .8], [px - 10 - lw, py + 10 + lh * .8]];
+      const spots = [[px + 10, py - 10], [px - 10 - lw, py - 10], [px + 10, py + 10 + lh * .8], [px - 10 - lw, py + 10 + lh * .8],
+        [px - lw / 2, py - 14], [px - lw / 2, py + 14 + lh * .8], [px + 12, py + lh * .3], [px - 12 - lw, py + lh * .3]];
       const cost = ([x, y]) => {
         const r = { x: x - 2, y: y - lh * .8, w: lw + 4, h: lh };
         let c = (gr.pts || []).filter(([qx, qy]) => qx > r.x && qx < r.x + r.w && qy > r.y && qy < r.y + r.h).length * 40;
@@ -1153,6 +1220,40 @@
       const [x, y] = spots.reduce((best, sp) => cost(sp) < cost(best) ? sp : best);
       await writeText(g, { x, y, text: o.label, size, color: o.color || 'red', free: false, fit: false, math: o.math });
       claim({ x, y: y - lh * .8, w: lw, h: lh }, o.id);
+    }
+  }
+
+  /** Bars on a graph, one per value: "values" (one per category) or "points"; "labels": true writes each value
+      above its bar, or a list gives the words ("5 GW"). */
+  async function bars(o) {
+    const gr = graphs[o.graph] || graphs._last;
+    if (!gr) return;
+    const data = dataOf(o, gr).map((d, i) => [...d, i]).filter(([xv, yv]) => isFinite(yv) && xv >= gr.xr[0] && xv <= gr.xr[1]);
+    if (!data.length) return;
+    const g = group(o);
+    const [stroke, fill] = theme(o.color) || THEME.blue;
+    const unit = gr.w / (gr.xr[1] - gr.xr[0]), xs = data.map(d => d[0]).sort((a, b) => a - b);
+    const gap = gr.cats ? 1 : Math.min(gr.xr[1] - gr.xr[0], ...xs.slice(1).map((v, i) => v - xs[i]).filter(v => v > 0));
+    const bw = Math.max(6, Math.min(90, gap * unit * .62));
+    const base = Math.max(gr.yr[0], Math.min(gr.yr[1], 0)), yb = gr.Y(base);
+    for (const [xv, yv, i] of data) {
+      const cx = gr.X(xv), yt = gr.Y(Math.max(gr.yr[0], Math.min(gr.yr[1], yv)));
+      const bg = el('rect', { x: cx - bw / 2, y: Math.min(yt, yb), width: bw, height: Math.max(1.5, Math.abs(yb - yt)), fill, opacity: 0 }, g);
+      const p = el('path', { d: `M${cx - bw / 2},${yb} L${cx - bw / 2 + jit(.6)},${yt} L${cx + bw / 2 + jit(.6)},${yt} L${cx + bw / 2},${yb}`,
+        fill: 'none', stroke, 'stroke-width': 2.2, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }, g);
+      gr.pts = (gr.pts || []).concat(densify([[cx - bw / 2, yb], [cx - bw / 2, yt], [cx + bw / 2, yt], [cx + bw / 2, yb]]));
+      await drawPath(p, onScreen, 1800);
+      bg.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 200, fill: 'forwards' });
+      const txt = Array.isArray(o.labels) ? o.labels[i] : o.labels === true ? String(Math.round(yv * 1000) / 1000) : null;
+      if (txt != null && txt !== '') {
+        // Above the bar (below it for a negative one); inside its top when that would leave the graph (or meet its y label).
+        const up = yv >= base, outside = up ? yt - 7 : yt + 20, inside = up ? yt + 20 : yt - 7, lw = measure(String(txt), 16);
+        const yl = gr.ylab, meetsLabel = yl && cx + lw / 2 > yl.x && cx - lw / 2 < yl.x + yl.width && outside - 16 < yl.y + yl.height && outside > yl.y;
+        const ly = (meetsLabel || (up ? outside - 16 < gr.y - 12 : outside > gr.y + gr.h + 10)) && Math.abs(yb - yt) > 30 ? inside : outside;
+        const bb = await writeText(g, { x: cx, y: ly, text: String(txt), size: 16, align: 'center', color: o.color || 'blue',
+          free: false, fit: false, maxWidth: Math.max(28, gap * unit - 4) });
+        if (bb) claim({ x: bb.x, y: bb.y, w: bb.width, h: bb.height }, o.id);   // a point's label keeps off it
+      }
     }
   }
 
@@ -1240,7 +1341,7 @@
     if (c.op !== 'plot') for (const key of ['from', 'to']) if (key in c) c[key] = pair(c[key]);
     for (const key of ['xrange', 'yrange', 'x_range', 'y_range']) if (key in c) c[key] = pair(c[key]);
     if (Array.isArray(c.at)) c.at = c.at.map(v => num(v) ?? v);   // a category's name stays a name
-    if (Array.isArray(c.points) && c.op !== 'plot') c.points = c.points.map(pair).filter(Boolean);
+    if (Array.isArray(c.points) && c.op !== 'plot' && c.op !== 'bars' && c.op !== 'bar') c.points = c.points.map(pair).filter(Boolean);
     for (const key of ['text', 'tex', 'label', 'id', 'target', 'graph', 'table']) if (c[key] != null && typeof c[key] !== 'string') c[key] = String(c[key]);
     if (typeof c.ids === 'string') c.ids = [c.ids];
     switch (c.op) {
@@ -1281,6 +1382,7 @@
       case 'row': case 'rows': return addRows(o);
       case 'plot': return plot(o);
       case 'point': return point(o);
+      case 'bars': case 'bar': return bars(o);
       case 'box': return box(o);
       case 'arrow': return arrow(o, svg, onScreen);
       case 'line': return line(o);
