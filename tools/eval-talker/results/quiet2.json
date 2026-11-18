@@ -1,0 +1,385 @@
+[
+ {
+  "id": "quiet-meeting",
+  "who": "office",
+  "said": "I'm going into a meeting now so keep it down from now on, just write to me",
+  "checks": [
+   [
+    "turns quiet mode on",
+    true
+   ],
+   [
+    "doesn't act",
+    true
+   ],
+   [
+    "short",
+    true
+   ]
+  ],
+  "generic": [
+   [
+    "has <say>",
+    true
+   ],
+   [
+    "spoken style (no markdown/URL/emoji)",
+    true
+   ],
+   [
+    "math said for the ear (no ² = ( ) symbols)",
+    true
+   ],
+   [
+    "nothing outside the tags",
+    true
+   ]
+  ],
+  "passed": true,
+  "say": "Got it, Alex. I'll keep it quiet and just write to you.",
+  "tags": [
+   "say",
+   "set"
+  ],
+  "raw": "<say>Got it, Alex. I'll keep it quiet and just write to you.</say>\n<set>{\"quiet\": true}</set>",
+  "first_token": 0.7851579189300537,
+  "first_sentence": 1.064997911453247,
+  "total": 1.0839030742645264,
+  "input_tokens": 15070,
+  "run": 0
+ },
+ {
+  "id": "quiet-meeting",
+  "who": "office",
+  "said": "I'm going into a meeting now so keep it down from now on, just write to me",
+  "checks": [
+   [
+    "turns quiet mode on",
+    true
+   ],
+   [
+    "doesn't act",
+    true
+   ],
+   [
+    "short",
+    true
+   ]
+  ],
+  "generic": [
+   [
+    "has <say>",
+    true
+   ],
+   [
+    "spoken style (no markdown/URL/emoji)",
+    true
+   ],
+   [
+    "math said for the ear (no ² = ( ) symbols)",
+    true
+   ],
+   [
+    "nothing outside the tags",
+    true
+   ]
+  ],
+  "passed": true,
+  "say": "Got it, I'll keep quiet and just write to you.",
+  "tags": [
+   "say",
+   "set"
+  ],
+  "raw": "<say>Got it, I'll keep quiet and just write to you.</say>\n<set>{\"quiet\": true}</set>",
+  "first_token": 0.6638240814208984,
+  "first_sentence": 0.9131848812103271,
+  "total": 0.9352350234985352,
+  "input_tokens": 15067,
+  "run": 1
+ },
+ {
+  "id": "quiet-roommate",
+  "who": "student",
+  "said": "my roommate is asleep, can you not use your voice tonight",
+  "checks": [
+   [
+    "turns quiet mode on",
+    true
+   ],
+   [
+    "doesn't act",
+    true
+   ]
+  ],
+  "generic": [
+   [
+    "has <say>",
+    true
+   ],
+   [
+    "spoken style (no markdown/URL/emoji)",
+    true
+   ],
+   [
+    "math said for the ear (no ² = ( ) symbols)",
+    true
+   ],
+   [
+    "nothing outside the tags",
+    true
+   ]
+  ],
+  "passed": true,
+  "say": "Sure, I'll keep it quiet. Let me know when you want me to talk out loud again.",
+  "tags": [
+   "say",
+   "set"
+  ],
+  "raw": "<say>Sure, I'll keep it quiet. Let me know when you want me to talk out loud again.</say>\n<set>{\"quiet\": true}</set>",
+  "first_token": 0.7375941276550293,
+  "first_sentence": 1.0678460597991943,
+  "total": 1.0827629566192627,
+  "input_tokens": 15359,
+  "run": 0
+ },
+ {
+  "id": "quiet-roommate",
+  "who": "student",
+  "said": "my roommate is asleep, can you not use your voice tonight",
+  "checks": [
+   [
+    "turns quiet mode on",
+    true
+   ],
+   [
+    "doesn't act",
+    true
+   ]
+  ],
+  "generic": [
+   [
+    "has <say>",
+    true
+   ],
+   [
+    "spoken style (no markdown/URL/emoji)",
+    true
+   ],
+   [
+    "math said for the ear (no ² = ( ) symbols)",
+    true
+   ],
+   [
+    "nothing outside the tags",
+    true
+   ]
+  ],
+  "passed": true,
+  "say": "Sure thing, I'll keep quiet.",
+  "tags": [
+   "say",
+   "set"
+  ],
+  "raw": "<say>Sure thing, I'll keep quiet.</say>\n<set>{\"quiet\": true}</set>",
+  "first_token": 1.2803409099578857,
+  "first_sentence": 1.5585711002349854,
+  "total": 1.5799298286437988,
+  "input_tokens": 15366,
+  "run": 1
+ },
+ {
+  "id": "quiet-howto",
+  "who": "student",
+  "said": "is there a way to use you in the library without you talking",
+  "checks": [
+   [
+    "explains quiet mode",
+    true
+   ],
+   [
+    "doesn't act",
+    true
+   ]
+  ],
+  "generic": [
+   [
+    "has <say>",
+    true
+   ],
+   [
+    "spoken style (no markdown/URL/emoji)",
+    true
+   ],
+   [
+    "<draw> is valid JSON",
+    true
+   ],
+   [
+    "math said for the ear (no ² = ( ) symbols)",
+    true
+   ],
+   [
+    "nothing outside the tags",
+    true
+   ]
+  ],
+  "passed": true,
+  "say": "Yes. Turn on quiet mode and I'll answer in writing next to the buddy, with no voice. Want me to switch it on?",
+  "tags": [
+   "draw",
+   "offer",
+   "say"
+  ],
+  "raw": "<say>Yes. Turn on quiet mode and I'll answer in writing next to the buddy, with no voice. Want me to switch it on?</say>\n<draw>{\"items\":[]}</draw>\n<offer say=\"Quiet mode is on.\"><set>{\"quiet\": true}</set></offer>",
+  "first_token": 0.7849924564361572,
+  "first_sentence": 0.9284412860870361,
+  "total": 1.2050223350524902,
+  "input_tokens": 15272,
+  "run": 0
+ },
+ {
+  "id": "quiet-howto",
+  "who": "student",
+  "said": "is there a way to use you in the library without you talking",
+  "checks": [
+   [
+    "explains quiet mode",
+    true
+   ],
+   [
+    "doesn't act",
+    true
+   ]
+  ],
+  "generic": [
+   [
+    "has <say>",
+    true
+   ],
+   [
+    "spoken style (no markdown/URL/emoji)",
+    true
+   ],
+   [
+    "<draw> is valid JSON",
+    true
+   ],
+   [
+    "math said for the ear (no ² = ( ) symbols)",
+    true
+   ],
+   [
+    "nothing outside the tags",
+    true
+   ]
+  ],
+  "passed": true,
+  "say": "Yes, you can. Hold the quiet button in the notch, or press Control Option Q, and I'll answer in writing next to the buddy instead of out loud. I'm switching quiet mode on for you now.",
+  "tags": [
+   "draw",
+   "say",
+   "set"
+  ],
+  "raw": "<say>Yes, you can. Hold the quiet button in the notch, or press Control Option Q, and I'll answer in writing next to the buddy instead of out loud. I'm switching quiet mode on for you now.</say>\n<set>{\"quiet\": true}</set>\n<draw>{\"items\":[]}</draw>",
+  "first_token": 0.8365511894226074,
+  "first_sentence": 0.9631321430206299,
+  "total": 1.3074491024017334,
+  "input_tokens": 15271,
+  "run": 1
+ },
+ {
+  "id": "quiet-back",
+  "who": "office",
+  "said": "ok I'm out of the meeting, talk to me normally again",
+  "checks": [
+   [
+    "turns quiet mode off",
+    false
+   ],
+   [
+    "doesn't act",
+    true
+   ]
+  ],
+  "generic": [
+   [
+    "has <say>",
+    true
+   ],
+   [
+    "spoken style (no markdown/URL/emoji)",
+    true
+   ],
+   [
+    "<draw> is valid JSON",
+    true
+   ],
+   [
+    "math said for the ear (no ² = ( ) symbols)",
+    true
+   ],
+   [
+    "nothing outside the tags",
+    true
+   ]
+  ],
+  "passed": false,
+  "say": "Welcome back, Alex. Dana's asking if we can move the client demo from Wednesday to Thursday at 2pm. Want me to draft a reply saying yes?",
+  "tags": [
+   "draw",
+   "offer",
+   "say"
+  ],
+  "raw": "<say>Welcome back, Alex. Dana's asking if we can move the client demo from Wednesday to Thursday at 2pm. Want me to draft a reply saying yes?</say>\n<draw>{\"items\":[]}</draw>\n<offer say=\"Okay, drafting that now.\"><do>Reply to Dana Levin's email \"Demo next week?\" in the open Mail window, saying yes, Thursday at 2pm works for the client demo, and signing it Alex.</do></offer>",
+  "first_token": 0.6284050941467285,
+  "first_sentence": 0.773021936416626,
+  "total": 1.258852243423462,
+  "input_tokens": 15093,
+  "run": 0
+ },
+ {
+  "id": "quiet-back",
+  "who": "office",
+  "said": "ok I'm out of the meeting, talk to me normally again",
+  "checks": [
+   [
+    "turns quiet mode off",
+    true
+   ],
+   [
+    "doesn't act",
+    true
+   ]
+  ],
+  "generic": [
+   [
+    "has <say>",
+    true
+   ],
+   [
+    "spoken style (no markdown/URL/emoji)",
+    true
+   ],
+   [
+    "math said for the ear (no ² = ( ) symbols)",
+    true
+   ],
+   [
+    "nothing outside the tags",
+    true
+   ]
+  ],
+  "passed": true,
+  "say": "Welcome back, Alex. Glad that's over. Dana's asking to move the client demo from Wednesday to Thursday at 2pm, and she wants to know if that works.",
+  "tags": [
+   "say",
+   "set"
+  ],
+  "raw": "<say>Welcome back, Alex. Glad that's over. Dana's asking to move the client demo from Wednesday to Thursday at 2pm, and she wants to know if that works.</say>\n<set>{\"quiet\": false}</set>",
+  "first_token": 0.7049901485443115,
+  "first_sentence": 0.8397810459136963,
+  "total": 1.0899262428283691,
+  "input_tokens": 15098,
+  "run": 1
+ }
+]

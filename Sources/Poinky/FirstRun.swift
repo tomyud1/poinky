@@ -253,6 +253,16 @@ final class FirstRun: NSObject, AVSpeechSynthesizerDelegate {
                 t += seconds * Double(p.count) / total
             }
         }
+        // Quiet mode: written, not said. The captions come at reading pace and stay a moment to be read.
+        if cfg.quiet {
+            let secs = FirstRunWords.sentences(line).reduce(0) { $0 + QuietPace.seconds($1, drawing: false) }
+            captions(over: secs)
+            DispatchQueue.main.asyncAfter(deadline: .now() + secs + 2.5) { [weak self] in
+                guard let self, self.gen == g else { return }
+                self.spoken()
+            }
+            return
+        }
         let natural = cfg.voiceEngine == "phonon" && cfg.language.lowercased().hasPrefix("en") && PhononVoice.isInstalled
         if natural, (try? phonon.start()) != nil {
             phonon.synthesize(line, voice: cfg.phononVoice, speed: cfg.voiceSpeed) { [weak self] pcm in

@@ -24,6 +24,8 @@ def pids():
 def run(name, asks, quit_after, env=None, args=()):
     env = dict(env or {})
     api = env.pop("_API", None)   # the API brain, against tools/fake-api.py on this port
+    extra_config = json.loads(env.pop("_CONFIG", "{}"))   # more settings in config.json
+    audio = env.pop("_AUDIO", None)   # really played (otherwise at volume 0: the WAV still records what was scheduled)
     server = None
     if api:
         server = subprocess.Popen([sys.executable, os.path.join(ROOT, "tools/fake-api.py"), api],
@@ -33,15 +35,17 @@ def run(name, asks, quit_after, env=None, args=()):
     os.makedirs(f"{d}/support"); os.makedirs(f"{d}/tl")
     with open(f"{d}/support/config.json", "w") as f:
         json.dump({"homeShown": True, "checkForUpdates": False, "sounds": False,
-                   **({"brain": "api", "apiKey": "test"} if api else {})}, f)
+                   **({"brain": "api", "apiKey": "test"} if api else {}), **extra_config}, f)
     seed = env.pop("_SEED", None)   # files to put in the support folder first: {relative path: text}
     for rel, text in (seed() if callable(seed) else seed or {}).items():
         os.makedirs(os.path.dirname(f"{d}/support/{rel}"), exist_ok=True)
         with open(f"{d}/support/{rel}", "w") as f: f.write(text)
     extra = env.pop("_ARGS", [])
     e = {"POINKY_SUPPORT_DIR": f"{d}/support", "POINKY_TIMELINE_DIR": f"{d}/tl", "POINKY_MUTE": "1",
-         "POINKY_SPEECH_LOG": f"{d}/speech.txt", "POINKY_CLAUDE_CMD": FAKE, "FAKE_CLAUDE_LOG": f"{d}/fake.txt"}
+         "POINKY_SPEECH_LOG": f"{d}/speech.txt", "POINKY_CLAUDE_CMD": FAKE, "FAKE_CLAUDE_LOG": f"{d}/fake.txt",
+         "POINKY_SPEECH_WAV": f"{d}/played.f32", "POINKY_OVERLAY_LOG": f"{d}/overlay.txt", "POINKY_TYPEBOX_LOG": f"{d}/box.txt"}
     e.update(env)
+    if audio: e.pop("POINKY_MUTE", None)
     if api: e["POINKY_API_URL"] = f"http://127.0.0.1:{api}/v1/messages"
     cmd = ["open", "-n", "-g"]
     for k, v in e.items(): cmd += ["--env", f"{k}={v}"]
@@ -70,9 +74,20 @@ def run(name, asks, quit_after, env=None, args=()):
     for fn in sorted(os.listdir(f"{d}/tl")):
         for line in open(f"{d}/tl/{fn}"):
             events.append(json.loads(line))
-    speech = []
+    speech, spoken = [], []
     if os.path.exists(f"{d}/speech.txt"):
-        speech = [l.split("\t")[0] for l in open(f"{d}/speech.txt").read().splitlines() if l.strip()]
+        rows = [l.split("\t") for l in open(f"{d}/speech.txt").read().splitlines() if l.strip()]
+        speech = [r[0] for r in rows]
+        spoken = [r[1] if len(r) > 1 else "" for r in rows]
+    # What was played (float32): its length and its loudest sample (0.0 = digital silence).
+    wav = {"secs": 0.0, "peak": 0.0}
+    if os.path.exists(f"{d}/played.f32"):
+        import array
+        a = array.array("f"); a.frombytes(open(f"{d}/played.f32", "rb").read())
+        rate = int(open(f"{d}/played.f32.rate").read() or 48000)
+        wav = {"secs": len(a) / rate, "peak": max((abs(x) for x in a), default=0.0)}
+    def lines(fn): return open(f"{d}/{fn}").read().splitlines() if os.path.exists(f"{d}/{fn}") else []
+    cfg = json.load(open(f"{d}/support/config.json"))
     # What each fake session was sent: (pid, role, text), in order.
     sent = []
     if os.path.exists(f"{d}/fake.txt"):
@@ -80,7 +95,8 @@ def run(name, asks, quit_after, env=None, args=()):
             parts = l.rstrip("\n").split(" ", 5)
             if len(parts) == 6 and parts[1] == "pid" and parts[4] == "question:":
                 sent.append((int(parts[2]), parts[3], json.loads(parts[5])))
-    return {"events": events, "speech": speech, "hung": hung, "dir": d, "sent": sent,
+    return {"events": events, "speech": speech, "spoken": spoken, "wav": wav, "overlay": lines("overlay.txt"),
+            "box": lines("box.txt"), "config": cfg, "hung": hung, "dir": d, "sent": sent,
             "fake": open(f"{d}/fake.txt").read() if os.path.exists(f"{d}/fake.txt") else ""}
 
 
@@ -195,6 +211,87 @@ QUIET = {**DOER, "POINKY_STUCK_SECS": "5",
          "FAKE_GUIDE_REPLIES": json.dumps(['<act>{"do":"wait","s":0.2}</act>'] * 6 + ['<done>All done.</done>'])}
 HANDOVER = {"FAKE_CLAUDE_REPLY": "<say>Sure, let me show you.</say>"}
 
+# Quiet mode and typed answers (Quiet.swift): nothing is played (the WAV of what was played is digital silence, but
+# as long as reading takes), while captions, lesson steps and <end/> work as with the voice.
+TWO = {"FAKE_CLAUDE_REPLY": "<say>The first sentence of the answer is here. The second one follows it.</say>"}
+LESSON = {**HANDOVER, "FAKE_ARTIST_REPLY": '<lesson title="Heart"><say>The heart has four rooms.</say><step>[{"op":"text","x":40,"y":40,"text":"four"}]</step>'
+          '<say>Blood goes in a loop.</say><step>[{"op":"text","x":40,"y":90,"text":"loop"}]</step></lesson>'}
+
+def silent(r, f, min_secs):
+    if r["wav"]["peak"] != 0.0: f.append(f"something was played (peak {r['wav']['peak']:.3f})")
+    if r["wav"]["secs"] < min_secs: f.append(f"the silence was only {r['wav']['secs']:.1f} s (timing lost)")
+    if any(s != "(quiet)" for s in r["spoken"]): f.append(f"a voice was given text: {r['spoken']}")
+
+def c_quiet(r):
+    f = []
+    want = ["The first sentence of the answer is here.", "The second one follows it."]
+    if r["speech"] != want: f.append(f"captions {r['speech']}")
+    silent(r, f, 2.0)
+    caps = [l for l in r["overlay"] if "SB.caption('claude'" in l and "second one" in l]
+    if not caps or "The first sentence" not in caps[-1]: f.append("the bubble didn't get the whole answer")
+    if not any("SB.captionMode(" in l and '"read"' in l for l in r["overlay"]): f.append("the bubble wasn't in reading mode")
+    if not any("SB.captionDone(" in l and ", true)" in l for l in r["overlay"]): f.append("the answer wasn't kept to read (captionDone)")
+    return f
+
+def c_quiet_end(r):
+    f = []
+    silent(r, f, 1.0)
+    ends = evs(r, "session.end")
+    if not ends: f.append("<end/> didn't end the session")
+    return f
+
+def c_quiet_lesson(r):
+    f = []
+    want = ["Sure, let me show you.", "The heart has four rooms.", "Blood goes in a loop."]
+    if r["speech"] != want: f.append(f"captions {r['speech']}")
+    silent(r, f, 3.0)
+    ov = r["overlay"]
+    def first(pred):
+        return next((i for i, l in enumerate(ov) if pred(l)), None)
+    cap1 = first(lambda l: "SB.caption('claude'" in l and "four rooms" in l)
+    step1 = first(lambda l: "SB.lessonStep(" in l)
+    cap2 = first(lambda l: "SB.caption('claude'" in l and "in a loop" in l)
+    steps = [i for i, l in enumerate(ov) if "SB.lessonStep(" in l]
+    if cap1 is None or step1 is None or step1 < cap1: f.append(f"the first step didn't wait for its sentence (caption {cap1}, step {step1})")
+    if cap2 is None or len(steps) < 2 or steps[1] < cap2: f.append("the second step didn't wait for its sentence")
+    t = lambda i: float(ov[i].split()[0])
+    if cap1 is not None and cap2 is not None and t(cap2) - t(cap1) < 1.4: f.append(f"the lesson lines came {t(cap2) - t(cap1):.2f} s apart (the pen needs time)")
+    return f
+
+def c_voice(r):
+    # The same answer with quiet mode off: something is played (so the silence checks above can fail).
+    f = []
+    if r["wav"]["peak"] < 0.01: f.append(f"nothing was played (peak {r['wav']['peak']})")
+    if any(s == "(quiet)" for s in r["spoken"]): f.append("it went quiet")
+    return f
+
+def c_typed(r):
+    f = []
+    silent(r, f, 1.0)
+    box = "\n".join(r["box"])
+    if 'asked "make this shorter"' not in box: f.append(f"the box didn't show the question: {r['box'][:3]}")
+    if "We ship Friday, tested and ready." not in box: f.append("the box didn't get the answer")
+    if 'done copy="We ship Friday, tested and ready."' not in box: f.append(f"Copy wouldn't copy the rewrite: {[l for l in r['box'] if l.startswith('done')]}")
+    if any("SB.caption('claude'" in l and "We ship Friday" in l for l in r["overlay"]): f.append("the answer also went to the bubble")
+    if "closed" in r["box"][:-1]: f.append("the box closed while answering")
+    return f
+
+def c_quiet_words(r):
+    # "be quiet" (no model) → quiet, the next answer is silent, "you can talk again" → spoken again.
+    f = []
+    if not evs(r, "quiet", on=True, by="words"): f.append("“be quiet” didn't turn it on")
+    if not evs(r, "quiet", on=False, by="words"): f.append("“you can talk again” didn't turn it off")
+    if r["config"].get("quiet") is not False: f.append(f"config quiet = {r['config'].get('quiet')}")
+    sp = dict(zip(r["speech"], r["spoken"]))
+    if sp.get("Quiet mode is on. I'll write my answers instead of saying them.") != "(quiet)": f.append(f"the confirmation was said: {sp}")
+    if sp.get("Fake answer.") != "(quiet)": f.append("the answer in quiet mode was said")
+    if sp.get("Okay, I'll talk out loud again.", "(quiet)") == "(quiet)": f.append("talking again wasn't said out loud")
+    fake = open(r["dir"] + "/fake.txt").read() if os.path.exists(r["dir"] + "/fake.txt") else ""
+    if any(" talker question" in l and "be quiet" in l for l in fake.splitlines()): f.append("“be quiet” went to the talker")
+    return f
+
+REWRITE = {"FAKE_CLAUDE_REPLY": "<say>Here's a shorter version: We ship Friday, tested and ready. Want me to swap it in?</say>"
+           "<offer say=\"Swapping it in.\"><do>Replace the selected text with exactly: We ship Friday, tested and ready.</do></offer>"}
 def asked(r, role):
     """The text each session of `role` was sent, in order (talker, artist, summarizer, notes…)."""
     return [t for _, ro, t in r["sent"] if ro == role]
@@ -305,6 +402,12 @@ SCENARIOS = {
     "api-interrupt": (["tell me a long story", "stop, say something short"], 16,
                       {"_API": "18765", "FAKE_API_WORD_SECS": "0.12", "POINKY_ASK_GAP": "2",
                        "FAKE_API_REPLIES": json.dumps([LONG, "<say>Short.</say>"])}, c_api_interrupt),
+    "quiet": (["what is this"], 12, {**TWO, "_CONFIG": '{"quiet": true}', "_AUDIO": "1"}, c_quiet),
+    "quiet-end": (["bye"], 12, {"FAKE_CLAUDE_REPLY": "<say>Bye for now, see you later.</say><end/>", "_CONFIG": '{"quiet": true}'}, c_quiet_end),
+    "quiet-lesson": (["explain how the heart works"], 16, {**LESSON, "_CONFIG": '{"quiet": true}'}, c_quiet_lesson),
+    "voice": (["what is this"], 12, TWO, c_voice),
+    "typed": ([], 12, {**REWRITE, "_ARGS": ["--type", "make this shorter"]}, c_typed),
+    "quiet-words": (["be quiet", "what is this", "you can talk again"], 18, {"POINKY_ASK_GAP": "4"}, c_quiet_words),
     "teacher-record": (["explain number one", "wait why is it wrong"], 26,
                        {"FAKE_CLAUDE_REPLIES": json.dumps(["<say>Sure, let me show you.</say>", "<say>Because the signs flip.</say>"]),
                         "FAKE_ARTIST_REPLY": LESSON1, "POINKY_ASK_WAIT": "1", "_ARGS": ["--end-after", "17"]}, c_teacher_record),

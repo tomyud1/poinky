@@ -1,0 +1,159 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>running</title>
+<!-- Reading answers in the caption bubble (buddy.js: SB.captionMode('read'), SB.captionDone, SB.bubbleAway): quiet mode and
+     typed answers show the whole answer, parked where it opened, with Copy; a spoken answer with something to paste keeps
+     that part with Copy for a while. Run by tools/tests/run-web-tests.mjs (`node tools/tests/run-web-tests.mjs quiet-bubble`).
+     Pictures: open with ?shot=reading|long|copy|hebrew|hover|snip and &bg=dark (tools/quiet-test/shots.sh). -->
+<body style="margin:0;width:1000px;height:700px;font:15px/1.5 -apple-system,system-ui,sans-serif">
+<div id="page" style="position:absolute;inset:0;padding:40px 60px;color:#222;background:#f6f5f2">
+  <h2 style="margin:0 0 10px">Lab report: results</h2>
+  <p style="max-width:620px">The enzyme activity rose with temperature up to 37 °C and then fell sharply. Each trial was repeated three
+  times, and the averages are shown in the table below. This paragraph is the one the student asked about.</p>
+</div>
+<div id="hud"></div>
+<script>
+  const posted = [];
+  window.webkit = { messageHandlers: { sb: { postMessage: m => posted.push(m) } } };
+  window.SB = { caption() {}, fadeCaptions() {}, apply() {} };
+</script>
+<script src="../../web/buddy.js"></script>
+<script>
+(async function () {
+  const q = new URLSearchParams(location.search);
+  if (q.get('bg') === 'dark') {
+    const p = document.getElementById('page'); p.style.background = '#1e1f22'; p.style.color = '#ddd';
+  }
+  const wait = ms => new Promise(r => setTimeout(r, ms));
+  const b = () => document.getElementById('bubble');
+  const st = () => SB.bubbleState();
+  async function session(x = 420, y = 160) {
+    SB.phase('off'); await wait(30);
+    SB.buddyOn(true); SB.caption('you', null); SB.caption('claude', null);
+    SB.phase('ready'); SB.tick(x, y, 0); await wait(400);
+  }
+  async function answer(sentences, gap = 40) {
+    SB.phase('thinking'); SB.caption('you', 'make this shorter'); SB.caption('claude', null);
+    SB.captionMode('read');
+    SB.phase('speaking');
+    let so = '';
+    for (const s of sentences) { so = so ? so + ' ' + s : s; SB.caption('claude', so); await wait(gap); }
+    return so;
+  }
+  const LONG = Array.from({ length: 26 }, (_, i) => `Sentence ${i + 1} explains one more step of the answer in plain words.`);
+
+  const shot = q.get('shot');
+  if (shot) {
+    await session(430, 150);
+    if (shot === 'reading') await answer(['The enzyme works fastest at 37 °C.', 'Above that, its shape breaks down, so the activity falls.']);
+    if (shot === 'long' || shot === 'copy' || shot === 'hover') {
+      const t = await answer(shot === 'long' ? LONG : ['Here is a shorter version: Activity peaked at 37 °C and fell sharply above it.', 'Want me to swap it in?']);
+      SB.phase('ready'); SB.captionDone(shot === 'long' ? t : 'Activity peaked at 37 °C and fell sharply above it.', true);
+      if (shot === 'hover') { await wait(60); const r = document.querySelector('#bubble .copy').getBoundingClientRect(); SB.tick(r.left + 8, r.top + 8, 0); }
+    }
+    if (shot === 'hebrew') {
+      const t = await answer(['האנזים עובד הכי מהר ב־37 מעלות.', 'מעל זה הצורה שלו נהרסת, ולכן הפעילות יורדת.']);
+      SB.phase('ready'); SB.captionDone(t, true);
+    }
+    if (shot === 'snip') {
+      SB.captionMode('speech'); SB.phase('speaking');
+      SB.caption('claude', 'Here is a shorter version: Activity peaked at 37 °C and fell sharply above it. Want me to swap it in?');
+      SB.phase('ready'); SB.captionDone('Activity peaked at 37 °C and fell sharply above it.', false);
+    }
+    await wait(500);
+    document.title = 'SHOT';
+    window.testResults = { pass: true, lines: ['shot ' + shot] };
+    return;
+  }
+
+  const results = [], fail = [];
+  const check = (ok, what) => { results.push((ok ? 'ok   ' : 'FAIL ') + what); if (!ok) fail.push(what); };
+
+  // 1. Quiet mode: the whole answer, not just the sentence being said, and it stays put while the buddy follows you.
+  await session();
+  const two = await answer(['The enzyme works fastest at 37 °C.', 'Above that, its shape breaks down, so the activity falls.']);
+  await wait(300);
+  check(st().on && st().text === two, `the bubble shows the whole answer (“${st().text.slice(0, 40)}…”)`);
+  check(st().parked && st().cls.includes('read'), 'it is parked, in the reading style');
+  const at = b().getBoundingClientRect();
+  SB.tick(120, 560, 0); await wait(500);
+  const at2 = b().getBoundingClientRect();
+  check(Math.abs(at.left - at2.left) < 1 && Math.abs(at.top - at2.top) < 1, 'moving the mouse away does not drag the answer along');
+  const rect = posted.filter(m => m.kind === 'bubble').pop();
+  check(rect && rect.rect && Math.abs(rect.rect[0] - at2.left) < 2, 'its rect goes to the app (so it takes clicks there)');
+
+  // 2. Done: Copy and ✕; the call going back to listening (hands-free) does not take it away.
+  SB.phase('listening'); SB.captionDone(two, true); await wait(100);
+  check(!!document.querySelector('#bubble .foot .copy') && !!document.querySelector('#bubble .foot .x'), 'when done it has Copy and ✕');
+  check(st().on, 'a hands-free call listening again keeps it');
+  SB.fadeCaptions(); await wait(500);
+  check(st().on, 'the usual caption fade leaves an answer kept to read');
+  document.querySelector('#bubble .copy').click();
+  const cp = posted.filter(m => m.kind === 'copy').pop();
+  check(cp && cp.text === two, 'Copy sends the whole answer to the app');
+  check(document.querySelector('#bubble .copy').textContent.includes('Copied'), 'the button says Copied');
+
+  // 3. Hover and press, from the cursor the app sends (the overlay is never key, so :hover can't be trusted there).
+  await wait(1500);
+  { const r = document.querySelector('#bubble .copy').getBoundingClientRect(); SB.tick(r.left + 6, r.top + 6, 0); }
+  await wait(80);
+  check(document.querySelector('#bubble .copy').classList.contains('hot'), 'Copy lights up under the cursor');
+  { const c = document.querySelector('#bubble .copy'); c.dispatchEvent(new MouseEvent('mousedown')); check(c.classList.contains('down'), 'and looks pressed while held');
+    c.dispatchEvent(new MouseEvent('mouseup')); }
+  SB.tick(900, 650, 0); await wait(80);
+  check(!document.querySelector('#bubble .copy').classList.contains('hot'), 'and goes back when the cursor leaves');
+  const bg = (sel, hot) => { const e = document.querySelector(sel); e.style.transition = 'none'; e.classList.toggle('hot', hot); const c = getComputedStyle(e).backgroundColor; e.classList.remove('hot'); e.style.transition = ''; return c; };
+  check(bg('#bubble .copy', true) !== bg('#bubble .copy', false), 'the hover color differs from the resting one');
+
+  // 4. A click somewhere else puts it away; the app hears the rect is gone.
+  SB.bubbleAway(); await wait(350);
+  check(!st().on, 'a click elsewhere puts it away');
+  check(posted.filter(m => m.kind === 'bubble').pop().rect === null, 'and the app stops taking clicks there');
+
+  // 5. A long answer scrolls inside the bubble, with the newest words in view.
+  await session(300, 120);
+  const long = await answer(LONG, 10);
+  await wait(200);
+  const s = st().scroll;
+  check(s && s.height > s.view + 20 && st().h <= 470, `a long answer scrolls inside a bubble of at most ~46% of the screen (h ${st().h})`);
+  check(s && s.top + s.view >= s.height - 6, 'the newest words are in view as they come');
+  check(st().y + st().h <= 700 - 7 && st().x + st().w <= 1000 - 7, 'it stays on screen');
+  SB.phase('ready'); SB.captionDone(long, true); await wait(50);
+
+  // 6. The next question replaces it (and the app stops taking clicks there).
+  SB.phase('listening'); SB.caption('you', 'and the other one'); await wait(300);
+  check(st().kind === 'you' && st().text === 'and the other one' && !st().parked, 'your next words replace it');
+  check(posted.filter(m => m.kind === 'bubble').pop().rect === null, 'its rect is cleared');
+
+  // 7. Hebrew reads right to left.
+  await session();
+  await answer(['האנזים עובד הכי מהר ב־37 מעלות.']);
+  await wait(100);
+  check(getComputedStyle(document.querySelector('#bubble .txt')).direction === 'rtl', 'a Hebrew answer is right to left');
+
+  // 8. Said out loud, with something to paste: just that part, with Copy, for a while; the next answer replaces it.
+  await session();
+  SB.captionMode('speech'); SB.phase('speaking');
+  SB.caption('claude', 'Here is a shorter version: Activity peaked at 37 °C. Want me to swap it in?');
+  check(st().text === 'Want me to swap it in?' || st().text.endsWith('swap it in?'), 'while speaking it shows the sentence being said');
+  SB.phase('ready'); SB.captionDone('Activity peaked at 37 °C.', false); await wait(1200);
+  check(st().on && st().text === 'Activity peaked at 37 °C.' && st().cls.includes('snip'), 'after speaking, the part to paste stays, with Copy');
+  document.querySelector('#bubble .copy').click();
+  check(posted.filter(m => m.kind === 'copy').pop().text === 'Activity peaked at 37 °C.', 'Copy copies just that part');
+  SB.phase('speaking'); SB.caption('claude', 'Something new.'); await wait(100);
+  check(st().text === 'Something new.' && !st().parked, 'the next spoken answer replaces it, next to the buddy again');
+
+  // 9. Speech mode is as before: the latest sentence only.
+  SB.caption('claude', 'One. That is the save button. Click it once and wait.');
+  check(st().text === 'Click it once and wait.', 'spoken captions still show the sentence being said');
+
+  // 10. Buddy off: nothing in the bubble (the bottom captions carry it).
+  await session(); SB.buddyOn(false); await answer(['Hidden buddy.']); await wait(50);
+  check(!st().on, 'with the buddy off the bubble stays hidden');
+
+  document.body.textContent = results.join('\n');
+  document.title = fail.length ? 'FAIL' : 'PASS';
+  window.testResults = { pass: !fail.length, lines: results };
+})();
+</script>
+</body>

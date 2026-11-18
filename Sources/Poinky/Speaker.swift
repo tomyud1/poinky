@@ -207,11 +207,27 @@ final class Speaker {
     private static let prebuffer = 0.1
     private var voiceLogged = false   // this turn's first sentence went to the voice (Timeline)
 
+    /// Quiet mode, or a typed question: nothing is played. Each sentence becomes digital silence as long as it
+    /// takes to read (`QuietPace`), so captions, lesson steps, 3D holds and the end of the turn work the same way.
+    var isQuiet: () -> Bool = { false }
+
+    /// Quiet mode was just turned on or off: what's playing now goes silent (or stays as it is) at once.
+    func quietChanged() {
+        audio?.player.volume = isQuiet() ? 0 : 1
+    }
+
     private func pump() {
         guard !deviceLost else { return }
+        if isQuiet() { segments.removeAll() }   // the rest of a mixed-language sentence: nothing left to say
         guard turnActive, !synthesizing, !(queue.isEmpty && segments.isEmpty) else { checkDone(); return }
         synthesizing = true
         let gen = generation
+        if isQuiet(), !queue.isEmpty {
+            let (text, tag) = queue.removeFirst()
+            making = (text, tag)
+            speakSilently(text, tag: tag, gen: gen)
+            return
+        }
         if !segments.isEmpty {          // the rest of a sentence that mixes languages: no caption of its own
             let seg = segments.removeFirst()
             speakPart(seg.text, voice: seg.voice, caption: nil, gen: gen)
@@ -234,6 +250,25 @@ final class Speaker {
         }
         segments = Array(parts.dropFirst())
         speakPart(parts.first?.text ?? text, voice: parts.first?.voice, caption: (text, tag), gen: gen)
+    }
+
+    /// Nothing is made: a silent buffer as long as reading it takes stands in for the voice, through the same
+    /// gate and scheduling, so the caption shows and the next sentence follows exactly as if it were heard.
+    private func speakSilently(_ text: String, tag: Int?, gen: Int) {
+        Self.logSpeech(text, "(quiet)")
+        let secs = QuietPace.seconds(text, drawing: tag != nil) + pauseAfterSentence()
+        gate { [weak self] in
+            guard let self, gen == self.generation else { return }
+            if let audio = self.audio, audio.running,
+               let buf = AVAudioPCMBuffer(pcmFormat: audio.playbackFormat, frameCapacity: AVAudioFrameCount(secs * audio.playbackFormat.sampleRate)),
+               let d = buf.floatChannelData?[0] {
+                buf.frameLength = buf.frameCapacity
+                d.initialize(repeating: 0, count: Int(buf.frameLength))
+                self.schedule(buf, gen: gen, wholeSentence: true, endsCaption: true, text: text, tag: tag)
+            }
+            self.synthesizing = false
+            self.pump()
+        }
     }
 
     /// The rest of a sentence that mixes languages, each part with its voice (nil: the usual one).
@@ -513,7 +548,7 @@ final class Speaker {
     }
 
     private func warmVoice(_ lang: String) {
-        if warming.contains(lang) { return }
+        if warming.contains(lang) || isQuiet() { return }
         if let at = warmed[lang], Date().timeIntervalSince(at) < 300 { return }
         guard let v = otherVoice(lang) else { return }
         warming.insert(lang)
@@ -546,6 +581,7 @@ final class Speaker {
                 waitingCaptions.append((text, tag))
             }
         }
+        audio.player.volume = isQuiet() ? 0 : 1
         if Self.speechWav != nil { record(out) }
         audioEndsAt = max(Date(), audioEndsAt).addingTimeInterval(Double(out.frameLength) / out.format.sampleRate)
         let endsSentence = endsCaption ?? wholeSentence
