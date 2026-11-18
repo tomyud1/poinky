@@ -79,6 +79,9 @@ final class PushToTalk {
         timer = nil
     }
 
+    /// Tests: scripted keys are seen at once (a quick tap can't fall between two polls of a busy main thread).
+    func pollNow() { poll() }
+
     private func poll() {
         // Poinky's hands just pressed a shortcut (⌃⌥… included): what the keys read now is its own press, not you.
         if fakeFlags == nil, Computer.ownModifiersNow { return }

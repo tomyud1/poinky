@@ -722,7 +722,7 @@ final class CallController: NSObject, NSMenuDelegate {
     private var holdStart: TimeInterval = 0
 
     // Tests (`--listen-test`, ListenTest.swift): the talk keys and the words, scripted.
-    func testKeys(down: Bool) { ptt.fakeFlags = down ? ptt.combo : [] }
+    func testKeys(down: Bool) { ptt.fakeFlags = down ? ptt.combo : []; ptt.pollNow() }
     func testWords(_ text: String, final: Bool, live: Bool) { listener.fakeResult(text, isFinal: final, live: live) }
     var testState: String { "\(state)" }
     var testHold: String { "\(ptt.isDown ? "down" : "up")\(ptt.committed ? " committed" : "")" }
