@@ -195,6 +195,18 @@
     const top = W.document.elementFromPoint(sv.left + sv.width / 2, sv.top + sv.height / 2);
     check(top && top.closest('#later-card'), `the later card is on top of the older paper's buttons (${top && (top.className || top.tagName)})`);
     later.remove();
+
+    // Two arrows stacked 40 apart (a real reply): the lower one's label doesn't sit on the upper arrow.
+    SB.lessonBegin(frame, 'stacked arrows');
+    SB.lessonStep({ ops: [
+      { op: 'arrow', id: 'up', from: [190, 510], to: [340, 510], color: 'red', label: '10 N' },
+      { op: 'arrow', id: 'dn', from: [190, 540], to: [300, 540], color: 'green', label: '4 N' },
+    ] }, 1);
+    await done();
+    const upPath = item('up').querySelector('path'), dl = item('dn').querySelector('text').getBBox(), UL = upPath.getTotalLength();
+    let onUp = 0;
+    for (let k = 0; k <= 40; k++) { const q = upPath.getPointAtLength(UL * k / 40); if (q.x > dl.x && q.x < dl.x + dl.width && q.y > dl.y + 2 && q.y < dl.y + dl.height - 2) onUp++; }
+    check(onUp === 0, `an arrow's label keeps off a neighbouring arrow (${onUp} points of it under the label)`);
   } catch (e) { check(false, 'threw: ' + e.message + ' ' + (e.stack || '').split('\n')[1]); }
   window.testResults = { pass: !fail.length, lines: results };
 })();

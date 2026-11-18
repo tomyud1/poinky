@@ -105,6 +105,8 @@
   const items = {};
   // Areas already used on the paper, so new shapes and text don't land on top of old ones.
   let used = [];
+  // Points along the arrows and lines on the paper: an arrow's label keeps off all of them, not just its own.
+  let strokes = [];
   const overlap = (a, b) => Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x)) * Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y));
   /** How far down to move rectangle r so it doesn't collide with what's drawn. */
   function freeShift(r) {
@@ -362,7 +364,7 @@
     for (const k in items) delete items[k];
     for (const k in graphs) delete graphs[k];
     for (const k in tables) delete tables[k];
-    used = [];
+    used = []; strokes = [];
     notebook.push({ c, page: null });
     saveAllButton();
     paperSound();
@@ -862,7 +864,10 @@
     const cx = (x1 + x2) / 2 - (y2 - y1) / len * bend, cy = (y1 + y2) / 2 + (x2 - x1) / len * bend;
     const col = theme(o.color) ? theme(o.color)[0] : legible(o.color || colorDefault);
     const wdt = o.width || 2.2;
-    if (parent === svg || !parent) grow(Math.max(y1, y2, cy) + 10);
+    if (parent === svg || !parent) {
+      grow(Math.max(y1, y2, cy) + 10);
+      for (let i = 0; i <= 24; i++) { const t = i / 24, u = 1 - t; strokes.push([u * u * x1 + 2 * u * t * cx + t * t * x2, u * u * y1 + 2 * u * t * cy + t * t * y2, o.id]); }
+    }
     const shaft = el('path', { d: `M${x1},${y1} Q${cx},${cy} ${x2},${y2}`, fill: 'none', stroke: col, 'stroke-width': wdt, 'stroke-linecap': 'round' }, g);
     await drawPath(shaft, toScreen);
     const a = Math.atan2(y2 - cy, x2 - cx), s = 13;
@@ -895,7 +900,7 @@
       return { x: cx - w / 2, y: cy - h / 2, w, h, side, far };
     };
     const cost = r => used.reduce((t, b) => t + overlap(r, b), 0)
-      + along.filter(([px, py]) => px > r.x - 3 && px < r.x + r.w + 3 && py > r.y - 3 && py < r.y + r.h + 3).length * 1e4
+      + along.concat(strokes).filter(([px, py]) => px > r.x - 3 && px < r.x + r.w + 3 && py > r.y - 3 && py < r.y + r.h + 3).length * 1e4
       + (r.x < 4 || r.x + r.w > UNITS - 4 || r.y < 4 ? 1e6 : 0) + (r.far - 1) * 60 + (r.side < 0 ? 40 : 0);
     const r = [1, -1].flatMap(side => [1, 1.6, 2.3].map(far => spot(side, far))).reduce((best, q) => cost(q) < cost(best) ? q : best);
     claim(r, id);
@@ -907,6 +912,7 @@
     const pts = o.points || [];
     if (pts.length < 2) return;
     grow(Math.max(...pts.map(p => p[1])) + 10);
+    for (const q of densify(pts)) strokes.push([q[0], q[1], o.id]);
     const col = theme(o.color) ? theme(o.color)[0] : legible(o.color);
     const p = el('path', {
       d: pts.map((q, i) => (i ? 'L' : 'M') + q[0] + ',' + q[1]).join(' '), fill: 'none', stroke: col,
@@ -1377,8 +1383,9 @@
     if (o.all) {
       // Also what was drawn without an id.
       [...svg.children].forEach(ch => { if (ch.tagName !== 'defs') { ch.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 250, fill: 'forwards' }); setTimeout(() => ch.remove(), 260); } });
-      used = [];
+      used = []; strokes = [];
     }
+    strokes = strokes.filter(q => !ids.includes(q[2]));
     await wait(.28);
     const left = o.all ? 0 : fit();
     contentBottom = Math.max(0, left);
