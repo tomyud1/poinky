@@ -201,6 +201,15 @@ def c_blind(r):
     return f
 
 
+def c_gone_folder(r):
+    # A helper for a folder that's gone: said plainly, the closest folder offered, and a yes starts it there.
+    f = []
+    sp = r["speech"]
+    if len(sp) < 3 or "isn't there anymore" not in sp[1] or "Want me to start it in" not in sp[1]: f.append(f"said {sp}")
+    elif "on it" not in sp[2]: f.append(f"the yes didn't start it: {sp}")
+    return f
+
+
 def c_audio_lost(r):
     # The output device goes away for good mid-answer (Apple's voice): the turn still ends ("speaking" never cleared).
     f = []
@@ -248,6 +257,9 @@ SCENARIOS = {
     "synth-hang": (["what is this"], 16, {"POINKY_TEST_SYNTH_HANG": "1", "POINKY_STUCK_SECS": "5"}, c_synth_hang),
     "search": (["what's the weather"], 16, {"FAKE_CLAUDE_REPLIES": json.dumps(["<say>One sec.</say><search>weather today</search>", "<say>It is sunny.</say>"]),
                                             "FAKE_SEARCH_SECS": "6"}, c_search),
+    "gone-folder": (["have a helper fix it", "yes"], 14,
+                    {"FAKE_CLAUDE_REPLIES": json.dumps(['<say>Mint will fix it.</say><agent title="Fix" dir="/tmp/poinky-gone-folder/app">Fix the tests.</agent>']),
+                     "POINKY_HELPER_CMD": os.path.join(ROOT, "tools/fake-helper.py"), "POINKY_ASK_GAP": "5"}, c_gone_folder),
     "blind": (["what's two plus two"], 10, {"POINKY_TEST_CAPTURE_FAIL": "1"}, c_blind),
     "crash": (["what is this"], 10, {"FAKE_CLAUDE_MODE": "crash"}, c_said("quit")),
     "stall-line": (["what is this"], 16, {"FAKE_CLAUDE_MODE": "hang", "POINKY_STALL_SECS": "6"}, c_said("stopped answering")),

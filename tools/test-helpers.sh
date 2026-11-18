@@ -78,6 +78,11 @@ sleep 4
 [ -s "$TMP/H.pids" ] && [ "$(alive "$TMP/H.pids")" = 0 ] && pass "Poinky force-quit: the helper and its child end too" \
   || { bad "after a force-quit: $(alive "$TMP/H.pids") of the helper's processes still running"; cleanup_pids "$TMP/H.pids"; }
 
+echo "4a2. A folder that isn't there: refused in plain words (it used to run in the home folder), the closest one offered"
+run M "$BIN" --helper-test "$TMP/M.txt" "$TMP/proj/gone/deeper" fixture:quiet 2>/dev/null &
+MPID=$!; for _ in $(seq 1 20); do grep -q "start 1" "$TMP/M.txt" 2>/dev/null && break; sleep 0.25; done; kill "$MPID" 2>/dev/null; wait "$MPID" 2>/dev/null
+expect "$TMP/M.txt" "start 1: FAILED TO START: The helper would work in .*/gone/deeper, but that folder isn't there anymore\. \(offer: .*/proj\)" "a gone folder is refused, its closest parent offered"
+
 echo "4b. Raising a hand: yes, no, a question, and one nobody answers"
 run C POINKY_TEST_TELL=1 POINKY_TEST_ANSWERS="1=yes;2=No, write a small pad helper instead;3=ignore;4=The database" "$BIN" --helper-test "$TMP/C.txt" "$TMP/proj" \
   fixture:ask-install fixture:ask-install fixture:ask-install fixture:ask-question

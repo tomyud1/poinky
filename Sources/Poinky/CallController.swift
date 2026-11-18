@@ -1159,7 +1159,7 @@ final class CallController: NSObject, NSMenuDelegate {
             Timeline.log("reminder.due", ["late": late, "agent": r.agentTitle != nil])
             if let title = r.agentTitle {
                 if agents.start(AgentRequest(title: title, dir: r.agentDir, task: r.text), config: config) == nil {
-                    dueLines.append("I couldn't start the helper you scheduled, \(title): background helpers need Claude Code.")
+                    dueLines.append("I couldn't start the helper you scheduled, \(title): " + (agents.refusal ?? "background helpers need Claude Code."))
                     continue
                 }
             }
@@ -1862,16 +1862,13 @@ final class CallController: NSObject, NSMenuDelegate {
                                          dir: own.dir, task: req.task, model: req.model, planFirst: req.planFirst)
                     r.resume = own.id
                     r.fork = true
-                    if agents.start(r, config: config) == nil {
-                        overlay.setClaudeCaption("⚠️ Couldn't start the agent: background agents need Claude Code installed")
-                    }
+                    if agents.start(r, config: config) == nil { helperRefused(inReply: true) }
                     continue
                 }
+                if pastHelper(key: key) != nil, agents.refusal != nil { helperRefused(inReply: true); continue }
                 NSLog("Poinky: no earlier helper with the key \(key); starting a new one")
             }
-            if agents.start(req, config: config) == nil {
-                overlay.setClaudeCaption("⚠️ Couldn't start the agent: background agents need Claude Code installed")
-            }
+            if agents.start(req, config: config) == nil { helperRefused(inReply: true) }
         }
         handleVideoTags(ev)
         if let what = ev.saveLesson { overlay.saveLesson(all: what == "all") }
@@ -1882,6 +1879,32 @@ final class CallController: NSObject, NSMenuDelegate {
                                      window: frontContext.window, selection: frontContext.selection) {
             pendingOffer = o
             Timeline.log("offer.made", ["do": o.actions.doTask != nil, "agents": o.actions.agents.count, "reminders": o.actions.reminders.count])
+        }
+    }
+
+    /// A helper couldn't start: say why (its folder is gone, or Claude Code is missing), and offer the closest
+    /// folder that's there, if any ("Want me to start it in ~/code instead?" → a yes starts it, no model call).
+    private func helperRefused(inReply: Bool, said: String = "") {
+        guard let why = agents.refusal else {
+            overlay.setClaudeCaption("⚠️ Couldn't start the agent: background agents need Claude Code installed")
+            return
+        }
+        Timeline.log("helper.refused", ["offer": agents.refusalOffer != nil])
+        var line = why
+        if let r = agents.refusalOffer, let dir = r.dir {
+            line += " Want me to start it in \(AppContext.tilde(dir)) instead?"
+            var a = TalkEvents()
+            a.agents = [r]
+            pendingOffer = PendingOffer(actions: a, say: "Okay, starting it there.", made: ProcessInfo.processInfo.systemUptime,
+                                        app: Self.frontBundle(), window: frontContext.window, selection: frontContext.selection)
+        } else {
+            line += " Tell me which folder it should use."
+        }
+        if inReply, state != .idle {
+            speaker.enqueue(line)
+            state = .speaking
+        } else {
+            sayQuick(line, said: said)
         }
     }
 
@@ -2824,6 +2847,8 @@ final class CallController: NSObject, NSMenuDelegate {
         case .resume(let past, let text)?:
             if let a = agents.resume(past, text: text, config: config) {
                 sayQuick("Okay, \(a.name) will pick it up.", said: said)
+            } else if agents.refusal != nil {
+                helperRefused(inReply: false, said: said)
             } else {
                 ask(said)
             }
