@@ -267,10 +267,12 @@
     open(o) {
       dir = o.dir; reduced = !!o.reduced; captions = !!o.captions; loaded = {}; pending = {};
       soundOn = !o.sound || o.sound.on !== false;
+      if (o.quiet) { captions = true; soundOn = false; }   // quiet mode: muted, with subtitles
       if (o.sound) sounds.params.master = Math.max(0, Math.min(1.2, +o.sound.volume || .8)) * 1.1;
       if (o.color) document.documentElement.style.setProperty('--accent', o.color);
       setManifest(o.manifest);
       audio.src = `${dir}/${o.manifest.audio || 'voice.wav'}`;
+      audio.muted = !!o.quiet;
       audio.load();
       const f = o.from || { x: SW() - 120, y: 60, w: 60, h: 40 };
       anim = { kind: 'open', t0: performance.now(), from: { x: f.x, y: f.y, w: f.w, h: f.h, r: 14 } };
@@ -278,6 +280,8 @@
       if (soundOn) sounds.play('screenOpen', { x: o.x || 0, x2: 0 });
     },
     manifest(m) { setManifest(m); },
+    /** Quiet mode switched while it plays: the narration is muted (it keeps time) and subtitles show. */
+    quiet(on) { audio.muted = !!on; captions = !!on || captions; soundOn = !on; },
     pause() { if (phase === 'open') { setWant(false); showUI(); } },
     resume() { if (phase === 'open') setWant(true); },
     toggle() { if (phase === 'open') setWant(!want); },

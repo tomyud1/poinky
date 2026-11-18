@@ -1,0 +1,491 @@
+[
+ {
+  "id": "quiet-meeting",
+  "who": "office",
+  "said": "I'm going into a meeting now so keep it down from now on, just write to me",
+  "checks": [
+   [
+    "turns quiet mode on",
+    false
+   ],
+   [
+    "doesn't act",
+    true
+   ],
+   [
+    "short",
+    true
+   ]
+  ],
+  "generic": [
+   [
+    "has <say>",
+    true
+   ],
+   [
+    "spoken style (no markdown/URL/emoji)",
+    true
+   ],
+   [
+    "<draw> is valid JSON",
+    true
+   ],
+   [
+    "math said for the ear (no ² = ( ) symbols)",
+    true
+   ],
+   [
+    "nothing outside the tags",
+    true
+   ]
+  ],
+  "passed": false,
+  "say": "Got it, Alex. I'll keep it short and write you a note instead of talking.",
+  "tags": [
+   "draw",
+   "say"
+  ],
+  "raw": "<say>Got it, Alex. I'll keep it short and write you a note instead of talking.</say>\n<draw>{\"items\":[]}</draw>",
+  "first_token": 0.7422561645507812,
+  "first_sentence": 1.1160800457000732,
+  "total": 1.1343011856079102,
+  "input_tokens": 15010,
+  "run": 0
+ },
+ {
+  "id": "quiet-meeting",
+  "who": "office",
+  "said": "I'm going into a meeting now so keep it down from now on, just write to me",
+  "checks": [
+   [
+    "turns quiet mode on",
+    false
+   ],
+   [
+    "doesn't act",
+    true
+   ],
+   [
+    "short",
+    true
+   ]
+  ],
+  "generic": [
+   [
+    "has <say>",
+    true
+   ],
+   [
+    "spoken style (no markdown/URL/emoji)",
+    true
+   ],
+   [
+    "math said for the ear (no ² = ( ) symbols)",
+    true
+   ],
+   [
+    "nothing outside the tags",
+    true
+   ]
+  ],
+  "passed": false,
+  "say": "Got it, Alex. I'll keep it short and just write to you from here on.",
+  "tags": [
+   "remember",
+   "say"
+  ],
+  "raw": "<say>Got it, Alex. I'll keep it short and just write to you from here on.</say>\n<remember about=\"user\">Alex is going into a meeting on Sunday, 15 November 2026 around 2:10 PM. Keep replies quiet and written only until told otherwise.</remember>",
+  "first_token": 0.7003650665283203,
+  "first_sentence": 0.8205239772796631,
+  "total": 1.1949539184570312,
+  "input_tokens": 15008,
+  "run": 1
+ },
+ {
+  "id": "quiet-roommate",
+  "who": "student",
+  "said": "my roommate is asleep, can you not use your voice tonight",
+  "checks": [
+   [
+    "turns quiet mode on",
+    true
+   ],
+   [
+    "doesn't act",
+    true
+   ]
+  ],
+  "generic": [
+   [
+    "has <say>",
+    true
+   ],
+   [
+    "spoken style (no markdown/URL/emoji)",
+    true
+   ],
+   [
+    "<draw> is valid JSON",
+    true
+   ],
+   [
+    "math said for the ear (no ² = ( ) symbols)",
+    true
+   ],
+   [
+    "nothing outside the tags",
+    true
+   ]
+  ],
+  "passed": true,
+  "say": "Sure thing. I'll keep it quiet, and I'll answer in writing from here on. Do you want me to write out the photosynthesis notes?",
+  "tags": [
+   "draw",
+   "say",
+   "set"
+  ],
+  "raw": "<say>Sure thing. I'll keep it quiet, and I'll answer in writing from here on. Do you want me to write out the photosynthesis notes?</say>\n<draw>{\"items\":[]}</draw>\n<set>{\"quiet\": true}</set>",
+  "first_token": 0.7844560146331787,
+  "first_sentence": 0.9371728897094727,
+  "total": 1.2343850135803223,
+  "input_tokens": 15306,
+  "run": 0
+ },
+ {
+  "id": "quiet-roommate",
+  "who": "student",
+  "said": "my roommate is asleep, can you not use your voice tonight",
+  "checks": [
+   [
+    "turns quiet mode on",
+    true
+   ],
+   [
+    "doesn't act",
+    true
+   ]
+  ],
+  "generic": [
+   [
+    "has <say>",
+    true
+   ],
+   [
+    "spoken style (no markdown/URL/emoji)",
+    true
+   ],
+   [
+    "math said for the ear (no ² = ( ) symbols)",
+    true
+   ],
+   [
+    "nothing outside the tags",
+    true
+   ]
+  ],
+  "passed": true,
+  "say": "Sure thing, I'll keep it quiet. I'll write my answers on screen and in the bubble instead.",
+  "tags": [
+   "say",
+   "set"
+  ],
+  "raw": "<say>Sure thing, I'll keep it quiet. I'll write my answers on screen and in the bubble instead.</say>\n<set>{\"quiet\": true}</set>",
+  "first_token": 0.7919900417327881,
+  "first_sentence": 0.9212322235107422,
+  "total": 1.164518117904663,
+  "input_tokens": 15308,
+  "run": 1
+ },
+ {
+  "id": "quiet-howto",
+  "who": "student",
+  "said": "is there a way to use you in the library without you talking",
+  "checks": [
+   [
+    "explains quiet mode",
+    true
+   ],
+   [
+    "doesn't act",
+    true
+   ]
+  ],
+  "generic": [
+   [
+    "has <say>",
+    true
+   ],
+   [
+    "spoken style (no markdown/URL/emoji)",
+    true
+   ],
+   [
+    "<draw> is valid JSON",
+    true
+   ],
+   [
+    "math said for the ear (no ² = ( ) symbols)",
+    true
+   ],
+   [
+    "nothing outside the tags",
+    true
+   ]
+  ],
+  "passed": true,
+  "say": "Yes, Alex. Turn on quiet mode and I'll write my answers next to the buddy instead of talking. Want me to switch it on now?",
+  "tags": [
+   "draw",
+   "offer",
+   "say"
+  ],
+  "raw": "<say>Yes, Alex. Turn on quiet mode and I'll write my answers next to the buddy instead of talking. Want me to switch it on now?</say>\n<draw>{\"items\":[]}</draw>\n<offer say=\"Quiet mode is on.\"><set>{\"quiet\": true}</set></offer>",
+  "first_token": 0.6480581760406494,
+  "first_sentence": 0.774083137512207,
+  "total": 1.122925043106079,
+  "input_tokens": 15214,
+  "run": 0
+ },
+ {
+  "id": "quiet-howto",
+  "who": "student",
+  "said": "is there a way to use you in the library without you talking",
+  "checks": [
+   [
+    "explains quiet mode",
+    true
+   ],
+   [
+    "doesn't act",
+    true
+   ]
+  ],
+  "generic": [
+   [
+    "has <say>",
+    true
+   ],
+   [
+    "spoken style (no markdown/URL/emoji)",
+    true
+   ],
+   [
+    "math said for the ear (no ² = ( ) symbols)",
+    true
+   ],
+   [
+    "nothing outside the tags",
+    true
+   ]
+  ],
+  "passed": true,
+  "say": "Yes, Alex. Turn on quiet mode and I'll write my answers next to the cursor buddy with a Copy button, and nothing gets read out loud. You can also toggle it with the speaker button in the notch or with ⌃⌥Q. Want me to switch it on now?",
+  "tags": [
+   "offer",
+   "say"
+  ],
+  "raw": "<say>Yes, Alex. Turn on quiet mode and I'll write my answers next to the cursor buddy with a Copy button, and nothing gets read out loud. You can also toggle it with the speaker button in the notch or with ⌃⌥Q. Want me to switch it on now?</say>\n<offer say=\"Quiet mode is on.\"><set>{\"quiet\": true}</set></offer>",
+  "first_token": 0.8837509155273438,
+  "first_sentence": 0.9913749694824219,
+  "total": 1.5183689594268799,
+  "input_tokens": 15213,
+  "run": 1
+ },
+ {
+  "id": "quiet-back",
+  "who": "office",
+  "said": "ok I'm out of the meeting, talk to me normally again",
+  "checks": [
+   [
+    "turns quiet mode off",
+    false
+   ],
+   [
+    "doesn't act",
+    true
+   ]
+  ],
+  "generic": [
+   [
+    "has <say>",
+    true
+   ],
+   [
+    "spoken style (no markdown/URL/emoji)",
+    true
+   ],
+   [
+    "math said for the ear (no ² = ( ) symbols)",
+    true
+   ],
+   [
+    "nothing outside the tags",
+    true
+   ]
+  ],
+  "passed": false,
+  "say": "Back to normal, Alex. Dana's asking if the client demo can move from Wednesday to Thursday at 2pm. Want me to reply and say yes?",
+  "tags": [
+   "offer",
+   "say"
+  ],
+  "raw": "<say>Back to normal, Alex. Dana's asking if the client demo can move from Wednesday to Thursday at 2pm. Want me to reply and say yes?</say>\n<offer say=\"Sending it now.\"><do>Reply to Dana Levin's email \"Demo next week?\" with exactly: Hi Dana, Thursday at 2pm works for me. See you then. Thanks, Alex</do></offer>",
+  "first_token": 0.6391251087188721,
+  "first_sentence": 0.7613329887390137,
+  "total": 1.1183621883392334,
+  "input_tokens": 15036,
+  "run": 0
+ },
+ {
+  "id": "quiet-back",
+  "who": "office",
+  "said": "ok I'm out of the meeting, talk to me normally again",
+  "checks": [
+   [
+    "turns quiet mode off",
+    false
+   ],
+   [
+    "doesn't act",
+    true
+   ]
+  ],
+  "generic": [
+   [
+    "has <say>",
+    true
+   ],
+   [
+    "spoken style (no markdown/URL/emoji)",
+    true
+   ],
+   [
+    "math said for the ear (no ² = ( ) symbols)",
+    true
+   ],
+   [
+    "nothing outside the tags",
+    true
+   ]
+  ],
+  "passed": false,
+  "say": "Got it, you're back. Want me to draft a reply to Dana about moving the demo to Thursday at 2?",
+  "tags": [
+   "say"
+  ],
+  "raw": "<say>Got it, you're back. Want me to draft a reply to Dana about moving the demo to Thursday at 2?</say>",
+  "first_token": 0.675910234451294,
+  "first_sentence": 1.0004711151123047,
+  "total": 1.0231170654296875,
+  "input_tokens": 15031,
+  "run": 1
+ },
+ {
+  "id": "typed-punchier",
+  "who": "writer",
+  "said": "make this paragraph punchier",
+  "checks": [
+   [
+    "writes the whole rewrite",
+    true
+   ],
+   [
+    "offers to put it in",
+    true
+   ],
+   [
+    "no agent",
+    true
+   ]
+  ],
+  "generic": [
+   [
+    "has <say>",
+    true
+   ],
+   [
+    "spoken style (no markdown/URL/emoji)",
+    true
+   ],
+   [
+    "<draw> is valid JSON",
+    true
+   ],
+   [
+    "math said for the ear (no ² = ( ) symbols)",
+    true
+   ],
+   [
+    "nothing outside the tags",
+    true
+   ]
+  ],
+  "passed": true,
+  "say": "Here's a punchier version: Onboarding is slow, and it often has more steps than it needs. Want me to swap it in?",
+  "tags": [
+   "draw",
+   "offer",
+   "say"
+  ],
+  "raw": "<say>Here's a punchier version: Onboarding is slow, and it often has more steps than it needs. Want me to swap it in?</say>\n<draw>{\"items\":[{\"type\":\"bracket\",\"id\":\"para\",\"x\":144,\"y\":186,\"h\":40,\"find\":\"It is important to note that\",\"to\":\"involved in it.\"}]}</draw>\n<offer say=\"Swapping it in.\"><do>Replace the selected text in Pages with exactly: Onboarding is slow, and it often has more steps than it needs.</do></offer>",
+  "first_token": 0.7281179428100586,
+  "first_sentence": 0.8523211479187012,
+  "total": 1.3590562343597412,
+  "input_tokens": 15277,
+  "run": 0
+ },
+ {
+  "id": "typed-punchier",
+  "who": "writer",
+  "said": "make this paragraph punchier",
+  "checks": [
+   [
+    "writes the whole rewrite",
+    true
+   ],
+   [
+    "offers to put it in",
+    true
+   ],
+   [
+    "no agent",
+    true
+   ]
+  ],
+  "generic": [
+   [
+    "has <say>",
+    true
+   ],
+   [
+    "spoken style (no markdown/URL/emoji)",
+    true
+   ],
+   [
+    "<draw> is valid JSON",
+    true
+   ],
+   [
+    "math said for the ear (no ² = ( ) symbols)",
+    true
+   ],
+   [
+    "nothing outside the tags",
+    true
+   ]
+  ],
+  "passed": true,
+  "say": "Here's a punchier version: Onboarding is slow, and it doesn't need to be. Want me to swap it in?",
+  "tags": [
+   "draw",
+   "offer",
+   "say"
+  ],
+  "raw": "<say>Here's a punchier version: Onboarding is slow, and it doesn't need to be. Want me to swap it in?</say>\n<offer say=\"Swapping it in.\"><do>Replace the selected text with exactly: Onboarding is slow, and it doesn't need to be.</do></offer>\n<draw>{\"items\":[{\"type\":\"bracket\",\"id\":\"para\",\"x\":140,\"y\":186,\"h\":40,\"find\":\"It is important to note that\",\"to\":\"simplified in order to make the experience better for everyone who is involved in it.\"}]}</draw>",
+  "first_token": 0.7726461887359619,
+  "first_sentence": 0.9004788398742676,
+  "total": 1.3836991786956787,
+  "input_tokens": 15274,
+  "run": 1
+ }
+]
