@@ -126,6 +126,7 @@ final class CallController: NSObject, NSMenuDelegate {
     private struct ArtistJob {
         let text: String; let snapshot: Snapshot; var aside: String? = nil; var quiet = false
         var turn = -1; var question = ""   // the question it answers (its lesson goes into the record with it)
+        var study: StudyJob? = nil   // a study session's teacher job (CallController+Study.swift)
     }
     /// The teacher started alongside the talker: what it writes waits here until the talker's hand-over line
     /// is in the voice queue (a quick teacher was heard before "Sure, let me show you."). Nil: not holding.
@@ -217,6 +218,7 @@ final class CallController: NSObject, NSMenuDelegate {
     private var firstTokenTurn = -1
     private var lookingUp = false             // a `<search>` / `<recall>` is running for the current question
     private var lookupTurn = -1               // …for this turn (an interrupted one doesn't count)
+    private var firstSentenceTurn = -1
     /// Longer than this in one state means Poinky is stuck (nothing legitimate takes this long:
     /// replies have their own 75 s watchdog, captures 6 s, web searches 30 s).
     /// Tests: the session takes this long to start (a speech engine that doesn't come up).
@@ -628,6 +630,7 @@ final class CallController: NSObject, NSMenuDelegate {
             else { Self.writeDailyNote(exchanges, config: config, summary: summary.full) }
         }
         sessionExchanges.removeAll()
+        releaseShot = nil
         lessons.reset()
         heldLogs.removeAll()
         loggedTurns.removeAll()
@@ -662,6 +665,7 @@ final class CallController: NSObject, NSMenuDelegate {
         artist?.stop()
         talker = nil
         artist = nil
+        studySessionEnded()   // CallController+Study.swift (what you did is already saved)
         freshTalker?.stop()
         freshTalker = nil
         talkerTurns = 0
@@ -779,6 +783,12 @@ final class CallController: NSObject, NSMenuDelegate {
     // MARK: - Hold to talk
 
     private var finishingPush = false   // a released question is still being turned into text
+    /// The screenshot (and the front app's reading) taken the moment the keys go up, while the last words are still
+    /// being settled (~0.3 s), instead of after: `ask` uses it for the question of that hold. What the screen showed
+    /// as you let go is what you asked about; Poinky's own windows are never in it either way.
+    private var releaseShot: (push: Int, at: TimeInterval, screen: NSScreen, marks: Int, task: Task<(Snapshot, AppContext), Error>)?
+    /// `POINKY_CAPTURE_AT_RELEASE=0`: capture after the words are settled, as before 2026-11-18.
+    static let captureAtRelease = ProcessInfo.processInfo.environment["POINKY_CAPTURE_AT_RELEASE"] != "0"
     private var holdHeard: (count: Int, first: TimeInterval?) = (0, nil)   // live words during this hold (Timeline)
     private var holdStart: TimeInterval = 0
 
@@ -958,6 +968,12 @@ final class CallController: NSObject, NSMenuDelegate {
         }
         finishingPush = true
         askedAt = ProcessInfo.processInfo.systemUptime
+        releaseShot = nil
+        if Self.captureAtRelease, talkTarget == nil, state != .starting, let screen = overlay.screen {
+            let marks = overlay.marks
+            releaseShot = (myPush, askedAt!, screen, marks.count,
+                           startCapture(screen: screen, marks: marks, cursor: localCursor(on: screen), focus: pendingFocus))
+        }
         // How the live words did during the hold (no words): did any show, and how soon.
         var up: [String: Any] = ["partials": holdHeard.count]
         if let first = holdHeard.first { up["firstMs"] = Int((first - holdStart) * 1000) }
@@ -988,6 +1004,7 @@ final class CallController: NSObject, NSMenuDelegate {
                 self.endHelperListen()
                 return
             }
+            Timeline.log("heard", ["ms": Int((ProcessInfo.processInfo.systemUptime - (self.askedAt ?? 0)) * 1000)])   // keys up → final words
             self.playSound(.send)
             self.overlay.setYouCaption(text)   // the final words (the live ones can lag or differ)
             self.heard(utterance: text)
@@ -1071,6 +1088,7 @@ final class CallController: NSObject, NSMenuDelegate {
         let question = mergeNext && !lastQuestion.isEmpty ? lastQuestion + " " + text : text
         mergeNext = false
         clearedForUtterance = false
+        if guide == nil, studyHeard(question) { return }   // study sessions (CallController+Study.swift)
         if guide != nil {
             // While guiding, what you say goes to the guide ("next", "I did it", a question, "stop").
             let t = text.lowercased()
@@ -1392,7 +1410,7 @@ final class CallController: NSObject, NSMenuDelegate {
     /// A typed question, as if from the type box (`--ask` tests).
     func askTyped(_ text: String) { typed(text, helper: nil) }
     /// Tests (`POINKY_ASK_WAIT`): nothing is being thought, said or sketched, so the next typed question can go.
-    var quietForTests: Bool { state == .ready && !speaker.isSpeaking && !artistBusy }
+    var quietForTests: Bool { state == .ready && !speaker.isSpeaking && !artistBusy && !StudySession.shared.working }
 
     private func typed(_ text: String, helper: Int?) {
         lastActivity = ProcessInfo.processInfo.systemUptime
@@ -1443,6 +1461,7 @@ final class CallController: NSObject, NSMenuDelegate {
         heldTeacher = nil
         lessons.interrupt()   // whatever it hadn't finished saying goes into the record as cut off, at the line you heard last
         guard lessonOpen || narrationOpen || !pendingSteps.isEmpty || artistBusy else { return }
+        studyLessonStopped()   // the study teacher stops writing too (CallController+Study.swift)
         lessonToken += 1
         lessonOpen = false
         narrationOpen = false
@@ -1533,25 +1552,18 @@ final class CallController: NSObject, NSMenuDelegate {
         }
         if partQ != nil { overlay.markPickAsked() }
         let marked = !marks.isEmpty || focusCrop != nil
+        // The keys just went up for this question: its screenshot is already being taken (same screen, same marks).
+        let early = releaseShot.flatMap { r in
+            !proactive && r.push == pushGen && r.screen == screen && r.marks == marks.count
+                && ProcessInfo.processInfo.systemUptime - r.at < 3 ? r : nil
+        }
+        releaseShot = nil
         talkTask = Task { @MainActor in
             do {
-                let capStart = ProcessInfo.processInfo.systemUptime
-                // The front app's selection, document and page, read while the screenshot is taken (no extra wait).
-                let front = NSWorkspace.shared.frontmostApplication, excluded = ScreenCapture.excludedBundleIDs
-                let reading = Task.detached(priority: .userInitiated) { () -> AppContext in
-                    (try? await Deadline.run(0.5, "Reading the front app") { AppContextReader.read(app: front, excluded: excluded) }) ?? AppContext()
-                }
-                let snap: Snapshot
-                do {
-                    snap = try await ScreenCapture.capture(screen: screen, marks: marks, cursor: cursor, focus: focusCrop)
-                } catch let e where !(e is CancellationError) {
-                    // The display is asleep or off, or the capture service is stuck: ask without a picture
-                    // rather than "Sorry, that didn't work".
-                    Timeline.log("capture.failed", ["why": e.localizedDescription, "turn": myTurn])
-                    snap = Snapshot.blind(screen: screen.frame.size, why: e.localizedDescription)
-                }
-                self.frontContext = self.config.frontAppContext ? await reading.value : AppContext()
-                Timeline.log("capture", ["ms": Int((ProcessInfo.processInfo.systemUptime - capStart) * 1000), "turn": myTurn])
+                let capStart = early?.at ?? ProcessInfo.processInfo.systemUptime
+                let (snap, front) = try await (early?.task ?? self.startCapture(screen: screen, marks: marks, cursor: cursor, focus: focusCrop)).value
+                self.frontContext = front
+                Timeline.log("capture", ["ms": Int((ProcessInfo.processInfo.systemUptime - capStart) * 1000), "turn": myTurn, "atRelease": early != nil])
                 guard myTurn == self.turn else { return }
                 self.lastSnapshot = snap
                 self.replyScale = snap.scale
@@ -1586,6 +1598,7 @@ final class CallController: NSObject, NSMenuDelegate {
                 let ev = self.parser.finish()
                 self.handle(ev)
                 if self.sayGateOn { self.settleSayGate(finished: true) }
+                if !proactive { self.studyTalkerTag(self.parser.text, said: question) }   // `<study q="2"/>` (CallController+Study.swift)
                 self.releaseTeacher()
                 var said = self.parser.sayPreview
                 var note = Self.logNote(ev)
@@ -1635,6 +1648,28 @@ final class CallController: NSObject, NSMenuDelegate {
             guard myTurn == self.turn else { return }
             self.overlay.clearMarks()   // your marks were for this question
             self.speaker.endTurn()      // → finishedSpeaking() once the audio is done
+        }
+    }
+
+    /// The screenshot and, at the same time, the front app's selection, document and page (no extra wait).
+    private func startCapture(screen: NSScreen, marks: [Mark], cursor: CGPoint?, focus: FocusCrop?) -> Task<(Snapshot, AppContext), Error> {
+        let front = NSWorkspace.shared.frontmostApplication, excluded = ScreenCapture.excludedBundleIDs
+        let wantsContext = config.frontAppContext
+        return Task { @MainActor in
+            let reading = Task.detached(priority: .userInitiated) { () -> AppContext in
+                guard wantsContext else { return AppContext() }
+                return (try? await Deadline.run(0.5, "Reading the front app") { AppContextReader.read(app: front, excluded: excluded) }) ?? AppContext()
+            }
+            let snap: Snapshot
+            do {
+                snap = try await ScreenCapture.capture(screen: screen, marks: marks, cursor: cursor, focus: focus)
+            } catch let e where !(e is CancellationError) {
+                // The display is asleep or off, or the capture service is stuck: ask without a picture
+                // rather than "Sorry, that didn't work".
+                Timeline.log("capture.failed", ["why": e.localizedDescription])
+                snap = Snapshot.blind(screen: screen.frame.size, why: e.localizedDescription)
+            }
+            return (snap, await reading.value)
         }
     }
 
@@ -1720,6 +1755,7 @@ final class CallController: NSObject, NSMenuDelegate {
             lines.append(agents.usageLine() + " (On a subscription this counts toward the plan's limits, not a bill.)")
         }
         if let c = helperContext { lines.append(c); helperContext = nil }
+        if !proactive { lines.append(contentsOf: studyTalkerLines()) }   // a saved homework session (CallController+Study.swift)
         if let n = offerNote, !proactive { lines.append(n); offerNote = nil }
         if let n = savedNote, !proactive { lines.append(n); savedNote = nil }
         // No teacher this session (turned off): "let me draw it" would be followed by nothing.
@@ -2002,6 +2038,10 @@ final class CallController: NSObject, NSMenuDelegate {
     private func handle(_ ev: TalkEvents) {
         // Answering from web pages or old transcripts: they can't make Poinky do anything.
         let ev = lookupReply ? ev.onlySpeech() : ev
+        if !ev.sentences.isEmpty, firstSentenceTurn != turn {
+            firstSentenceTurn = turn
+            Timeline.log("firstSentence", ["turn": turn, "chars": ev.sentences[0].count])   // handed to the voice
+        }
         for s in ev.sentences {
             var s = s
             // The teacher is explaining it: the talker's part is one short hand-over (`TalkerRoute.handOver`).
@@ -2276,7 +2316,7 @@ final class CallController: NSObject, NSMenuDelegate {
     }
 
     private func runArtist(_ job: ArtistJob) {
-        guard let artist else { return }
+        guard let artist = job.study?.brain ?? self.artist else { return }
         receiptAlso("The teacher (\(config.model(for: .artist))) got the same screenshot to sketch an answer")
         if artistBusy { artistWaiting = job; return }
         artistBusy = true
@@ -2285,21 +2325,26 @@ final class CallController: NSObject, NSMenuDelegate {
         artistAside = job.aside
         if job.aside != nil { asideGen += 1; asideNoted = false }
         let myCall = callID, myGen = artistGen, myLesson = lessonToken
-        // What it says and shows goes into the record with its question (a fix for a broken card doesn't).
-        let rec: Int? = job.quiet ? nil : lessons.begin(turn: job.turn, question: job.question)
-        final class Box { var stream = ArtistStream(); var said = false }
+        // What it says and shows goes into the record with its question (a fix for a broken card doesn't; a study
+        // session keeps its own record).
+        let rec: Int? = (job.quiet || job.study != nil) ? nil : lessons.begin(turn: job.turn, question: job.question)
+        final class Box { var stream = ArtistStream(); var said = false; var failed = false }
         let box = Box()
         Task { @MainActor in
             do {
-                _ = try await artist.ask(BrainQuestion(text: job.text, snapshot: job.snapshot)) { delta in
+                let q = BrainQuestion(text: job.text, snapshot: job.study?.sendShot == false ? nil : job.snapshot, extraImages: job.study?.images ?? [])
+                _ = try await artist.ask(q) { delta in
                     guard myCall == self.callID, myGen == self.artistGen, myLesson == self.lessonToken else { return }
+                    let delta = job.study?.tap(delta) ?? delta
                     for ev in box.stream.feed(delta) { if case .say = ev { box.said = true }; self.teacherDo { self.handleArtist(ev, snapshot: job.snapshot, lesson: rec) } }
                 }
                 if myCall == self.callID, myGen == self.artistGen, myLesson == self.lessonToken {
+                    if let rest = job.study?.finish() { for ev in box.stream.feed(rest) { if case .say = ev { box.said = true }; self.teacherDo { self.handleArtist(ev, snapshot: job.snapshot, lesson: rec) } } }
                     for ev in box.stream.finish() { if case .say = ev { box.said = true }; self.teacherDo { self.handleArtist(ev, snapshot: job.snapshot, lesson: rec) } }
                     self.teacherDo { self.lessons.written(rec, ok: true) }
                 }
             } catch {
+                box.failed = true
                 if myCall == self.callID, myGen == self.artistGen, !(error is CancellationError) {
                     self.overlay.setClaudeCaption("⚠️ Artist: \(error.localizedDescription)")
                     // The talker said "let me show you": don't leave that hanging in silence.
@@ -2309,11 +2354,12 @@ final class CallController: NSObject, NSMenuDelegate {
                     self.teacherDo { self.lessons.written(rec, ok: false) }
                 }
             }
-            guard myCall == self.callID, myGen == self.artistGen else { return }
+            guard myCall == self.callID, myGen == self.artistGen else { job.study?.done(false); return }
             self.teacherDo { self.finishTeacherOutput() }   // closes the paper/narration even if it forgot to
             self.artistBusy = false
             self.artistAside = nil
             self.maybeEndAside()
+            job.study?.done(!box.failed && myLesson == self.lessonToken)
             if let next = self.artistWaiting {
                 self.artistWaiting = nil
                 self.runArtist(next)
@@ -2433,7 +2479,7 @@ final class CallController: NSObject, NSMenuDelegate {
         let light = config.paperLook == "auto" ? lastSnapshot.flatMap { PaperLook.brightness(of: $0, in: frame) } : nil
         // The frame's height is the room it may grow into: the paper stays inside it (`lo`/`hi`).
         overlay.lessonBegin(frame: frame, title: title, continuing: continuing, avoid: nil,
-                            look: PaperLook.pick(setting: config.paperLook, brightness: light), session: callID)
+                            look: studyPaperLook ?? PaperLook.pick(setting: config.paperLook, brightness: light), session: callID)
         placeCaptions(extra: [frame])
     }
 
@@ -3664,4 +3710,62 @@ final class CallController: NSObject, NSMenuDelegate {
 
     
 
+}
+
+// MARK: - Study sessions: what CallController+Study.swift may use (it lives in another file, so it can't read
+// the private state directly). Nothing here changes how a normal question works.
+extension CallController {
+    var studyConfig: AppConfig { config }
+    var studyCall: Int { callID }
+    var studyIdle: Bool { state == .idle }
+    var studyTeacherBusy: Bool { artistBusy }
+    var studySpeaking: Bool { speaker.isSpeaking }
+    var studyFront: AppContext { frontContext }
+    var studyPaperOpen: Bool { overlay.scene.contains { $0.type == "lesson" } }
+    func studySetQuestion(_ q: String) { lastQuestion = q }
+    /// A line after anything already being said.
+    func studySay(_ line: String) { says(line) }
+    /// A line right now (cuts off anything being said), logged as the answer to `said`.
+    func studySayNow(_ line: String, said: String) { sayQuick(line, said: said) }
+    func studyLog(_ you: String, _ poinky: String, note: String?) { logExchange(you, poinky, note: note) }
+    func studyStopLesson() { stopLesson() }
+    func studyAskTalker(_ q: String) { ask(q) }
+    /// Runs a study teacher job through the same pipeline as any lesson (voice, pen, notebook).
+    func studyRun(_ text: String, snapshot: Snapshot, job: StudyJob) {
+        runArtist(ArtistJob(text: text, snapshot: snapshot, quiet: true, study: job))
+    }
+    /// Lines and drawing Poinky makes itself (no model), as if the teacher wrote them.
+    func studyDraw(_ events: [ArtistEvent], snapshot: Snapshot) {
+        for e in events { handleArtist(e, snapshot: snapshot) }
+        finishTeacherOutput()
+    }
+    /// What the paper must stay off (the question on screen), in screen points.
+    func studyFocus(_ r: CGRect?) { focusRegion = r; placeCaptions() }
+    func studyContext(_ snap: Snapshot) -> [String] {
+        let room = paperFrame()
+        let units = Int((room.height - 32) / room.width * 800)
+        return ["Screenshot size: \(snap.width)x\(snap.height) px (coordinates use this size)."] + snap.notes + BrainQuestion.focusNotes(snap)
+            + [overlay.sceneDescription(scale: snap.scale),
+               "Paper room: 800 units wide, about \(max(300, units)) units tall before it runs out of space (use newpage for more)."]
+    }
+    func studyReceipt(_ q: BrainQuestion, said: String, snap: Snapshot, note: String) {
+        addReceipt(q, question: said, snap: snap, turn: turn, role: .artist)
+        receiptAlso(note)
+    }
+    /// A fresh screenshot and the front app (as a question takes them).
+    func studyCapture() async throws -> Snapshot {
+        guard let screen = overlay.screen else { throw CaptureError.noDisplay }
+        let marks = overlay.marks, cursor = localCursor(on: screen), focusCrop = pendingFocus
+        pendingFocus = nil
+        let front = NSWorkspace.shared.frontmostApplication, excluded = ScreenCapture.excludedBundleIDs
+        let reading = Task.detached(priority: .userInitiated) { () -> AppContext in
+            (try? await Deadline.run(0.5, "Reading the front app") { AppContextReader.read(app: front, excluded: excluded) }) ?? AppContext()
+        }
+        let snap = try await ScreenCapture.capture(screen: screen, marks: marks, cursor: cursor, focus: focusCrop)
+        frontContext = config.frontAppContext ? await reading.value : AppContext()
+        lastSnapshot = snap
+        replyScale = snap.scale
+        overlay.glance()
+        return snap
+    }
 }

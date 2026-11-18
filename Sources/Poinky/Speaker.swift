@@ -141,6 +141,7 @@ final class Speaker {
     /// Start a new reply. Sentences can then be added as they stream in.
     func beginTurn() {
         stop()
+        voiceLogged = false
         sources = 1
         turnOpen = true
         turnActive = true
@@ -213,6 +214,7 @@ final class Speaker {
     /// Audio held back before a sentence starts playing, so a busy moment on the main thread
     /// can't leave a gap mid-word. Phonon makes this much in a few milliseconds.
     private static let prebuffer = 0.1
+    private var voiceLogged = false   // this turn's first sentence went to the voice (Timeline)
 
     private func pump() {
         guard !deviceLost else { return }
@@ -269,6 +271,11 @@ final class Speaker {
     /// buffered. The next sentence is asked for as soon as this one is generated, while it plays.
     /// Its first audio waits at the gate (see `holdNext`) when a 3D step needs time on screen.
     private func speakWithPhonon(_ p: PhononVoice, caption: (String, Int?)?, spoken: String, gen: Int) {
+        // (Timeline: the turn's first sentence asked of the voice, and its first audio back.)
+        let firstOfTurn = !voiceLogged
+        voiceLogged = true
+        let askedVoice = ProcessInfo.processInfo.systemUptime
+        if firstOfTurn { Timeline.log("voice.start", ["chars": spoken.count]) }
         var waiting: [AVAudioPCMBuffer] = []
         var waitingSeconds = 0.0
         var started = false, atGate = false, ended = false, endOK = true
@@ -304,8 +311,11 @@ final class Speaker {
         }
         // Another voice goes on with this sentence: only a short silence before it.
         let tail = segments.isEmpty ? nil : Self.joinTail(spoken)
+        var chunks = 0
         p.speak(spoken, voice: phononVoice, speed: voiceSpeed, tail: tail, onChunk: { [weak self] buf in
             guard let self, gen == self.generation else { return }
+            chunks += 1
+            if firstOfTurn, chunks == 1 { Timeline.log("voice.chunk", ["ms": Int((ProcessInfo.processInfo.systemUptime - askedVoice) * 1000)]) }
             if started { play(buf); return }
             waiting.append(buf)
             waitingSeconds += Double(buf.frameLength) / buf.format.sampleRate

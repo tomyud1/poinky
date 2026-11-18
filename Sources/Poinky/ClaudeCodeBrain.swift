@@ -138,8 +138,13 @@ final class ClaudeCodeBrain: Brain {
             if let id { fail(id, BrainError("Couldn't talk to Claude Code: it isn't running.")) }
             return
         }
+        let model = self.model
         q.async {
-            do { try h.write(contentsOf: line) } catch {
+            do {
+                try h.write(contentsOf: line)
+                // (Timeline: when the question was handed to Claude Code, for the stages of the wait.)
+                if id != nil { Timeline.log("brain.sent", ["model": model, "kb": line.count / 1024]) }
+            } catch {
                 guard let id else { return }
                 let why = error.localizedDescription
                 DispatchQueue.main.async {
@@ -347,8 +352,11 @@ final class ClaudeCodeBrain: Brain {
                 func n(_ k: String) -> Int { (u[k] as? NSNumber)?.intValue ?? 0 }
                 let fresh = n("input_tokens"), cached = n("cache_read_input_tokens"), written = n("cache_creation_input_tokens")
                 lastInputTokens = fresh + cached + written
+                // (Claude Code's own split of the wait: its time before the request went out, then the model's first token.)
                 Timeline.log("usage", ["model": model, "in": lastInputTokens, "cached": cached, "out": n("output_tokens"),
-                                       "ms": (obj["duration_ms"] as? NSNumber)?.intValue ?? 0])
+                                       "ms": (obj["duration_ms"] as? NSNumber)?.intValue ?? 0,
+                                       "ttftMs": (obj["ttft_stream_ms"] as? NSNumber)?.intValue ?? -1,
+                                       "requestMs": (obj["time_to_request_ms"] as? NSNumber)?.intValue ?? -1])
             }
             guard let pend = pending else { return }
             pending = nil

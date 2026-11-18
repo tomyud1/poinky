@@ -351,6 +351,7 @@ final class Overlay: NSObject, WKNavigationDelegate {
     /// A save you asked for by voice finished: where it went (nil: nothing to save, or it failed) and,
     /// for the notebook, how many pages.
     var onLessonSaved: ((URL?, Int?) -> Void)?
+    var onStudyPDF: (() -> Void)?   // a study paper's PDF button (CallController+Study.swift)
 
     /// Screen rectangles of things currently drawn (cards and the paper), in points.
     var occupiedRects: [CGRect] { cardRects }
@@ -481,6 +482,8 @@ final class Overlay: NSObject, WKNavigationDelegate {
             if let id = Int("\(msg["id"] ?? "")") { onHelperAsking?(id) }
         case "helperAction":
             if let id = Int("\(msg["id"] ?? "")"), let action = msg["action"] as? String { onHelperAction?(id, action) }
+        case "studyPDF":
+            onStudyPDF?()
         case "saveLesson":
             // The paper's Save button (or "save this page"): a picture of the page on the Desktop.
             let title = msg["title"] as? String ?? "", png = msg["png"] as? String, svg = msg["svg"] as? String

@@ -13,6 +13,7 @@ import AppKit
 ///   {"at": 1.0, "saved": true}            a page was saved ("save my notes"): Poinky says where
 ///   {"at": 1.0, "helper": "fixture:fix-bug"}   starts a helper (POINKY_HELPER_CMD={root}/tools/fake-helper.py)
 ///   {"at": 2.0, "pointHelper": true}      as if the mouse rested on the newest helper (false: on nothing)
+///   {"at": 1.0, "type": "question"}       a typed question (⌃⌥T)
 ///   {"at": 9.0, "quit": true}
 /// A probe's "expect" is checked here (ListenTest.check) and written as an ok / FAIL line. A script can be a list of
 /// steps or {"env": {…}, "steps": […]} (tools/test-listen.sh passes the env on).
@@ -49,6 +50,8 @@ enum ListenTest {
         AudioIO.fakeMic = true
     }
 
+    private static var timers: [DispatchSourceTimer] = []
+
     static func run(script: String, out: String, controller c: CallController) {
         c.testKeys(down: false)   // from now on the real ⌃⌥ is ignored (the owner's own Poinky may be running)
         FileManager.default.createFile(atPath: out, contents: nil)
@@ -61,13 +64,20 @@ enum ListenTest {
         guard let steps = (json as? [[String: Any]]) ?? ((json as? [String: Any])?["steps"] as? [[String: Any]]) else {
             write("error: can't read \(script)"); NSApp.terminate(nil); return
         }
+        let started = ProcessInfo.processInfo.systemUptime
         for step in steps {
             let at = (step["at"] as? NSNumber)?.doubleValue ?? 0
-            DispatchQueue.main.asyncAfter(deadline: .now() + at) {
+            // (A plain asyncAfter tens of seconds out runs up to ~1.5 s late: GCD's leeway grows with the delay.)
+            let timer = DispatchSource.makeTimerSource(flags: .strict, queue: .main)
+            timers.append(timer)
+            timer.schedule(deadline: .now() + at, leeway: .milliseconds(2))
+            defer { timer.resume() }
+            timer.setEventHandler {
                 MainActor.assumeIsolated {
                     if let k = step["keys"] as? String {
                         c.testKeys(down: k == "down")
-                        write(String(format: "%.2f keys %@ (state %@)", at, k, c.testState))
+                        write(String(format: "%.2f keys %@ (state %@, %.2f s late)", at, k, c.testState,
+                                     ProcessInfo.processInfo.systemUptime - started - at))
                     }
                     if let w = step["words"] as? String {
                         c.testWords(w, final: step["final"] as? Bool ?? false, live: step["live"] as? Bool ?? false)
@@ -105,6 +115,7 @@ enum ListenTest {
                         c.overlay.testPointHelper(id)
                         write(String(format: "%.2f pointing at helper %@", at, id.map { "\($0)" } ?? "none"))
                     }
+                    if let t = step["type"] as? String { c.askTyped(t); write(String(format: "%.2f typed", at)) }
                     if step["killPage"] as? Bool == true { c.overlay.testKillPage(); write(String(format: "%.2f page killed", at)) }
                     if step["quit"] as? Bool == true { try? h?.synchronize(); NSApp.terminate(nil) }
                 }
