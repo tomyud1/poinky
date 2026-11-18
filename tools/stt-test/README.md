@@ -37,6 +37,21 @@ Word error rate %, `t` = key terms right % (Bernoulli, Navier-Stokes, Poinky, Mi
 | a fresh analyzer per question | 2.6 | 85 |
 | reference: Apple's engine on each file alone | 3.9 | 79 |
 
+**Before → after, end to end through the listener** (374 holds: US, Hebrew-accented and whispered voices clean,
+plus soft, fan and babble for US + Hebrew-accented; "hybrid" = Apple + Parakeet installed, the app's default then):
+
+| condition | before | after (fresh analyzer) | after + on-screen words | hybrid (Parakeet's text) |
+|---|---|---|---|---|
+| clean | 36.9 t46 | 18.5 t62 | 18.3 t62 | 3.5 t91 |
+| soft50 | 34.9 t48 | 15.3 t62 | 12.7 t65 | 4.7 t86 |
+| soft60 | 36.2 t45 | 18.4 t56 | 18.4 t58 | 6.4 t79 |
+| fan5 | 32.6 t50 | 16.9 t58 | 16.4 t58 | 5.4 t85 |
+| babble10 | 41.2 t38 | 27.9 t50 | 28.3 t48 | 11.4 t73 |
+| Poinky / Mint / Coral sentences | 34.2 t26 | 27.0 t32 | 26.5 t34 | 14.3 t69 |
+
+Contextual strings (`AnalysisContext`, given the sentence's own terms among 18 others) barely move
+SpeechTranscriber: "Mint" still comes back "meant", "Poinky" "Boinky". They stay on (they cost nothing).
+
 **English, all conditions** (1,088 clips; Apple = fixed path):
 
 | condition | Apple | Parakeet v2 | Parakeet Ultra |
