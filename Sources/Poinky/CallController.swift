@@ -220,6 +220,7 @@ final class CallController: NSObject, NSMenuDelegate {
     func setup() {
         // A session with no "session.end" before the next "app.start" (and no "app.quit") means Poinky was
         // killed, crashed, froze or lost power: the timeline couldn't tell those from a hang before.
+        Launches.started()   // first: how the last run ended ("app.unclean": froze, crashed, killed, restart)
         Timeline.log("app.start", ["commit": String(Updater.running.commit.prefix(7))])
         reminderTimer = Timer.scheduledTimer(withTimeInterval: Self.reminderTick, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.checkReminders() }

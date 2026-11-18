@@ -144,5 +144,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         controller?.shutdown()
+        Timeline.flush()   // "app.quit" must be on disk, or the next launch counts this run as unclean
     }
 }
