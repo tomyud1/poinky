@@ -49,6 +49,17 @@ plus soft, fan and babble for US + Hebrew-accented; "hybrid" = Apple + Parakeet 
 | babble10 | 41.2 t38 | 27.9 t50 | 28.3 t48 | 11.4 t73 |
 | Poinky / Mint / Coral sentences | 34.2 t26 | 27.0 t32 | 26.5 t34 | 14.3 t69 |
 
+Time from the end of the audio (after the app's 0.18 s tail) to the final text, real time, 34 holds:
+
+| speech | Apple (settle) | with Parakeet (its words go as soon as they come) |
+|---|---|---|
+| ~2 s | 199 ms (max 244) | 66 ms (max 71) |
+| ~5 s | 200 ms (max 243) | 65 ms (max 96) |
+| ~13 s | 294 ms | 101 ms |
+
+Parakeet's model loads in 0.33 s when the session starts (37 s the very first time: download + Neural Engine
+compile, done by the installer), uses ~540 MB of memory while a session runs (the helper quits with the session).
+
 Contextual strings (`AnalysisContext`, given the sentence's own terms among 18 others) barely move
 SpeechTranscriber: "Mint" still comes back "meant", "Poinky" "Boinky". They stay on (they cost nothing).
 
