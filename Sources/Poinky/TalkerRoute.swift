@@ -165,6 +165,33 @@ struct TalkerRoute: Equatable {
         return before.isEmpty ? handOverExample(question, checking: false) : nil
     }
 
+    /// When the talker hands over by itself (`<visual>` after its `<say>`), it still often explained first, so the
+    /// sketch said it all again. The first sentence plays at once; the rest of the `<say>` waits until the tag after
+    /// `</say>` shows: `<visual>` drops it (`CallController.sayGate`), anything else lets it play. `<visual>` comes
+    /// before `<draw>` in the reply format, so the wait is only the rest of the `<say>` being written.
+    enum AfterSay { case wait, visual, other }
+    static func afterSay(_ text: String, finished: Bool = false) -> AfterSay {
+        var t = text.replacingOccurrences(of: #"<offer[\s\S]*?</offer>"#, with: "", options: .regularExpression)
+        if let o = t.range(of: "<offer") { t = String(t[..<o.lowerBound]) }
+        guard let close = t.range(of: "</say>") else { return finished ? (t.contains("<visual>") ? .visual : .other) : .wait }
+        let rest = t[close.upperBound...].drop { $0.isWhitespace }
+        let head = String(rest.prefix(7))
+        if head.hasPrefix("<vis") { return .visual }   // no other tag starts so (<video does not)
+        if !head.isEmpty, "<visual".hasPrefix(head) { return finished ? .other : .wait }   // "<vis…": not yet known
+        if !head.isEmpty { return .other }   // "<dr…", "<ag…": another tag
+        return finished ? .other : .wait
+    }
+
+    /// Said after the first sentence when the rest of an explanation was dropped for the sketch.
+    static func sketchLine(_ question: String) -> String {
+        question.unicodeScalars.contains(where: { (0x0590...0x05FF).contains($0.value) }) ? "אני אצייר לך את זה." : "Let me sketch it."
+    }
+
+    /// Pieces up to the end of the first sentence play at once; `before`: the pieces already let through.
+    static func firstSentenceDone(_ before: [String]) -> Bool {
+        before.last?.last.map { ".!?…".contains($0) } == true
+    }
+
     /// The hint `shape` stands for, said right where the fast talker reads last.
     var shapeHint: String? {
         switch shape {

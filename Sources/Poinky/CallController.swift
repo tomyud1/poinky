@@ -102,6 +102,7 @@ final class CallController: NSObject, NSMenuDelegate {
     private var freshTalkerSince: TimeInterval = 0
     private var needsRecap = false
     private var swappedTalker = false   // this session's talker was swapped: the summary's key facts go with each question
+    private var sayGate: (turn: Int, passed: [String], held: [String], settled: Bool) = (-1, [], [], false)
     private var handOverTurn = -1            // the turn `handOverSaid` belongs to
     private var handOverSaid: [String] = []  // what the talker said so far while the teacher sketches the answer
     private var sentOnce: [String: String] = [:]   // context that rarely changes: sent again only when it does
@@ -1432,6 +1433,7 @@ final class CallController: NSObject, NSMenuDelegate {
                 guard myTurn == self.turn else { return }
                 let ev = self.parser.finish()
                 self.handle(ev)
+                if self.sayGateOn { self.settleSayGate(finished: true) }
                 self.releaseTeacher()
                 var said = self.parser.sayPreview
                 var note = Self.logNote(ev)
@@ -1740,6 +1742,30 @@ final class CallController: NSObject, NSMenuDelegate {
         }
     }
 
+    /// The talker's own hand-overs (`TalkerRoute.afterSay`): not for lookup answers, background updates or
+    /// while the teacher already sketches in parallel (that has its own gate), and only when there is a teacher.
+    private var sayGateOn: Bool { !lookupReply && artist != nil && teacherStartedTurn != turn && config.artistEnabled }
+
+    /// Lets the held rest of the `<say>` play, or drops it when a `<visual>` follows (then a short hand-over line).
+    private func settleSayGate(finished: Bool) {
+        guard sayGate.turn == turn, !sayGate.settled else { return }
+        switch TalkerRoute.afterSay(parser.text, finished: finished) {
+        case .wait:
+            return
+        case .visual:
+            sayGate.settled = true
+            if !sayGate.held.isEmpty {
+                Timeline.log("talker.cut", ["turn": turn, "pieces": sayGate.held.count, "why": "visual"])
+                speaker.enqueue(TalkerRoute.sketchLine(lastQuestion))
+            }
+        case .other:
+            sayGate.settled = true
+            for s in sayGate.held { speaker.enqueue(s) }
+            if !sayGate.held.isEmpty { state = .speaking }
+        }
+        sayGate.held = []
+    }
+
     private func handle(_ ev: TalkEvents) {
         // Answering from web pages or old transcripts: they can't make Poinky do anything.
         let ev = lookupReply ? ev.onlySpeech() : ev
@@ -1755,10 +1781,15 @@ final class CallController: NSObject, NSMenuDelegate {
                 if kept != s { Timeline.log("talker.cut", ["turn": turn, "replaced": true]) }
                 handOverSaid.append(kept)
                 s = kept
+            } else if sayGateOn {
+                if sayGate.turn != turn { sayGate = (turn, [], [], false) }
+                if !sayGate.settled, TalkerRoute.firstSentenceDone(sayGate.passed) { sayGate.held.append(s); continue }
+                sayGate.passed.append(s)
             }
             speaker.enqueue(s)
             state = .speaking
         }
+        if sayGateOn { settleSayGate(finished: false) }
         if !ev.sentences.isEmpty, spokenCaption.isEmpty { overlay.setClaudeCaption("…") }
         let lines = lastSnapshot?.text.lines ?? []
         let shotSize = lastSnapshot.map { CGSize(width: $0.width, height: $0.height) } ?? .zero

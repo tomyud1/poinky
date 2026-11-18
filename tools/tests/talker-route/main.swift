@@ -48,7 +48,24 @@ if args.count > 1, args[1] == "--handover" {
         for p in pieces { if let k = TalkerRoute.handOver(piece: p, before: said, question: q) { said.append(k) } }
         if said != want { bad += 1; print("FAIL \(pieces) → \(said), want \(want)") } else { print("ok   \(pieces.count) piece(s) → \(said)") }
     }
-    print("\(cases.count - bad)/\(cases.count) hand-over cases")
+    // What follows the talker's own <say>: a <visual> drops the rest of an explanation.
+    let after: [(String, Bool, TalkerRoute.AfterSay)] = [
+        ("<say>The crash is a divide by zero. You typed", false, .wait),
+        ("<say>The crash is a divide by zero.</say>\n", false, .wait),
+        ("<say>The crash is a divide by zero.</say>\n<vis", false, .visual),
+        ("<say>The crash is a divide by zero.</say>\n<vi", false, .wait),
+        ("<say>Mint will make it.</say>\n<video title=", false, .other),
+        ("<say>The crash is a divide by zero.</say>\n<draw>{", false, .other),
+        ("<say>Sure, I'll walk you through it.</say><guide>export", false, .other),
+        ("<say>Want me to sketch it?</say>\n<offer say=\"Okay.\"><visual>Lesson", false, .wait),
+        ("<say>Want me to sketch it?</say>\n<offer say=\"Okay.\"><visual>Lesson…</visual></offer>", true, .other),
+        ("<say>It's six.</say>", true, .other),
+    ]
+    for (text, done, want) in after {
+        let got = TalkerRoute.afterSay(text, finished: done)
+        if got != want { bad += 1; print("FAIL afterSay \(text.debugDescription) → \(got), want \(want)") } else { print("ok   afterSay → \(got)") }
+    }
+    print("\(cases.count + after.count - bad)/\(cases.count + after.count) hand-over cases")
     exit(bad == 0 ? 0 : 1)
 }
 

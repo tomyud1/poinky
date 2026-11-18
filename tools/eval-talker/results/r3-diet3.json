@@ -644,7 +644,7 @@
    "agent",
    "say"
   ],
-  "raw": "<say>Running the tests now.</say>\n<agent title=\"Run shop-api tests\" dir=\"/private/var/folders/h0/nksgk1vd297fjdkwcxjc51qr0000gn/T/poinky-eval-89njp7om\">Run the test suite in this project (use the project's test script from package.json, or run the tests in test/cart.test.ts). Report back: how many tests passed and failed, the names of any failing tests, and the exact error messages with the relevant lines. Do not modify any files; only run the tests and report the results.</agent>",
+  "raw": "<say>Running the tests now.</say>\n<agent title=\"Run shop-api tests\" dir=\"/tmp/poinky-eval\">Run the test suite in this project (use the project's test script from package.json, or run the tests in test/cart.test.ts). Report back: how many tests passed and failed, the names of any failing tests, and the exact error messages with the relevant lines. Do not modify any files; only run the tests and report the results.</agent>",
   "first_token": 0.6394188404083252,
   "first_sentence": 0.7872021198272705,
   "total": 1.645482063293457,

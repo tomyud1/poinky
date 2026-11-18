@@ -491,6 +491,7 @@ def main():
     text = json.dumps(results, indent=1, ensure_ascii=False).replace(home + "/", "~/").replace(home, "~")
     # The model may also invent a home folder from the account's name: keep only the scenarios' own names.
     text = re.sub(r"/Users/(?!alex/|you/|x/)[^/\"\\\s]+/", "/Users/alex/", text)
+    text = re.sub(r"/private/var/folders/[^/\"\\\s]+/[^/\"\\\s]+/T/poinky-eval-\w+", "/tmp/poinky-eval", text)
     open(path, "w", encoding="utf-8").write(text)
     n = sum(r["passed"] for r in results)
     fs = sorted(r.get("first_sentence") or 99 for r in results)
