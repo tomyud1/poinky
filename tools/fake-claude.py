@@ -51,7 +51,10 @@ prompt = argv[argv.index("--system-prompt") + 1] if "--system-prompt" in argv el
 writes_notes = "private notes" in prompt
 summarizes = "running summary of one voice session" in prompt
 note(f"start pid {os.getpid()} identity={'## Who you are' in prompt} about_me={'## About the user' in prompt} notes={'## Recent sessions' in prompt} note_writer={writes_notes} summarizer={summarizes}")
-role = ("summarizer" if summarizes else "notes" if writes_notes else "artist" if "teacher behind Poinky" in prompt
+role = ("summarizer" if summarizes else "notes" if writes_notes
+        else "study" if "Study sessions: working through homework together" in prompt
+        else "solver" if "You solve one homework question completely" in prompt
+        else "artist" if "teacher behind Poinky" in prompt
         else "searcher" if "look things up on the web for Poinky" in prompt
         else "guide" if "Poinky's guide" in prompt or "Poinky's hands" in prompt else "talker")
 busy = False
@@ -140,7 +143,20 @@ while True:
         if interrupted(float(os.environ.get("FAKE_SEARCH_SECS", "0.3"))): continue
         out({"type": "result", "subtype": "success", "is_error": False, "result": "- It is sunny today (example.com)"})
         continue
-    if role == "artist":
+    if role in ("study", "solver"):
+        # Study sessions (tools/test-study.py): FAKE_STUDY_SCRIPT is a JSON file {"solver": reply, "present": reply,
+        # "hint": reply, …}: the teacher answers by the task named in "STUDY: <kind>" (a list is used in order).
+        script = json.load(open(os.environ["FAKE_STUDY_SCRIPT"])) if os.environ.get("FAKE_STUDY_SCRIPT") else {}
+        kind = "solver" if role == "solver" else (text.split("STUDY: ", 1)[1].split()[0] if "STUDY: " in text else "ask")
+        got = script.get(kind, "<lesson title=\"x\" continue=\"true\"><say>Fake study line.</say><step>[]</step></lesson>")
+        if isinstance(got, list):
+            used = globals().setdefault("study_used", {})
+            k = used.get(kind, 0); used[kind] = k + 1
+            got = got[min(k, len(got) - 1)]
+        if role == "solver": time.sleep(float(os.environ.get("FAKE_SOLVER_SECS", "0.5")))
+        else: time.sleep(float(os.environ.get("FAKE_STUDY_DELAY", "0.2")))
+        reply = got
+    elif role == "artist":
         amode = os.environ.get("FAKE_ARTIST_MODE", "answer")
         if amode == "crash": sys.exit(3)
         if amode == "hang": busy = True; continue
