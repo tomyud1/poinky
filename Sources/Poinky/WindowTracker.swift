@@ -41,7 +41,6 @@ enum WindowTracker {
 
     /// Converts between a screen's local points (origin top-left of that screen) and global window coordinates.
     static func toGlobal(_ p: CGPoint, screen: NSScreen) -> CGPoint {
-        let mainHeight = NSScreen.screens.first?.frame.height ?? screen.frame.height
-        return CGPoint(x: p.x + screen.frame.minX, y: p.y + (mainHeight - screen.frame.maxY))
+        ScreenChoice.global(p, on: screen.frame, mainHeight: NSScreen.screens.first?.frame.height ?? screen.frame.height)
     }
 }

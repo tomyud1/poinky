@@ -838,9 +838,8 @@ final class CallController: NSObject, NSMenuDelegate {
         lastActivity = ProcessInfo.processInfo.systemUptime
         if state == .idle { startSession(.push) }
         guard mode == .push, state != .idle else { return }
-        // Talking on another screen: bring the buddy over (if nothing is drawn on the old one).
-        let here = screenWithMouse()
-        if here != overlay.screen, overlay.occupiedRects.isEmpty { overlay.show(on: here) }
+        // Talking on another screen: the buddy (and what you ask about) comes over.
+        followMouseScreen()
         pushCommitted = true
         Timeline.log("keys.down", ["state": "\(state)"])
         captionFade?.cancel()
@@ -1398,6 +1397,7 @@ final class CallController: NSObject, NSMenuDelegate {
         releaseReports()   // a new question cut a report short
         pendingOffer = nil   // its reply may make a new one
         talker.cancelCurrent()   // an older reply still being written is dropped anyway; don't queue behind it
+        if !proactive, mode == .push { followMouseScreen() }   // (typed: the question is about the screen you're on)
         turn += 1
         let myTurn = turn
         lastActivity = ProcessInfo.processInfo.systemUptime
@@ -3130,15 +3130,30 @@ final class CallController: NSObject, NSMenuDelegate {
     // MARK: - Helpers
 
     private func screenWithMouse() -> NSScreen {
-        let loc = NSEvent.mouseLocation
-        return NSScreen.screens.first(where: { NSMouseInRect(loc, $0.frame, false) }) ?? NSScreen.main ?? NSScreen.screens[0]
+        let screens = NSScreen.screens
+        return ScreenChoice.index(of: NSEvent.mouseLocation, in: screens.map(\.frame)).map { screens[$0] } ?? NSScreen.main ?? screens[0]
     }
 
     /// Cursor in the overlay's coordinates (points, origin top-left of that screen).
     private func localCursor(on screen: NSScreen) -> CGPoint? {
-        let loc = NSEvent.mouseLocation
-        guard NSMouseInRect(loc, screen.frame, false) else { return nil }
-        return CGPoint(x: loc.x - screen.frame.minX, y: screen.frame.maxY - loc.y)
+        ScreenChoice.local(NSEvent.mouseLocation, on: screen.frame)
+    }
+
+    /// You're asking from another display than the overlay's: the buddy, your words and the screenshot go there
+    /// (they stayed on the old one while something was drawn on it, and Claude saw the wrong screen). What was
+    /// drawn there goes (one overlay, one screen).
+    private func followMouseScreen() {
+        let here = screenWithMouse()
+        let screens = NSScreen.screens
+        guard ScreenChoice.shouldMove(overlay: overlay.screen.flatMap { s in screens.firstIndex(of: s) }, mouse: screens.firstIndex(of: here)) else { return }
+        Timeline.log("screen.moved", ["drawn": !overlay.occupiedRects.isEmpty])
+        if !overlay.occupiedRects.isEmpty {
+            stopLesson()
+            overlay.clearAll()
+            anchor = nil
+            focusRegion = nil
+        }
+        overlay.show(on: here)
     }
 
     private func showAlert(_ text: String, info: String, settingsPane: String? = nil) {
