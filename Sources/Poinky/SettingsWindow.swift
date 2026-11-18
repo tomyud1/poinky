@@ -674,13 +674,13 @@ private struct PrivacyTab: View {
             Section {
                 Text("Poinky never sees these apps: they're left out of every screenshot it sends to Claude.")
                     .font(.callout).foregroundStyle(.secondary)
-                ForEach(model.config.excludedApps, id: \.self) { id in
+                // Installed ones by name and icon; the password managers listed in advance that aren't installed
+                // are one quiet line (they were raw bundle IDs).
+                ForEach(model.config.excludedApps.filter { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0) != nil }, id: \.self) { id in
                     HStack {
                         if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: id) {
                             Image(nsImage: NSWorkspace.shared.icon(forFile: url.path)).resizable().frame(width: 18, height: 18)
                             Text(FileManager.default.displayName(atPath: url.path).replacingOccurrences(of: ".app", with: ""))
-                        } else {
-                            Text(id).foregroundStyle(.secondary)
                         }
                         Spacer()
                         Button(role: .destructive) { model.config.excludedApps.removeAll { $0 == id } } label: {
@@ -689,10 +689,25 @@ private struct PrivacyTab: View {
                         .buttonStyle(.borderless)
                     }
                 }
+                let absent = model.config.excludedApps.filter { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0) == nil }
+                if !absent.isEmpty {
+                    Text("Also left out if you install them: " + Self.appNames(absent).joined(separator: ", ") + ".")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
                 Button("Add App…") { addApp() }
             }
         }
         .formStyle(.grouped)
+    }
+
+    /// Names for apps that aren't installed: the password managers Poinky leaves out by default, else the
+    /// bundle ID's last part ("com.example.Notes" → "Notes").
+    static func appNames(_ ids: [String]) -> [String] {
+        let known = ["com.apple.Passwords": "Passwords", "com.apple.keychainaccess": "Keychain Access",
+                     "com.1password.1password": "1Password", "com.agilebits.onepassword7": "1Password 7",
+                     "com.bitwarden.desktop": "Bitwarden", "com.lastpass.LastPass": "LastPass"]
+        var seen = Set<String>()
+        return ids.map { known[$0] ?? ($0.split(separator: ".").last.map(String.init) ?? $0) }.filter { seen.insert($0).inserted }
     }
 
     private func addApp() {
