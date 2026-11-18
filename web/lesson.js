@@ -131,11 +131,15 @@
   const ease = u => u < .5 ? 2 * u * u : 1 - Math.pow(-2 * u + 2, 2) / 2;
   const jit = a => (Math.random() * 2 - 1) * a;
 
+  // An interrupt (lessonStop), a new lesson or a new step over a replay changes `token`: the tween running then
+  // rejects with CANCELLED, so the op it belongs to stops there (its later parts are never drawn).
+  const CANCELLED = new Error('cancelled');
   function tween(dur, fn) {
-    return new Promise(res => {
+    return new Promise((res, rej) => {
       const my = token, t0 = performance.now();
+      if (!(dur >= 0)) dur = 0;
       function f(now) {
-        if (my !== token) return res(false);
+        if (my !== token) return rej(CANCELLED);
         const u = Math.min(1, (now - t0) / (dur * 1000));
         fn(u);
         if (u < 1) requestAnimationFrame(f); else res(true);
@@ -146,6 +150,7 @@
   const wait = s => tween(s, () => {});
 
   function setPen(x, y) {
+    if (!isFinite(x) || !isFinite(y)) return;
     penPos = [x, y];
     pen.style.transform = `translate(${x - 3}px, ${y - 3}px)`;
     pen.style.opacity = 1;
@@ -172,13 +177,14 @@
     path.style.strokeDasharray = L;
     path.style.strokeDashoffset = L;
     const p0 = path.getPointAtLength(0);
-    await penTo(...toScreen(p0.x, p0.y));
-    const ok = await tween(Math.max(.12, L / speed) / pace, u => {
-      path.style.strokeDashoffset = L * (1 - u);
-      const p = path.getPointAtLength(L * u);
-      setPen(...toScreen(p.x, p.y));
-    });
-    if (ok) { path.style.strokeDasharray = ''; path.style.strokeDashoffset = ''; }
+    try {
+      await penTo(...toScreen(p0.x, p0.y));
+      await tween(Math.max(.12, L / speed) / pace, u => {
+        path.style.strokeDashoffset = L * (1 - u);
+        const p = path.getPointAtLength(L * u);
+        setPen(...toScreen(p.x, p.y));
+      });
+    } finally { path.style.strokeDasharray = ''; path.style.strokeDashoffset = ''; }   // stopped: the stroke stays whole
   }
 
   // ---------- paper ----------
@@ -215,17 +221,20 @@
     }
     label();
   }
-  function applyView(v) {
-    svg.style.height = v.h + 'px';
-    svg.setAttribute('viewBox', `0 ${v.y.toFixed(1)} ${UNITS} ${v.vh.toFixed(1)}`);
+  function applyView(v, s = svg) {
+    s.style.height = v.h + 'px';
+    s.setAttribute('viewBox', `0 ${v.y.toFixed(1)} ${UNITS} ${v.vh.toFixed(1)}`);
   }
+  // One view animation at a time, on the paper it started on (a new paper or a newer target ends it).
+  let viewAnim = 0;
   function animateView(target) {
-    const from = { ...view }, t0 = performance.now();
+    const from = { ...view }, t0 = performance.now(), my = ++viewAnim, s = svg;
     if (!from.vh) { view = target; applyView(view); return; }
     const step = now => {
+      if (my !== viewAnim || s !== svg) return;
       const u = Math.min(1, (now - t0) / 380), e = ease(u);
       view = { h: from.h + (target.h - from.h) * e, y: from.y + (target.y - from.y) * e, vh: from.vh + (target.vh - from.vh) * e };
-      applyView(view);
+      applyView(view, s);
       if (u < 1) requestAnimationFrame(step);
     };
     requestAnimationFrame(step);
@@ -717,13 +726,14 @@
     const cp = el('clipPath', { id }, defs);
     const r = el('rect', { x: bb.x - 3, y: bb.y - 6, width: 0, height: bb.height + 12 }, cp);
     node.setAttribute('clip-path', `url(#${id})`);
-    await penTo(...onScreen(bb.x, baseY));
+    try { await penTo(...onScreen(bb.x, baseY)); } catch (e) { node.removeAttribute('clip-path'); cp.remove(); throw e; }
     const chars = Math.max(1, bb.width / (size * .5));
-    const ok = await tween(Math.max(.2, chars / 26) / pace, u => {
-      r.setAttribute('width', (bb.width + 6) * u);
-      setPen(...onScreen(bb.x + bb.width * u, baseY + Math.sin(u * 50) * size * .1));
-    });
-    if (ok) { node.removeAttribute('clip-path'); cp.remove(); } else { r.setAttribute('width', bb.width + 6); }
+    try {
+      await tween(Math.max(.2, chars / 26) / pace, u => {
+        r.setAttribute('width', (bb.width + 6) * u);
+        setPen(...onScreen(bb.x + bb.width * u, baseY + Math.sin(u * 50) * size * .1));
+      });
+    } finally { node.removeAttribute('clip-path'); cp.remove(); }   // stopped: the words stay whole
   }
 
   async function writeText(g, o) {
@@ -744,12 +754,23 @@
     if (o.halo) node.style.setProperty('--halo', o.halo);
     let bb = node.getBBox();
     // Too wide for the paper: shrink it to fit (never past the right margin).
-    const maxW = o.maxWidth || (UNITS - 24 - (o.align === 'center' ? 0 : Math.max(0, bb.x)));
-    if ((o.fit !== false || o.maxWidth) && bb.width > maxW + 1 && (bb.x >= 0 || o.maxWidth) && (o.fitTries || 0) < 3) {
+    const left = o.align !== 'center' && o.align !== 'right';
+    const maxW = o.maxWidth || (UNITS - 24 - (left ? Math.max(0, bb.x) : 0));
+    if ((o.fit !== false || o.maxWidth) && bb.width > maxW + 1 && (o.fitTries || 0) < 3) {
       // Math with sub- and superscripts doesn't shrink in proportion: check again after shrinking.
-      const k = Math.max(o.maxWidth ? .35 : .55, maxW / bb.width * (o.fitTries ? .97 : 1));
+      const k = Math.max(o.maxWidth || !left ? .35 : .55, maxW / bb.width * (o.fitTries ? .97 : 1));
       node.remove();
-      return writeText(g, { ...o, size: size * k, fit: false, maxWidth: o.maxWidth && isMath ? o.maxWidth : undefined, fitTries: (o.fitTries || 0) + 1 });
+      return writeText(g, { ...o, size: size * k, fit: o.maxWidth ? false : 'shrunk', maxWidth: o.maxWidth && isMath ? o.maxWidth : undefined, fitTries: (o.fitTries || 0) + 1 });
+    }
+    // Still over an edge (centered too close to it, or starting near the right): move it onto the paper.
+    if (o.fit !== false && !o.maxWidth) {
+      const dx = bb.x < 12 ? 12 - bb.x : bb.x + bb.width > UNITS - 12 ? Math.max(12 - bb.x, UNITS - 12 - bb.x - bb.width) : 0;
+      if (Math.abs(dx) > .5) {
+        o = { ...o, x: o.x + dx };
+        if (isMath) { node.remove(); node = drawMath(g, o.text || o.tex || '', o.x, o.y, size, color, o.align, o.bold); }
+        else node.setAttribute('x', o.x);
+        bb = node.getBBox();
+      }
     }
     if (o.free !== false) {
       const dy = freeShift({ x: bb.x, y: bb.y, w: bb.width, h: bb.height });
@@ -987,13 +1008,27 @@
 
   const graphs = {};
   /** A nice tick step for a range: 1, 2 or 5 × a power of ten, about 4–8 ticks. */
+  /** [lo, hi] with lo < hi, whatever the model wrote ([5, 1] is turned round, [2, 2] widened). */
+  function range(r, d) {
+    if (!r) return d;
+    let [a, b] = r;
+    if (a > b) [a, b] = [b, a];
+    if (a === b) { a -= 1; b += 1; }
+    return [a, b];
+  }
+  /** The tick step the teacher asked for, unless it would draw a forest of ticks (or never end). */
+  const tickStep = (given, span) => given > 0 && span / given <= 24 ? given : niceStep(span);
   function niceStep(span) { const raw = span / 5, p = Math.pow(10, Math.floor(Math.log10(raw))), m = raw / p; return (m < 1.5 ? 1 : m < 3.5 ? 2 : m < 7.5 ? 5 : 10) * p; }
-  const fmtTick = v => { const r = Math.round(v * 1000) / 1000; return (r < 0 ? '−' : '') + Math.abs(r); };
+  const fmtTick = v => {
+    const a = Math.abs(v), r = x => Math.round(x * 1000) / 1000;
+    const s = a >= 1e9 ? r(a / 1e9) + 'B' : a >= 1e6 ? r(a / 1e6) + 'M' : a >= 1e4 ? r(a / 1e3) + 'k' : String(r(a));
+    return (v < 0 && s !== '0' ? '−' : '') + s;
+  };
 
   async function graph(o) {
     const g = group(o);
     const x = o.x ?? 60, w = Math.min(o.w || 320, UNITS - 20 - x), h = o.h || 220;
-    const xr = o.xrange || o.x_range || [-5, 5], yr = o.yrange || o.y_range || [-5, 5];
+    const xr = range(o.xrange || o.x_range, [-5, 5]), yr = range(o.yrange || o.y_range, [-5, 5]);
     const y = o.y + freeShift({ x: x - 30, y: o.y - 14, w: w + 50, h: h + 44 });
     claim({ x: x - 30, y: y - 14, w: w + 50, h: h + 44 }, o.id);
     grow(y + h + 34);
@@ -1004,7 +1039,7 @@
     // Axes cross at 0 when 0 is in range, otherwise sit on the edge.
     const ax = Math.max(xr[0], Math.min(xr[1], 0)), ay = Math.max(yr[0], Math.min(yr[1], 0));
     if (o.grid) {
-      const sx = niceStep(xr[1] - xr[0]), sy = niceStep(yr[1] - yr[0]);
+      const sx = tickStep(o.xstep, xr[1] - xr[0]), sy = tickStep(o.ystep, yr[1] - yr[0]);
       let d = '';
       for (let v = Math.ceil(xr[0] / sx) * sx; v <= xr[1] + 1e-9; v += sx) d += `M${X(v)},${y} L${X(v)},${y + h} `;
       for (let v = Math.ceil(yr[0] / sy) * sy; v <= yr[1] + 1e-9; v += sy) d += `M${x},${Y(v)} L${x + w},${Y(v)} `;
@@ -1014,7 +1049,7 @@
     await drawPath(axis(`M${x - 6},${Y(ay)} L${x + w + 8},${Y(ay) + jit(.8)} M${x + w},${Y(ay) - 5} L${x + w + 8},${Y(ay)} L${x + w},${Y(ay) + 5}`), onScreen, 1600);
     await drawPath(axis(`M${X(ax)},${y + h + 6} L${X(ax) + jit(.8)},${y - 8} M${X(ax) - 5},${y} L${X(ax)},${y - 8} L${X(ax) + 5},${y}`), onScreen, 1600);
     if (o.ticks !== false) {
-      const sx = o.xstep || niceStep(xr[1] - xr[0]), sy = o.ystep || niceStep(yr[1] - yr[0]);
+      const sx = tickStep(o.xstep, xr[1] - xr[0]), sy = tickStep(o.ystep, yr[1] - yr[0]);
       const tg = el('g', {}, g);
       let d = '';
       for (let v = Math.ceil(xr[0] / sx) * sx; v <= xr[1] + 1e-9; v += sx) {
@@ -1041,8 +1076,10 @@
     const g = group(o, gr.g.parentNode === svg ? svg : svg);
     const col = theme(o.color) ? theme(o.color)[0] : (o.color ? legible(o.color) : THEME.blue[0]);
     let pts = [];
-    const from = (o.from ?? gr.xr[0]), to = (o.to ?? gr.xr[1]);
-    if (Array.isArray(o.points)) pts = o.points.map(p => [+p[0], +p[1]]);
+    const from = Math.max(gr.xr[0], o.from ?? gr.xr[0]), to = Math.min(gr.xr[1], o.to ?? gr.xr[1]);
+    const xspan = gr.xr[1] - gr.xr[0];
+    if (Array.isArray(o.points)) pts = o.points.filter(p => Array.isArray(p)).map(p => [+p[0], +p[1]])
+      .filter(([xv]) => xv >= gr.xr[0] - xspan * .02 && xv <= gr.xr[1] + xspan * .02);
     else if (o.fn) {
       let f; try { f = compileFn(o.fn); } catch (e) { return; }
       const n = 160;
@@ -1076,6 +1113,8 @@
   async function point(o) {
     const gr = graphs[o.graph] || graphs._last;
     if (!gr || !Array.isArray(o.at)) return;
+    const ax = +o.at[0], ay = +o.at[1], sx = (gr.xr[1] - gr.xr[0]) * .02, sy = (gr.yr[1] - gr.yr[0]) * .02;
+    if (!(ax >= gr.xr[0] - sx && ax <= gr.xr[1] + sx && ay >= gr.yr[0] - sy && ay <= gr.yr[1] + sy)) return;   // off the graph
     const g = group(o);
     const [stroke] = theme(o.color) || THEME.red;
     const px = gr.X(+o.at[0]), py = gr.Y(+o.at[1]);
@@ -1171,8 +1210,47 @@
     label();
   }
 
+  // ---------- ops as the model writes them: numbers as strings, missing fields ----------
+  const num = v => typeof v === 'number' ? (isFinite(v) ? v : undefined)
+    : (typeof v === 'string' && v.trim() !== '' && isFinite(+v) ? +v : undefined);
+  const pair = v => Array.isArray(v) && v.length >= 2 && num(v[0]) != null && num(v[1]) != null ? [num(v[0]), num(v[1])] : undefined;
+  /** Where something with no y goes: under what's drawn. */
+  const below = () => (contentBottom ? contentBottom + 30 : 40);
+  /** The op with its numbers as numbers and what it can't do without filled in, or null when it can't be drawn. */
+  function clean(o) {
+    const c = { ...o };
+    const nums = ['x', 'y', 'w', 'h', 'r', 'size', 'n', 's', 'curve', 'width', 'xstep', 'ystep'].concat(c.op === 'plot' ? ['from', 'to'] : []);
+    for (const key of nums) if (key in c) { const v = num(c[key]); if (v == null) delete c[key]; else c[key] = v; }
+    if (c.op !== 'plot') for (const key of ['from', 'to']) if (key in c) c[key] = pair(c[key]);
+    for (const key of ['xrange', 'yrange', 'x_range', 'y_range']) if (key in c) c[key] = pair(c[key]);
+    if (Array.isArray(c.at)) c.at = c.at.map(v => num(v) ?? v);   // a category's name stays a name
+    if (Array.isArray(c.points) && c.op !== 'plot') c.points = c.points.map(pair).filter(Boolean);
+    for (const key of ['text', 'tex', 'label', 'id', 'target', 'graph', 'table']) if (c[key] != null && typeof c[key] !== 'string') c[key] = String(c[key]);
+    if (typeof c.ids === 'string') c.ids = [c.ids];
+    switch (c.op) {
+      case 'text': case 'math':
+        if (!c.text && !c.tex) return null;
+        if (c.x == null) c.x = c.align === 'center' ? UNITS / 2 : 40;
+        if (c.y == null) c.y = below() + (c.size || 22);
+        break;
+      case 'box':
+        if (c.x == null) c.x = 40;
+        if (c.y == null) c.y = below();
+        if (c.h == null) c.h = 64;
+        if (c.w == null) c.w = Math.max(120, Math.min(UNITS - 40 - c.x, (c.text ? measure(c.text, c.size || 26) : 0) + 40));
+        break;
+      case 'graph': case 'axes': case 'table': if (c.y == null) c.y = below() + 14; break;
+      case 'arrow': if (!c.from || !c.to) return null; break;
+      case 'line': if (!c.points || c.points.length < 2) return null; break;
+      case 'dot': case 'circle': case 'check': case 'number': if (c.x == null || c.y == null) return null; break;
+    }
+    return c;
+  }
+
   async function doOp(o, k) {
     if (!paper || !paper.isConnected) return;
+    o = clean(o);
+    if (!o) return;
     if (['text', 'math', 'graph', 'axes', 'table', 'box', 'arrow', 'line', 'dot', 'circle', 'check', 'number'].includes(o.op)) {
       const t = opTop(o);
       if (toTop && t != null) { yShift = t > 80 ? 40 - t : 0; toTop = false; }
@@ -1240,6 +1318,7 @@
           await reveal(p, bb, size, bb.y + bb.height * .7);
         }
       }
+    } catch (e) {   // a new step, a new lesson or an interrupt: everything shows at once
     } finally {
       for (const p of pieces) p.style.opacity = '';
       replayBusy = false;
@@ -1250,29 +1329,41 @@
   async function run() {
     if (running) return;
     running = true;
-    replaying++;   // a new step stops a replay
+    if (replayBusy) token++;   // a new step stops a replay at once
+    replaying++;
     const my = token;
-    while (queue.length && my === token) {
-      const { ops, k } = queue.shift();
-      pace = 1 + .7 * queue.length;
-      curStep = ++stepNo;
-      for (const o of ops) {
-        if (my !== token) break;
-        try { await doOp(o, k); } catch (e) {}
+    try {
+      while (queue.length && my === token) {
+        const { ops, k } = queue.shift();
+        pace = 1 + .7 * queue.length;
+        curStep = ++stepNo;
+        for (const o of ops) {
+          if (my !== token) break;
+          try { await doOp(o, k); } catch (e) {}   // a bad op never stops the rest
+        }
+      }
+    } finally {
+      if (my === token) {
+        running = false;
+        penHide = setTimeout(() => { pen.style.opacity = 0; }, 2500);
+        keepPage(paper);
+        X.report();
       }
     }
-    if (my === token) {
-      running = false;
-      penHide = setTimeout(() => { pen.style.opacity = 0; }, 2500);
-      keepPage(paper);
-      X.report();
-    }
+  }
+  /** What a step's ops can arrive as: a list, one op on its own, lists inside the list, junk mixed in. */
+  function opsOf(spec) {
+    const raw = spec && spec.ops !== undefined ? spec.ops : spec;
+    const list = Array.isArray(raw) ? raw.flat(2) : [raw];
+    return list.filter(o => o && typeof o === 'object' && !Array.isArray(o) && typeof o.op === 'string');
   }
 
   SB.lessonBegin = (f, title, continuing) => {
     token++;
     queue = [];
     running = false;
+    // An op cut off by this lesson leaves the pen where it was: hide it unless the new lesson picks it up.
+    clearTimeout(penHide); penHide = setTimeout(() => { pen.style.opacity = 0; }, 2500);
     // A follow-up keeps drawing below what's on the current paper.
     if (continuing && paper && paper.isConnected) { X.report(); return; }
     const old = paper && paper.isConnected ? paper : null;
@@ -1281,12 +1372,12 @@
   };
   SB.lessonStep = (spec, k) => {
     if (!paper || !paper.isConnected) return;
-    queue.push({ ops: (spec && spec.ops) || [], k: k || 1 });
+    queue.push({ ops: opsOf(spec), k: +k > 0 ? +k : 1 });
     run();
   };
   /** Still drawing (for tests and tools). */
   SB.lessonBusy = () => running || queue.length > 0;
-  SB._lessonTest = { compileFn, parseTex, items, tables, replayStep };
+  SB._lessonTest = { compileFn, parseTex, items, tables, graphs, replayStep };
   SB.lessonStop = () => {
     if (paper && paper.isConnected) keepPage(paper);
     token++;

@@ -1,0 +1,121 @@
+<!doctype html><html><head><meta charset="utf-8">
+<!-- The paper (web/lesson.js) survives what a model or a user can throw at it: malformed steps and ops (a step
+     that's one object instead of a list, numbers written as strings, missing fields, empty ranges), an interrupt
+     in the middle of an op, a new lesson while the old one is still drawing. A bad op never stops the rest. -->
+<style>html,body{margin:0;height:100%;background:#fff}iframe{position:absolute;inset:0;width:1400px;height:900px;border:0}</style>
+</head><body>
+<iframe id="ov" src="../../web/overlay.html"></iframe>
+<script>
+(async () => {
+  const results = [], fail = [];
+  const check = (ok, what) => { results.push((ok ? 'ok   ' : 'FAIL ') + what); if (!ok) fail.push(what); };
+  const wait = ms => new Promise(r => setTimeout(r, ms));
+  try {
+    const W = document.getElementById('ov').contentWindow;
+    for (let i = 0; i < 100 && !(W.SB && W.SB.lessonBegin); i++) await wait(50);
+    const SB = W.SB, T = SB._lessonTest;
+    const done = async (ms = 20000) => { for (let i = 0; i < ms / 50 && SB.lessonBusy(); i++) await wait(50); await wait(80); return !SB.lessonBusy(); };
+    const item = id => T.items[id];
+    const frame = { x: 700, y: 60, w: 640, h: 800 };
+    const pen = W.document.getElementById('pen');
+    const papers = () => [...W.document.querySelectorAll('.card.lpaper:not(.leaving)')];
+
+    // A step that is a single op instead of a list (the app wraps whatever is in <step> as {"ops": …}).
+    SB.lessonBegin(frame, 'robust');
+    SB.lessonStep({ ops: { op: 'text', id: 'one', x: 40, y: 60, text: 'one op, not a list', size: 30 } }, 1);
+    check(await done(5000), 'a step that is one op instead of a list does not leave the paper stuck "busy"');
+    check(!!item('one'), 'and that one op is drawn');
+    SB.lessonStep({ ops: [{ op: 'text', id: 'after', x: 40, y: 120, text: 'later steps still draw', size: 24 }] }, 1);
+    check(await done(5000) && !!item('after'), 'steps after it still draw');
+
+    // Malformed ops: each bad one is skipped or repaired, the ones after it draw.
+    SB.lessonStep({ ops: [
+      null, 'text', 42, [{ op: 'text', id: 'nested', x: 40, y: 170, text: 'a list inside the list', size: 22 }],
+      { op: 'text', id: 'num', x: 40, y: 220, text: 47, size: 24 },
+      { op: 'text', id: 'strs', x: '40', y: '270', text: 'numbers written as strings', size: '24' },
+      { op: 'text', id: 'noy', text: 'no position given', size: 22 },
+      { op: 'box', id: 'nobox', x: 40, y: 330, text: 'box with no size' },
+      { op: 'arrow', id: 'noarr', from: [40] },
+      { op: 'line', id: 'badline', points: [[40, 400], ['x', 'y'], [300, 400]] },
+      { op: 'text', id: 'last', x: 40, y: 460, text: 'the last op still draws', size: 22 },
+    ] }, 1);
+    check(await done(), 'a step full of bad ops finishes');
+    check(!!item('last') && item('last').querySelector('text'), 'a bad op never stops the rest of the step');
+    check(!!item('nested'), 'a list inside the list is drawn');
+    check(item('num') && item('num').textContent.includes('47'), 'text given as a number is written');
+    const sb = item('strs') && item('strs').querySelector('text');
+    check(sb && Math.abs(+sb.getAttribute('x') - 40) < 1 && Math.abs(+sb.getAttribute('font-size') - 24) < .5, 'numbers written as strings are read as numbers');
+    const ny = item('noy') && item('noy').getBBox();
+    check(ny && ny.width > 50 && ny.y > 0 && isFinite(ny.y), `text with no position goes below what's drawn (y ${ny && Math.round(ny.y)})`);
+    const nb = item('nobox') && item('nobox').getBBox();
+    check(nb && nb.width > 60 && nb.height > 30, `a box with no size gets one that fits its text (${nb && Math.round(nb.width)}×${nb && Math.round(nb.height)})`);
+    const bl = item('badline') && item('badline').querySelector('path');
+    check(bl && !/NaN/.test(bl.getAttribute('d')), 'a line drops the points that are not numbers');
+    const pt = pen.style.transform;
+    check(!/NaN/.test(pt), `the pen never gets a NaN position (${pt})`);
+
+    // Graphs with bad ranges or steps never hang or draw NaN.
+    SB.lessonBegin(frame, 'graphs');
+    const t0 = performance.now();
+    SB.lessonStep({ ops: [
+      { op: 'graph', id: 'g0', x: 80, y: 60, w: 300, h: 160, xrange: [2, 2], yrange: [5, 1] },
+      { op: 'graph', id: 'g1', x: 80, y: 300, w: 300, h: 160, xrange: ['0', '10'], yrange: [0, 1000000], ystep: 1, xstep: -1 },
+      { op: 'plot', id: 'p1', graph: 'g1', fn: 'x', from: -20, to: 30 },
+      { op: 'point', id: 'pt1', graph: 'g1', at: [50, 5] },
+    ] }, 1);
+    check(await done(15000), 'graphs with empty, reversed or string ranges and silly steps finish');
+    check(performance.now() - t0 < 12000, `and quickly (${Math.round(performance.now() - t0)} ms)`);
+    const nanIn = id => item(id) && [...item(id).querySelectorAll('path,text')].some(n => /NaN/.test((n.getAttribute('d') || '') + (n.getAttribute('x') || '') + (n.getAttribute('y') || '')));
+    check(item('g0') && !nanIn('g0'), 'an empty or reversed range draws axes, not NaN');
+    const ticks = item('g1') ? item('g1').querySelectorAll('text').length : 0;
+    check(ticks > 3 && ticks < 40, `a tick step far too small for the range is ignored (${ticks} tick labels)`);
+    const g1 = T.graphs.g1, pb = item('p1') && item('p1').getBBox();
+    check(g1 && pb && pb.x >= g1.x - 2 && pb.x + pb.width <= g1.x + g1.w + 2, `a curve asked to run past the x range stays inside the graph (${pb && Math.round(pb.x)}–${pb && Math.round(pb.x + pb.width)} in ${g1 && g1.x}–${g1 && g1.x + g1.w})`);
+    const pp = item('pt1') && item('pt1').querySelector('path');
+    check(!pp || (pp.getBBox().x <= g1.x + g1.w + 8), 'a point outside the graph is not drawn off to the side');
+
+    // An interrupt in the middle of an op: nothing more is drawn and the pen goes away.
+    SB.lessonBegin(frame, 'interrupt');
+    SB.lessonStep({ ops: [{ op: 'table', id: 't', x: 40, y: 60, rows: [['a', 'b'], ['1', '2'], ['3', '4'], ['5', '6'], ['7', '8'], ['9', '10']] }] }, 1);
+    await wait(500);
+    SB.lessonStop();
+    const rowsAtStop = T.tables.t ? T.tables.t.bottom : 0;
+    await wait(2500);
+    check(T.tables.t && T.tables.t.bottom === rowsAtStop, `after an interrupt the op stops drawing (table bottom ${rowsAtStop} → ${T.tables.t && T.tables.t.bottom})`);
+    check(W.getComputedStyle(pen).opacity === '0', `after an interrupt the pen is gone (opacity ${W.getComputedStyle(pen).opacity})`);
+
+    // A new lesson while the old one is mid-op: the old op doesn't reserve space or grow the new paper.
+    SB.lessonBegin(frame, 'old');
+    SB.lessonStep({ ops: [{ op: 'table', id: 't2', x: 40, y: 400, rows: [['a', 'b'], ['1', '2'], ['3', '4'], ['5', '6'], ['7', '8']] }] }, 1);
+    await wait(500);
+    SB.lessonBegin(frame, 'new');
+    SB.lessonStep({ ops: [{ op: 'text', id: 'fresh', x: 40, y: 60, text: 'a fresh page', size: 28 }] }, 1);
+    await done();
+    await wait(1500);
+    const fresh = papers().pop();
+    const svgH = fresh.querySelector('svg.lsvg').getBoundingClientRect().height;
+    check(fresh.dataset.title === 'new' && svgH < 300, `the old lesson's op doesn't make the new paper taller (${Math.round(svgH)} px)`);
+    check(!/y≈[4-9]\d\d/.test(fresh.dataset.label), `the new paper's "used down to" is its own (${fresh.dataset.label})`);
+    const fb = item('fresh').getBBox();
+    check(Math.abs(fb.y + fb.height - 66) < 20, `text on the new paper isn't pushed down by the old op (bottom ${Math.round(fb.y + fb.height)})`);
+    await wait(3000);
+    check(W.getComputedStyle(pen).opacity === '0', 'the pen hides when the new lesson is done');
+
+    // Text never runs off the paper: a long centered headline shrinks, text placed near the edge moves in.
+    SB.lessonBegin(frame, 'edges');
+    SB.lessonStep({ ops: [
+      { op: 'text', id: 'ctr', x: 400, y: 60, text: 'A very long centered headline that is much wider than the paper is', size: 34, bold: true, align: 'center' },
+      { op: 'text', id: 'ctr2', x: 120, y: 130, text: 'centered too far left', size: 30, align: 'center' },
+      { op: 'text', id: 'rt', x: 700, y: 200, text: 'starts near the right edge', size: 26 },
+      { op: 'math', id: 'mth', x: 400, y: 280, text: 'f(x) = \\frac{a_1 x^2 + a_2 x + a_3 + a_4 + a_5 + a_6 + a_7 + a_8 + a_9}{b_1 x + b_2} + c_1 + c_2 + c_3', size: 34, align: 'center' },
+    ] }, 1);
+    await done();
+    for (const id of ['ctr', 'ctr2', 'rt', 'mth']) {
+      const b = item(id) && item(id).getBBox();
+      check(b && b.x >= 0 && b.x + b.width <= 800, `"${id}" stays on the paper (${b && Math.round(b.x)}–${b && Math.round(b.x + b.width)})`);
+    }
+  } catch (e) { check(false, 'threw: ' + e.message + ' ' + (e.stack || '').split('\n')[1]); }
+  window.testResults = { pass: !fail.length, lines: results };
+})();
+</script>
+</body></html>
