@@ -24,6 +24,8 @@ final class PushToTalk {
     private var downAt: TimeInterval = 0
     private var timer: Timer?
     private static let commitDelay: TimeInterval = 0.18
+    /// Tests (`--listen-test`): the keys held right now, instead of the real keyboard.
+    var fakeFlags: NSEvent.ModifierFlags?
 
     /// "ctrl+option", "ctrl+shift", "option+cmd"…, or "off".
     func configure(_ spec: String) {
@@ -78,11 +80,12 @@ final class PushToTalk {
     }
 
     private func poll() {
-        let flags = NSEvent.modifierFlags.intersection([.control, .option, .command, .shift])
+        let flags = fakeFlags ?? NSEvent.modifierFlags.intersection([.control, .option, .command, .shift])
+        let otherKeyDown = fakeFlags == nil && Self.otherKeyDown()
         let now = ProcessInfo.processInfo.systemUptime
         if !isDown {
             // Exactly the combination, and no other key: a hold starts.
-            guard flags == combo, !Self.otherKeyDown() else { return }
+            guard flags == combo, !otherKeyDown else { return }
             isDown = true
             committed = false
             cancelled = false
@@ -102,7 +105,7 @@ final class PushToTalk {
         }
         guard !cancelled else { return }
         // An extra modifier or any other key: it's a keyboard shortcut, not talking.
-        if flags != combo || Self.otherKeyDown() {
+        if flags != combo || otherKeyDown {
             cancel()
             return
         }

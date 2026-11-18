@@ -94,11 +94,14 @@ final class Overlay: NSObject, WKNavigationDelegate {
 
     /// "ready", "listening", "thinking", "speaking", "starting" or "off"; `guide`: a walkthrough is running.
     func setPhase(_ phase: String, guide: Bool = false) {
-        js("SB.phase(\(jsString(phase)), \(guide))")
+        lastPhase = "SB.phase(\(jsString(phase)), \(guide))"
+        js(lastPhase!)
     }
 
-    func setBuddy(_ on: Bool) { js("SB.buddyOn(\(on))") }
-    func showBuddy(_ on: Bool) { js("SB.buddyShow(\(on))") }
+    func setBuddy(_ on: Bool) { lastBuddy = "SB.buddyOn(\(on))"; js(lastBuddy!) }
+    func showBuddy(_ on: Bool) { lastShown = "SB.buddyShow(\(on))"; js(lastShown!) }
+    // The buddy's state, sent again if the page has to be loaded again (its process died).
+    private var lastPhase: String?, lastBuddy: String?, lastShown: String?, lastSounds: String?
     /// First run ("I live here", FirstRun.swift): the buddy flies to its home, facing it, then tucks in.
     func homeGo(_ p: CGPoint, facing f: CGPoint) { js("SB.homeGo(\(Int(p.x)), \(Int(p.y)), \(Int(f.x)), \(Int(f.y)))") }
     func homeEnd() { js("SB.homeEnd()") }
@@ -195,7 +198,7 @@ final class Overlay: NSObject, WKNavigationDelegate {
     func helperReport(ids: [Int]) { if !ids.isEmpty { js("SB.helperReport(\(ids))") } }
     /// Done saying it: they merge into the buddy.
     func helperRelease(ids: [Int]) { if !ids.isEmpty { js("SB.helperRelease(\(ids))") } }
-    func helperSounds(on: Bool, volume: Double) { js("SB.helperSounds(\(on), \(volume))") }
+    func helperSounds(on: Bool, volume: Double) { lastSounds = "SB.helperSounds(\(on), \(volume))"; js(lastSounds!) }
     /// The window you're using, in this overlay's points (nil: none).
     func helperAvoid(_ r: CGRect?) {
         let s = r.map { "{x:\(Int($0.minX)),y:\(Int($0.minY)),w:\(Int($0.width)),h:\(Int($0.height))}" } ?? "null"
@@ -360,6 +363,8 @@ final class Overlay: NSObject, WKNavigationDelegate {
     }
     func setClaudeCaption(_ text: String?) { js("SB.caption('claude', \(jsString(text)))") }
     func setYouCaption(_ text: String?) { js("SB.caption('you', \(jsString(text)))") }
+    /// You held the keys but nothing was heard: a quiet note in your bubble (it goes away by itself).
+    func youMissed(_ text: String) { js("SB.youMissed && SB.youMissed(\(jsString(text)))") }
     func setArtistBusy(_ on: Bool) { js("SB.artist(\(on ? "true" : "false"))") }
     /// A short glint on the buddy (or a faint glow around the screen while it's hidden) right after a
     /// screenshot is taken for Claude, so you always know when Poinky looks.
@@ -406,6 +411,28 @@ final class Overlay: NSObject, WKNavigationDelegate {
             NSLog("Poinky: overlay.html missing from the app bundle")
         }
         panel = p
+    }
+
+    /// The page's process died (memory pressure, a crash in a card): everything on screen is gone and every
+    /// later call would go nowhere, so the buddy and captions never came back until Poinky restarted.
+    /// Load the page again and give it the buddy's state.
+    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        NSLog("Poinky: the overlay's web process ended; reloading it")
+        Timeline.log("overlay.reload")
+        loaded = false
+        lastTick = ""
+        pendingJS = [lastBuddy, lastShown, lastSounds, lastPhase].compactMap { $0 } + pendingJS
+        scene = []
+        cardRects = []
+        helperRects = []
+        if let url = Bundle.main.url(forResource: "overlay", withExtension: "html", subdirectory: "web") {
+            webView.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
+        }
+    }
+    /// Tests (`--listen-test` {"killPage": true}): end the page's process the way macOS would.
+    func testKillPage() {
+        guard let pid = (web?.value(forKey: "_webProcessIdentifier") as? NSNumber)?.int32Value, pid > 0 else { return }
+        kill(pid, SIGKILL)
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
@@ -479,7 +506,18 @@ final class Overlay: NSObject, WKNavigationDelegate {
         }
     }
 
+    /// `POINKY_OVERLAY_LOG=file`: every call into the page, with the time (tests: the exact order the page gets).
+    private static let callLog: FileHandle? = ProcessInfo.processInfo.environment["POINKY_OVERLAY_LOG"].flatMap { path in
+        FileManager.default.createFile(atPath: path, contents: nil)
+        return FileHandle(forWritingAtPath: path)
+    }
+    static func logCall(_ line: String) {
+        guard let h = callLog else { return }
+        h.write(Data(String(format: "%.3f %@\n", ProcessInfo.processInfo.systemUptime, line).utf8))
+    }
+
     private func js(_ script: String) {
+        if Self.callLog != nil, !script.hasPrefix("SB.tick(") { Self.logCall((web == nil ? "(dropped, no page) " : loaded ? "" : "(queued) ") + script) }
         guard web != nil else { return }
         if loaded { web.evaluateJavaScript(script, completionHandler: nil) } else { pendingJS.append(script) }
     }

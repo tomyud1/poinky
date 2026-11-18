@@ -11,6 +11,8 @@ FAKE_CLAUDE_MODE:
   crash   exits as soon as a message arrives
   signedout  answers every message with Claude Code's "Not logged in" error; `auth status` says loggedIn false
 FAKE_TOKENS_PER_TURN: talker results report usage growing by that many input tokens per message (size-based rotation).
+FAKE_ARTIST_REPLY: what the teacher session answers instead (after FAKE_ARTIST_DELAY seconds, default 0), e.g. a
+          <lesson> whose lines start while you're holding the keys again (tools/listen-test/).
 `--version` and `auth status` answer like the real CLI (signed in, except in "signedout" mode).
 Interrupt control_requests end the current turn with an error_during_execution result (like the real one),
 except in "deaf" mode.
@@ -73,6 +75,9 @@ for line in sys.stdin:
         out({"type": "result", "subtype": "success", "is_error": False, "result": "- The user tested Poinky with fake questions." + extra})
         continue
     reply = os.environ.get("FAKE_CLAUDE_REPLY", "<say>Fake answer.</say>")
+    if "You are the teacher behind Poinky" in prompt and os.environ.get("FAKE_ARTIST_REPLY"):
+        reply = os.environ["FAKE_ARTIST_REPLY"]
+        time.sleep(float(os.environ.get("FAKE_ARTIST_DELAY", "0")))
     for piece in [reply[:len(reply)//2], reply[len(reply)//2:]]:
         out({"type": "stream_event", "event": {"type": "content_block_delta", "delta": {"type": "text_delta", "text": piece}}})
         time.sleep(0.05)
