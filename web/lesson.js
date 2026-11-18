@@ -74,7 +74,15 @@
     .lpaper .saves{position:absolute;right:40px;top:5px;display:flex;gap:6px;z-index:3}
     .lpaper .save{height:28px;border-radius:14px;border:0;padding:0 11px;cursor:pointer;white-space:nowrap;
       background:rgba(30,32,38,.08);color:#5d584c;font:600 12.5px -apple-system,system-ui;transition:background .15s,color .15s,opacity .2s}
-    .lpaper .save:hover{background:rgba(30,32,38,.72);color:#fff}
+    .lpaper .save.hot{background:rgba(30,32,38,.72);color:#fff}
+    /* A past step you can click to see drawn again: a soft blue glow under the cursor (hover module in overlay.html). */
+    /* A past step you can click to see drawn again: under the cursor, a soft blue box behind all of it (hover
+       module in overlay.html; a CSS filter on an SVG group doesn't draw in WebKit). */
+    .lpaper .lsvg rect.stephi{fill:rgba(59,130,255,.08);stroke:rgba(59,130,255,.55);stroke-width:1.5;pointer-events:none;
+      animation:stephi .14s cubic-bezier(.25,.8,.35,1)}
+    .lpaper .lsvg rect.stephi.down{fill:rgba(59,130,255,.16)}
+    .lpaper.chalk .lsvg rect.stephi{fill:rgba(255,255,255,.07);stroke:rgba(150,190,255,.6)}
+    @keyframes stephi{from{opacity:0}}
     .lpaper .save.done{background:#3a9a5b;color:#fff}
     .lpaper .save:disabled{opacity:.5;cursor:default}
     .lpaper .save[hidden]{display:none}
@@ -90,7 +98,9 @@
       background-size:100% 100%,100% 100%,22px 22px,22px 22px;box-shadow:0 22px 60px rgba(0,0,0,.5),0 0 0 1px rgba(255,255,255,.1)}
     .lpaper.chalk .bar{color:#b7c1bb;background:rgba(255,255,255,.05);border-bottom-color:rgba(255,255,255,.08)}
     .lpaper.chalk .save{background:rgba(255,255,255,.1);color:#d9dfdb}
-    .lpaper.chalk .save:hover{background:rgba(255,255,255,.88);color:#1f2925}
+    .lpaper.chalk .save.hot{background:rgba(255,255,255,.88);color:#1f2925}
+    .lpaper.chalk .bar.hot{background:rgba(255,255,255,.09)}
+    .lpaper.chalk .bar::after{background:rgba(255,255,255,.3)}
     .lpaper.chalk .save.done{background:#3a9a5b;color:#fff}
     .lpaper .grain{position:absolute;left:0;right:0;top:38px;bottom:0;pointer-events:none;z-index:2}
     @keyframes lp-in{from{opacity:0;transform:translateY(18px) scale(.97)}to{opacity:1;transform:none}}`;
@@ -393,6 +403,7 @@
       if (t && s.contains(t) && !(window.CSSTransition && a instanceof CSSTransition)) { try { a.commitStyles(); } catch (e) {} }
     }
     const copy = s.cloneNode(true);
+    copy.querySelectorAll('rect.stephi').forEach(r => r.remove());   // the cursor's highlight isn't part of the page
     copy.querySelectorAll('[clip-path]').forEach(n => n.removeAttribute('clip-path'));   // anything still being written
     copy.querySelectorAll('text[opacity="0"]').forEach(n => n.remove());
     copy.querySelectorAll('[style*="stroke-dash"]').forEach(n => { n.style.strokeDasharray = ''; n.style.strokeDashoffset = ''; });
@@ -1523,6 +1534,24 @@
   // ---------- steps: each lessonStep is numbered; click a past step to see it drawn again ----------
   // Nothing already drawn ever fades while something else is drawn or replayed (dimming the rest confused people).
   let stepNo = 0, curStep = 0, replaying = 0, replayBusy = false;
+  // A past step lights up under the cursor only when a click would replay it (nothing is being drawn).
+  if (X.hoverIf) X.hoverIf.push(t => !(t.matches && t.matches('g[data-step]')) || (!running && !replayBusy));
+  // Its highlight: one box around every group of that step, behind the drawing (in the paper's units).
+  if (X.onHot) X.onHot.push((el, was) => {
+    if (was && was.matches && was.matches('g[data-step]')) document.querySelectorAll('rect.stephi').forEach(r => r.remove());
+    if (!el || !el.matches || !el.matches('g[data-step]')) return;
+    const s = el.ownerSVGElement; if (!s) return;
+    let b = null;
+    for (const g of s.querySelectorAll(`:scope > g[data-step="${el.dataset.step}"]`)) {
+      const r = g.getBBox(); if (!r.width && !r.height) continue;
+      b = b ? { x: Math.min(b.x, r.x), y: Math.min(b.y, r.y), x2: Math.max(b.x2, r.x + r.width), y2: Math.max(b.y2, r.y + r.height) } : { x: r.x, y: r.y, x2: r.x + r.width, y2: r.y + r.height };
+    }
+    if (!b) return;
+    const pad = 8, hi = document.createElementNS(NS, 'rect');
+    Object.entries({ class: 'stephi', x: b.x - pad, y: b.y - pad, width: b.x2 - b.x + 2 * pad, height: b.y2 - b.y + 2 * pad, rx: 10 }).forEach(([k, v]) => hi.setAttribute(k, v));
+    const defs = s.querySelector(':scope > defs');
+    s.insertBefore(hi, defs ? defs.nextSibling : s.firstChild);
+  });
   /** Draws a past step again (its strokes and words, in order); everything else stays as it is. */
   async function replayStep(n) {
     if (running || replayBusy || !svg) return;

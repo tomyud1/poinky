@@ -455,7 +455,7 @@ struct ReportRow: View {
             .padding(.horizontal, 6)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(NotchPress())
         .notchTip(m, "report\(r.id)", r.summary.count > 170 ? String(r.summary.prefix(169)) + "… (click for the full log)" : r.summary + " (click for the full log)")
     }
 
@@ -598,7 +598,7 @@ struct ReceiptLine: View {
             .padding(.horizontal, 6)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(NotchPress())
         .padding(.bottom, 2)
         .notchTip(m, "receipt", "Your last question sent Claude: \(m.receiptDetail). Click to see the screenshot, every line, and earlier questions. Kept only on this Mac.")
     }

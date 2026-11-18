@@ -54,7 +54,11 @@ aside .items:focus{outline:none}
 @media (max-width: 600px){ aside{display:none} header{padding-left:84px} }
 body.noside aside{display:none}
 body.noside header{padding-left:84px}
-button{font:inherit;color:inherit;cursor:default}
+button{font:inherit;color:inherit;cursor:default;transition:background .14s cubic-bezier(.25,.8,.35,1),filter .14s,transform .14s}
+/* Pressed: every button sinks a little and darkens (hover is each one's own :hover; this is a normal key window). */
+button:active:not(:disabled){filter:brightness(.9);transform:scale(.97)}
+.it:active{filter:brightness(.96)}
+@media (prefers-reduced-motion: reduce){button:active:not(:disabled){transform:none}}
 
 /* Header, under the window's traffic lights */
 header{flex:none;display:flex;align-items:center;gap:10px;height:52px;padding:0 14px 0 18px;border-bottom:1px solid var(--line);-webkit-user-select:none;-webkit-app-region:drag}

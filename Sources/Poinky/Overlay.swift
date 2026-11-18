@@ -266,14 +266,19 @@ final class Overlay: NSObject, WKNavigationDelegate {
     func trackMouse() {
         guard let screen, panel?.isVisible == true else { return }
         let loc = NSEvent.mouseLocation
-        let p = CGPoint(x: loc.x - screen.frame.minX, y: screen.frame.maxY - loc.y)
-        let over = (!contentHidden && cardRects.contains { $0.insetBy(dx: -2, dy: -2).contains(p) })
-            || helperRects.contains { $0.insetBy(dx: -2, dy: -2).contains(p) }
-            || bubbleRect?.insetBy(dx: -2, dy: -2).contains(p) == true
+        let over = takesClicks(at: CGPoint(x: loc.x - screen.frame.minX, y: screen.frame.maxY - loc.y))
         if over != isHoveringCard {
             isHoveringCard = over
             updateMouse()
         }
+    }
+
+    /// Whether the mouse at `p` (points, top-left origin) reaches the page: over a card, an open helper card or the
+    /// bubble while it takes clicks (the rects the page reports). Everywhere else clicks go to the app below.
+    func takesClicks(at p: CGPoint) -> Bool {
+        (!contentHidden && cardRects.contains { $0.insetBy(dx: -2, dy: -2).contains(p) })
+            || helperRects.contains { $0.insetBy(dx: -2, dy: -2).contains(p) }
+            || bubbleRect?.insetBy(dx: -2, dy: -2).contains(p) == true
     }
 
     /// Poinky is clicking for you: every click goes through to the app, whatever is under it.

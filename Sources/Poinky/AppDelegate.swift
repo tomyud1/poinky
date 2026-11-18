@@ -108,6 +108,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ReceiptsWindow.snapshot(to: args[i + 1])
             return
         }
+        // HoverTest.swift: `Poinky --hover-shot <dir>`: every overlay control under the tracked cursor, as pictures.
+        if let i = args.firstIndex(of: "--hover-shot"), i + 1 < args.count {
+            HoverTest.run(outDir: args[i + 1])
+            return
+        }
         if let i = args.firstIndex(of: "--notch-shot"), i + 1 < args.count {
             NotchHome.snapshot(to: args[i + 1])
             return
