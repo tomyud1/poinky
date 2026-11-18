@@ -15,7 +15,7 @@
 //   layer.done('h1', {ok: true, summary: '…'});
 //   With params.hold, a finished helper waits at the edge until layer.report('h1') (the app is about to
 //   tell you), stays by the main buddy while it talks, and merges on layer.release('h1').
-//   each frame: layer.update(dt); layer.render();
+//   each frame: layer.update(dt); layer.render();   dt: real seconds since the last frame (see update).
 (function (global) {
   const TAU = Math.PI * 2;
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -246,14 +246,15 @@
       if (h.phase === 'asking' || (h.phase === 'fly' && h.fly.kind === 'out')) { h.bub = ''; this.go(h, 'dock', this.slotPos(h)); }
     }
 
-    done(id, { ok = true, summary = '' } = {}) {
+    done(id, { ok = true, summary = '', at = this.time } = {}) {
       const h = this.helpers.get(id); if (!h) return;
       // Finished before it reached the edge, or while asking: it celebrates once it's back there.
-      if (h.phase !== 'dock') { h.pendingDone = { ok, summary }; return; }
+      // (`at`: when it really finished, so its card's time stops there.)
+      if (h.phase !== 'dock') { h.pendingDone = { ok, summary, at }; return; }
       // Another one just finished: celebrate a moment later, so the sounds and sparkles don't land together.
-      if (this.time - this.lastBig < .45) { h.pendingDone = { ok, summary }; return; }
+      if (this.time - this.lastBig < .45) { h.pendingDone = { ok, summary, at }; return; }
       this.lastBig = this.time;
-      h.ask = ''; h.finished = true; h.endAt = this.time;
+      h.ask = ''; h.finished = true; h.endAt = at;
       h.ok = ok; h.summary = summary;
       h.frac = ok ? 1 : h.frac; h.count = ok && h.items.length ? `${h.items.length}/${h.items.length}` : h.count;
       h.prev = h.line; h.prevT = 0; h.line = ok ? 'Done' : 'Couldn’t finish'; h.lineT = 99;
@@ -301,6 +302,11 @@
       if (short) { h.prev = h.line; h.prevT = 0; h.line = short; h.lineT = 0; }
     }
     toReport(h) { h.reportSeq = ++this.seq; this.go(h, 'report', this.reportSpot(h)); }
+    /** How long it has worked, ticking every second: "42s", "1:05", "1:02:05". */
+    static clock(secs) {
+      const s = Math.max(0, Math.floor(secs)), m = Math.floor(s / 60), p = n => String(n).padStart(2, '0');
+      return s < 60 ? `${s}s` : m < 60 ? `${m}:${p(s % 60)}` : `${Math.floor(m / 60)}:${p(m % 60)}:${p(s % 60)}`;
+    }
     /** The first sentence of a summary, short enough for one line. */
     static short(s) {
       s = String(s || '').replace(/[*_`#>]/g, '').replace(/\s+/g, ' ').trim();
@@ -390,8 +396,14 @@
 
     // ---------- simulation ----------
 
+    // dt: the real seconds since the last frame, however late it is. The layer's clock (`time`: how long a
+    // helper has worked, how long "✓ Got it" shows, the spacing between finish sounds) follows it exactly,
+    // also after the page was throttled, napped or hidden; motion takes at most 1/30 s a frame, so a late
+    // frame never makes anything jump. A scrubbed timeline (agents-lab) passes its own small steps.
     update(dt) {
-      this.time += dt;
+      const real = Math.max(0, dt || 0);
+      this.time += real;
+      dt = Math.min(real, 1 / 30);
       const P = this.params, k = 170, c = lerp(26, 12, P.bounce);
       // Move to the other edge when the window you're using needs this one (helpers fly over).
       const side = this.chooseSide();
@@ -499,12 +511,12 @@
             face = Math.atan2(m.y - h.y, m.x - h.x) * 180 / Math.PI + FACE;
             if (this.reportIndex(h) > 0) { h.t = 0; break; }
             if (!h.reported) {
-              h.reported = true; h.t = 0;
+              h.reported = true; h.t = 0; h.reportAt = this.time;
               // Held: until the app says it's done talking (with a safety limit). Otherwise: about as long as reading it.
               h.reportFor = P.hold ? 45 : clamp(1.6 + (h.summary || '').length * .045, 2.4, 6.5);
               this.react('report', { id: h.id, name: h.name, color: h.color, ok: h.ok, summary: h.summary });
             }
-            const leave = h.t > h.reportFor || (P.hold && h.release && h.t > .6);
+            const leave = this.time - h.reportAt > h.reportFor || (P.hold && h.release && h.t > .6);
             if (leave && this.time - this.lastMerge > .32) { this.lastMerge = this.time; h.phase = 'merge'; h.t = 0; h.reportSeq = 0; this.sound('merge', { x: m.x, note: h.note }); this.react('absorb', { id: h.id }); }
             break;
           }
@@ -536,7 +548,7 @@
         h.chip = lerp(h.chip, showChip ? 1 : dimChip ? .55 : 0, 1 - Math.exp(-dt * 9));
         h.chipX = lerp(h.chipX, showChip || dimChip ? 0 : 1, 1 - Math.exp(-dt * 9));
         h.fracShown = lerp(h.fracShown, h.frac, 1 - Math.exp(-dt * 6));
-        this.hover(h, dt);
+        this.hover(h, dt, real);
         // Fades, advanced with time (not per drawn frame) so a scrubbed timeline looks the same.
         const working = ['dock', 'celebrate', 'droop', 'ready'].includes(h.phase);
         h.badgeA = lerp(h.badgeA || 0, h.phase === 'ready' || (h.ask && h.phase === 'dock') ? 1 : 0, 1 - Math.exp(-dt * 10));
@@ -570,7 +582,8 @@
     }
 
     // Passing over a card fades it (so you can see what's under it); resting on the helper opens its full card.
-    hover(h, dt) {
+    // dt: for the fades; real: for how long you rest on it or have left it (real seconds, also at ten frames a second).
+    hover(h, dt, real = dt) {
       const p = this.pointer, working = h.phase === 'dock' || h.phase === 'ready';
       let fadeTo = 1, openTo = h.open > .5 ? 1 : 0;
       if (!working) openTo = 0;
@@ -582,20 +595,20 @@
         const nearCard = p.x >= x - 28 && p.x <= x + w + 28 && p.y >= y - 24 && p.y <= y + ht + 24;
         if (h.open > .5) {
           if (onHelper || inCard) h.closeT = 0;
-          else if ((h.closeT += dt) > .35) openTo = 0;
+          else if ((h.closeT += real) > .35) openTo = 0;
         } else if (onHelper) {
-          if ((h.hoverT += dt) > .3) { openTo = 1; h.closeT = 0; }
+          if ((h.hoverT += real) > .3) { openTo = 1; h.closeT = 0; }
         } else {
           h.hoverT = 0;
           if (nearCard) fadeTo = .14;
         }
-      } else { h.hoverT = 0; if (h.open > .5 && (h.closeT += dt) > .35) openTo = 0; }
+      } else { h.hoverT = 0; if (h.open > .5 && (h.closeT += real) > .35) openTo = 0; }
       if (h.listening) { openTo = 1; fadeTo = 1; h.closeT = 0; }
       if (!openTo) h.sure = 0;
       h.open = lerp(h.open, openTo, 1 - Math.exp(-dt * 14));
       if (Math.abs(h.open - openTo) < .002) h.open = openTo;
       h.fade = lerp(h.fade, fadeTo, 1 - Math.exp(-dt * 12));
-      if (h.sure > 0 && (h.sure -= dt) <= 0) h.sure = 0;
+      if (h.sure > 0 && (h.sure -= real) <= 0) h.sure = 0;
     }
 
     burst(x, y, color, n, speed, sparkle) {
@@ -718,8 +731,7 @@
         if (C.open !== open) { e.chip.classList.toggle('open', open); C.open = open; }
         set(e.chip, 'zIndex', open ? 2 : '');
         set(e.chip, 'pointerEvents', h.open > .5 ? 'auto' : 'none');
-        const secs = Math.max(0, Math.floor((h.endAt ?? this.time) - h.born));
-        const el = secs < 60 ? `${secs}s` : `${Math.floor(secs / 60)} min`;
+        const el = HelperLayer.clock((h.endAt ?? this.time) - h.born);
         if (C.el !== el) { e.elapsed.textContent = el; C.el = el; }
         if (open) {
           const rows = h.items.length
