@@ -45,6 +45,8 @@ enum ListenTest {
         AudioIO.fakeMic = true
     }
 
+    private static var timers: [DispatchSourceTimer] = []
+
     static func run(script: String, out: String, controller c: CallController) {
         c.testKeys(down: false)   // from now on the real ⌃⌥ is ignored (the owner's own Poinky may be running)
         FileManager.default.createFile(atPath: out, contents: nil)
@@ -60,7 +62,12 @@ enum ListenTest {
         let started = ProcessInfo.processInfo.systemUptime
         for step in steps {
             let at = (step["at"] as? NSNumber)?.doubleValue ?? 0
-            DispatchQueue.main.asyncAfter(deadline: .now() + at) {
+            // (A plain asyncAfter tens of seconds out runs up to ~1.5 s late: GCD's leeway grows with the delay.)
+            let timer = DispatchSource.makeTimerSource(flags: .strict, queue: .main)
+            timers.append(timer)
+            timer.schedule(deadline: .now() + at, leeway: .milliseconds(2))
+            defer { timer.resume() }
+            timer.setEventHandler {
                 MainActor.assumeIsolated {
                     if let k = step["keys"] as? String {
                         c.testKeys(down: k == "down")

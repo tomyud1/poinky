@@ -36,6 +36,7 @@ def run(name, asks, quit_after, env=None, args=()):
                    **({"brain": "api", "apiKey": "test"} if api else {})}, f)
     e = {"POINKY_SUPPORT_DIR": f"{d}/support", "POINKY_TIMELINE_DIR": f"{d}/tl",
          "POINKY_SPEECH_LOG": f"{d}/speech.txt", "POINKY_CLAUDE_CMD": FAKE, "FAKE_CLAUDE_LOG": f"{d}/fake.txt"}
+    if os.environ.get("POINKY_MUTE"): e["POINKY_MUTE"] = os.environ["POINKY_MUTE"]   # (audio at volume 0)
     e.update(env)
     if api: e["POINKY_API_URL"] = f"http://127.0.0.1:{api}/v1/messages"
     cmd = ["open", "-n", "-g"]

@@ -719,6 +719,12 @@ final class CallController: NSObject, NSMenuDelegate {
     // MARK: - Hold to talk
 
     private var finishingPush = false   // a released question is still being turned into text
+    /// The screenshot (and the front app's reading) taken the moment the keys go up, while the last words are still
+    /// being settled (~0.3 s), instead of after: `ask` uses it for the question of that hold. What the screen showed
+    /// as you let go is what you asked about; Poinky's own windows are never in it either way.
+    private var releaseShot: (push: Int, at: TimeInterval, screen: NSScreen, marks: Int, task: Task<(Snapshot, AppContext), Error>)?
+    /// `POINKY_CAPTURE_AT_RELEASE=0`: capture after the words are settled, as before 2026-11-18.
+    static let captureAtRelease = ProcessInfo.processInfo.environment["POINKY_CAPTURE_AT_RELEASE"] != "0"
     private var holdHeard: (count: Int, first: TimeInterval?) = (0, nil)   // live words during this hold (Timeline)
     private var holdStart: TimeInterval = 0
 
@@ -794,7 +800,7 @@ final class CallController: NSObject, NSMenuDelegate {
         let here = screenWithMouse()
         if here != overlay.screen, overlay.occupiedRects.isEmpty { overlay.show(on: here) }
         pushCommitted = true
-        Timeline.log("keys.down", ["state": "\(state)", "pollGapMs": Int(ptt.downPollGap * 1000)])
+        Timeline.log("keys.down", ["state": "\(state)"])
         captionFade?.cancel()
         if buddyHidden { setBuddyHidden(false) }
         playSound(.open)
@@ -849,6 +855,12 @@ final class CallController: NSObject, NSMenuDelegate {
         }
         finishingPush = true
         askedAt = ProcessInfo.processInfo.systemUptime
+        releaseShot = nil
+        if Self.captureAtRelease, talkTarget == nil, state != .starting, let screen = overlay.screen {
+            let marks = overlay.marks
+            releaseShot = (myPush, askedAt!, screen, marks.count,
+                           startCapture(screen: screen, marks: marks, cursor: localCursor(on: screen), focus: pendingFocus))
+        }
         // How the live words did during the hold (no words): did any show, and how soon.
         var up: [String: Any] = ["partials": holdHeard.count]
         if let first = holdHeard.first { up["firstMs"] = Int((first - holdStart) * 1000) }
@@ -1384,17 +1396,18 @@ final class CallController: NSObject, NSMenuDelegate {
         }
         if partQ != nil { overlay.markPickAsked() }
         let sketchNow = partQ == nil && !proactive && artist != nil && Self.wantsSketch(question, marked: !marks.isEmpty || focusCrop != nil)
+        // The keys just went up for this question: its screenshot is already being taken (same screen, same marks).
+        let early = releaseShot.flatMap { r in
+            !proactive && r.push == pushGen && r.screen == screen && r.marks == marks.count
+                && ProcessInfo.processInfo.systemUptime - r.at < 3 ? r : nil
+        }
+        releaseShot = nil
         talkTask = Task { @MainActor in
             do {
-                let capStart = ProcessInfo.processInfo.systemUptime
-                // The front app's selection, document and page, read while the screenshot is taken (no extra wait).
-                let front = NSWorkspace.shared.frontmostApplication, excluded = ScreenCapture.excludedBundleIDs
-                let reading = Task.detached(priority: .userInitiated) { () -> AppContext in
-                    (try? await Deadline.run(0.5, "Reading the front app") { AppContextReader.read(app: front, excluded: excluded) }) ?? AppContext()
-                }
-                let snap = try await ScreenCapture.capture(screen: screen, marks: marks, cursor: cursor, focus: focusCrop)
-                self.frontContext = self.config.frontAppContext ? await reading.value : AppContext()
-                Timeline.log("capture", ["ms": Int((ProcessInfo.processInfo.systemUptime - capStart) * 1000), "turn": myTurn])
+                let capStart = early?.at ?? ProcessInfo.processInfo.systemUptime
+                let (snap, front) = try await (early?.task ?? self.startCapture(screen: screen, marks: marks, cursor: cursor, focus: focusCrop)).value
+                self.frontContext = front
+                Timeline.log("capture", ["ms": Int((ProcessInfo.processInfo.systemUptime - capStart) * 1000), "turn": myTurn, "atRelease": early != nil])
                 guard myTurn == self.turn else { return }
                 self.lastSnapshot = snap
                 self.replyScale = snap.scale
@@ -1466,6 +1479,20 @@ final class CallController: NSObject, NSMenuDelegate {
             guard myTurn == self.turn else { return }
             self.overlay.clearMarks()   // your marks were for this question
             self.speaker.endTurn()      // → finishedSpeaking() once the audio is done
+        }
+    }
+
+    /// The screenshot and, at the same time, the front app's selection, document and page (no extra wait).
+    private func startCapture(screen: NSScreen, marks: [Mark], cursor: CGPoint?, focus: FocusCrop?) -> Task<(Snapshot, AppContext), Error> {
+        let front = NSWorkspace.shared.frontmostApplication, excluded = ScreenCapture.excludedBundleIDs
+        let wantsContext = config.frontAppContext
+        return Task { @MainActor in
+            let reading = Task.detached(priority: .userInitiated) { () -> AppContext in
+                guard wantsContext else { return AppContext() }
+                return (try? await Deadline.run(0.5, "Reading the front app") { AppContextReader.read(app: front, excluded: excluded) }) ?? AppContext()
+            }
+            let snap = try await ScreenCapture.capture(screen: screen, marks: marks, cursor: cursor, focus: focus)
+            return (snap, await reading.value)
         }
     }
 

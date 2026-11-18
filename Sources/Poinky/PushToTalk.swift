@@ -79,18 +79,11 @@ final class PushToTalk {
         timer = nil
     }
 
-    /// How long before the poll that saw the keys go down the one before it ran (should be ~17 ms; a napping
-    /// app's timer runs late, and the press is noticed that much later). For the timeline.
-    private(set) var downPollGap: TimeInterval = 0
-    private var lastPoll: TimeInterval = 0
-
     private func poll() {
         // (A test copy only hears scripted keys: `AppConfig.ignoresRealKeys`.)
         let flags = fakeFlags ?? (AppConfig.ignoresRealKeys ? [] : NSEvent.modifierFlags.intersection([.control, .option, .command, .shift]))
         let otherKeyDown = fakeFlags == nil && !AppConfig.ignoresRealKeys && Self.otherKeyDown()
         let now = ProcessInfo.processInfo.systemUptime
-        let gap = now - lastPoll
-        lastPoll = now
         if !isDown {
             // Exactly the combination, and no other key: a hold starts.
             guard flags == combo, !otherKeyDown else { return }
@@ -98,7 +91,6 @@ final class PushToTalk {
             committed = false
             cancelled = false
             downAt = now
-            downPollGap = gap
             onDown?()
             return
         }
