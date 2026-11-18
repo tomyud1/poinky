@@ -92,19 +92,32 @@
     check(lb && lb.x >= c1 - 1 && lb.x + lb.width <= c2 + 1, `a long cell in a later row shrinks into its column (${lb && Math.round(lb.x)}–${lb && Math.round(lb.x + lb.width)} in ${Math.round(c1)}–${Math.round(c2)})`);
     check(Math.round(tt.bottom - tt.y) === 3 * tt.rowH, 'the added row goes under the others');
 
-    // Following the voice: while a step draws, earlier steps are dimmed except what it refers to.
-    SB.lessonStep({ ops: [{ op: 'mark', id: 'mk', target: 'fr', style: 'underline' }, { op: 'wait', s: 0.6 }] }, 1);
-    await wait(200);
-    check(item('h').classList.contains('past') && !item('fr').classList.contains('past'), 'a new step dims the earlier ones but not what it marks');
+    // Nothing already drawn fades while a later step draws (or while a past step is drawn again): the owner found
+    // dimming confusing. Every frame, every group drawn before the step must stay fully opaque.
+    const lowest = (groups, ms, untilIdle = true) => new Promise(res => {
+      let min = 1, t0 = performance.now();
+      (function f() {
+        for (const g of groups) min = Math.min(min, +W.getComputedStyle(g).opacity);
+        if (performance.now() - t0 < ms && (!untilIdle || SB.lessonBusy() || performance.now() - t0 < 300)) W.requestAnimationFrame(f); else res(min);
+      })();
+    });
+    const drawn = () => [...W.document.querySelectorAll('.card.lpaper svg.lsvg > g[data-step]')];
+    const before = drawn();
+    SB.lessonStep({ ops: [{ op: 'mark', id: 'mk', target: 'fr', style: 'underline' }, { op: 'text', id: 'later', x: 420, y: 230, text: 'a later step', size: 22 }, { op: 'wait', s: 0.6 }] }, 1);
+    const minDuring = await lowest(before, 6000);
+    check(before.length > 5 && minDuring === 1, `while a later step draws, nothing drawn before it fades (lowest opacity ${minDuring} over ${before.length} groups)`);
     await done();
-    // Clicking a past step draws it again, then everything comes back into focus.
+    const minAfter = await lowest(drawn(), 600);
+    check(minAfter === 1, `after the step, everything is fully opaque (${minAfter})`);
+    check(!W.document.querySelector('.card.lpaper .past'), 'no group is marked as a past step');
+    // Clicking a past step draws it again; the rest stays as it is.
     const t0 = performance.now();
+    const others = drawn().filter(g => g.dataset.step !== item('ch').dataset.step);
     const replay = T.replayStep(+item('ch').dataset.step);
-    await wait(100);
-    check(!item('ch').classList.contains('past') && item('t').classList.contains('past'), 'replaying a step brings it into focus and dims the rest');
+    const minReplay = await lowest(others, 1500, false);
+    check(minReplay === 1, `replaying a step doesn't fade the others (${minReplay})`);
     await replay;
     check(performance.now() - t0 > 300 && !item('ch').querySelector('[clip-path]') && !item('ch').querySelector('[style*="opacity: 0"]'), 'the step is inked again and left fully drawn');
-    T.focusStep(0);
 
     // Save: the page becomes a picture for the app to keep.
     const msgs = [];
