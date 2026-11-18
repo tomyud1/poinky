@@ -3,10 +3,14 @@ import AppKit
 /// A small box to type to Poinky instead of talking (⌃⌥T, or from the menu): long questions, pasted
 /// errors and code. It opens next to the mouse; Return sends, Shift-Return adds a line, Esc closes.
 /// Opened while pointing at a helper, it types to that helper.
+/// Typed in, text out: after you send, the box stays open and the answer is written under your question (nothing
+/// is said), with Copy; type the next question right there. Esc or a click elsewhere closes it.
 @MainActor
 final class TypeBox: NSObject, NSTextViewDelegate, NSWindowDelegate {
     /// What you typed, and the helper it's for (nil: Poinky).
     var onSend: ((_ text: String, _ helper: Int?) -> Void)?
+    /// The Copy button: the text to put on the clipboard.
+    var onCopy: ((String) -> Void)?
 
     fileprivate var panel: TypePanel?
     fileprivate var text: PlaceholderTextView?
@@ -49,6 +53,8 @@ final class TypeBox: NSObject, NSTextViewDelegate, NSWindowDelegate {
         guard let panel, panel.isVisible else { return }
         if helper == nil { draft = text?.string ?? "" }
         panel.orderOut(nil)
+        clearAnswer()
+        Self.log("closed")
     }
 
     private func send() {
@@ -56,8 +62,72 @@ final class TypeBox: NSObject, NSTextViewDelegate, NSWindowDelegate {
         let target = helper
         text?.string = ""
         draft = ""
-        close()
+        // To a helper: it answers in its own card and window. To Poinky: the answer comes here.
+        if target != nil { close() } else { text?.placeholder = "Ask a follow-up…"; resize() }
         onSend?(t, target)
+    }
+
+    /// Tests (`--type`): as if typed and sent with Return.
+    func testSend(_ t: String) {
+        text?.string = t
+        send()
+    }
+
+    // MARK: - The answer, under your question
+
+    private var question = ""
+    private var answer = ""
+    private var copyText: String?
+    private var answerState = ""          // "" (none) · thinking · writing · done
+
+    /// You sent a question: it shows above the answer area, which says it's thinking.
+    func asked(_ q: String) {
+        guard isOpen else { return }
+        question = q
+        answer = ""
+        copyText = nil
+        answerState = "thinking"
+        layoutAnswer()
+        Self.log("asked \(String(reflecting: q))")
+    }
+
+    /// The answer so far (it grows sentence by sentence, at reading pace).
+    func showAnswer(_ a: String) {
+        guard isOpen else { return }
+        answer = a
+        if answerState != "done" { answerState = "writing" }
+        layoutAnswer()
+        Self.log("answer \(String(reflecting: a))")
+    }
+
+    /// The answer is complete: Copy copies `copy` (a rewrite or a command in it) or else the whole answer.
+    func answerDone(copy: String?) {
+        guard isOpen, !answer.isEmpty else { return }
+        copyText = copy ?? answer
+        answerState = "done"
+        layoutAnswer()
+        Self.log("done copy=\(String(reflecting: copyText ?? ""))")
+    }
+
+    private func clearAnswer() {
+        question = ""; answer = ""; copyText = nil; answerState = ""
+        layoutAnswer()
+    }
+
+    @objc private func copyAnswer() {
+        guard let t = copyText ?? (answer.isEmpty ? nil : answer) else { return }
+        onCopy?(t)
+        copyButton?.title = "Copied ✓"
+        Self.log("copied")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) { [weak self] in self?.copyButton?.title = "Copy" }
+    }
+
+    /// `POINKY_TYPEBOX_LOG=file` (tests): what the box showed, in order.
+    private static let logPath = ProcessInfo.processInfo.environment["POINKY_TYPEBOX_LOG"]
+    static func log(_ line: String) {
+        guard let path = logPath, let d = (line + "\n").data(using: .utf8) else { return }
+        if let h = FileHandle(forWritingAtPath: path) { h.seekToEndOfFile(); h.write(d); try? h.close() }
+        else { FileManager.default.createFile(atPath: path, contents: d) }
     }
 
     // MARK: - Building it
@@ -126,6 +196,46 @@ final class TypeBox: NSObject, NSTextViewDelegate, NSWindowDelegate {
         fx.addSubview(hint)
         self.hint = hint
 
+        // The answer area (hidden until you ask): your question, the answer, and Copy.
+        let sep = NSBox(); sep.boxType = .separator
+        fx.addSubview(sep)
+        let q = NSTextField(labelWithString: "")
+        q.font = .systemFont(ofSize: 12)
+        q.textColor = .secondaryLabelColor
+        q.lineBreakMode = .byTruncatingTail
+        q.maximumNumberOfLines = 1
+        fx.addSubview(q)
+        let ascroll = NSScrollView()
+        ascroll.drawsBackground = false
+        ascroll.hasVerticalScroller = true
+        ascroll.autohidesScrollers = true
+        ascroll.borderType = .noBorder
+        let av = NSTextView()
+        av.isEditable = false
+        av.isSelectable = true      // select part of it and ⌘C, or Copy for the whole thing
+        av.isRichText = false
+        av.drawsBackground = false
+        av.font = .systemFont(ofSize: 14)
+        av.textColor = .labelColor
+        av.textContainerInset = NSSize(width: 0, height: 0)
+        av.textContainer?.lineFragmentPadding = 0
+        av.isVerticallyResizable = true
+        av.isHorizontallyResizable = false
+        av.autoresizingMask = [.width]
+        av.textContainer?.widthTracksTextView = true
+        av.baseWritingDirection = .natural   // a Hebrew answer reads right to left
+        ascroll.documentView = av
+        fx.addSubview(ascroll)
+        let status = NSTextField(labelWithString: "")
+        status.font = .systemFont(ofSize: 11.5)
+        status.textColor = .tertiaryLabelColor
+        fx.addSubview(status)
+        let copy = HoverButton(title: "Copy", target: self, action: #selector(copyAnswer))
+        copy.toolTip = "Copy the answer (or the part of it to paste)"
+        fx.addSubview(copy)
+        separator = sep; questionLabel = q; answerScroll = ascroll; answerView = av; statusLabel = status; copyButton = copy
+        [sep, q, ascroll, status, copy].forEach { $0.isHidden = true }
+
         panel = p
         text = tv
         scrollView = scroll
@@ -134,8 +244,16 @@ final class TypeBox: NSObject, NSTextViewDelegate, NSWindowDelegate {
     private var scrollView: NSScrollView?
     private var dot: DotView?
     private var hint: NSTextField?
+    private var separator: NSBox?
+    fileprivate var questionLabel: NSTextField?
+    fileprivate var answerScroll: NSScrollView?
+    fileprivate var answerView: NSTextView?
+    fileprivate var statusLabel: NSTextField?
+    fileprivate var copyButton: HoverButton?
+    private var answerHeight: CGFloat = 0
 
-    /// Grows with what you type, up to about eight lines.
+    /// Grows with what you type, up to about eight lines (and with the answer under it, up to about 300 points,
+    /// then it scrolls). The top edge stays put.
     private func resize() {
         guard let panel, let text, let scroll = scrollView, let lm = text.layoutManager, let tc = text.textContainer else { return }
         let inner = Self.width - 36 - 34
@@ -144,19 +262,58 @@ final class TypeBox: NSObject, NSTextViewDelegate, NSWindowDelegate {
         let line = (text.font?.boundingRectForFont.height ?? 19)
         let content = max(line, lm.usedRect(for: tc).height)
         let textH = min(content, 8 * line)
-        let h = ceil(textH + 30)
+        let a = answerHeight
+        let h = ceil(textH + 30 + a)
         var f = panel.frame
         let top = f.maxY
         f.size = NSSize(width: Self.width, height: h)
         f.origin.y = top - h
+        // Kept on screen when the answer makes it taller.
+        if let vis = panel.screen?.visibleFrame, f.minY < vis.minY + 8 { f.origin.y = vis.minY + 8 }
         panel.setFrame(f, display: true)
-        scroll.frame = NSRect(x: 36, y: 15, width: inner + 4, height: textH)
+        scroll.frame = NSRect(x: 36, y: 15 + a, width: inner + 4, height: textH)
         text.frame.size.width = inner
         dot?.setFrameOrigin(NSPoint(x: 16, y: h - 15 - line / 2 - 5))
         if let hint {
             hint.sizeToFit()
-            hint.setFrameOrigin(NSPoint(x: Self.width - 16 - hint.frame.width, y: 15 + (line - hint.frame.height) / 2 + textH - line))
+            hint.setFrameOrigin(NSPoint(x: Self.width - 16 - hint.frame.width, y: 15 + a + (line - hint.frame.height) / 2 + textH - line))
         }
+    }
+
+    /// Lays out the answer area (bottom part of the box) and resizes the box around it.
+    private func layoutAnswer() {
+        let views: [NSView?] = [separator, questionLabel, answerScroll, statusLabel, copyButton]
+        guard let av = answerView, let ascroll = answerScroll, let lm = av.layoutManager, let tc = av.textContainer,
+              let q = questionLabel, let status = statusLabel, let copy = copyButton, let sep = separator else { return }
+        let showing = !answerState.isEmpty
+        views.forEach { $0?.isHidden = !showing }
+        guard showing else { answerHeight = 0; resize(); return }
+        let inner = Self.width - 36 - 20
+        q.stringValue = question.replacingOccurrences(of: "\n", with: " ")
+        if av.string != answer {
+            let atEnd = ascroll.contentView.bounds.maxY >= av.frame.height - 4
+            av.string = answer
+            if atEnd { av.scrollToEndOfDocument(nil) }
+        }
+        tc.containerSize = NSSize(width: inner, height: .greatestFiniteMagnitude)
+        lm.ensureLayout(for: tc)
+        let line = av.font?.boundingRectForFont.height ?? 18
+        let bodyH = answer.isEmpty ? 0 : min(300, max(line, lm.usedRect(for: tc).height))
+        status.stringValue = answerState == "thinking" ? "Thinking…" : answerState == "writing" ? "Writing…" : "Esc closes"
+        status.sizeToFit()
+        copy.isHidden = answerState != "done"
+        copy.sizeToFit()
+        let foot: CGFloat = 26, qH: CGFloat = 16
+        // From the bottom up: footer, answer, question, separator.
+        let a = 10 + foot + (bodyH > 0 ? bodyH + 6 : 0) + qH + 10
+        copy.setFrameOrigin(NSPoint(x: Self.width - 14 - copy.frame.width, y: 8 + (foot - copy.frame.height) / 2))
+        status.setFrameOrigin(NSPoint(x: 36, y: 8 + (foot - status.frame.height) / 2))
+        ascroll.frame = NSRect(x: 36, y: 10 + foot, width: inner + 6, height: bodyH)
+        av.frame.size.width = inner
+        q.frame = NSRect(x: 36, y: 10 + foot + (bodyH > 0 ? bodyH + 6 : 0), width: inner, height: qH)
+        sep.frame = NSRect(x: 16, y: a - 1, width: Self.width - 32, height: 1)
+        answerHeight = a
+        resize()
     }
 
     func textDidChange(_ notification: Notification) {
@@ -164,7 +321,10 @@ final class TypeBox: NSObject, NSTextViewDelegate, NSWindowDelegate {
         text?.needsDisplay = true
     }
 
-    func windowDidResignKey(_ notification: Notification) { close() }
+    /// A click elsewhere closes it (Copy first if you want the answer; it's also in the notch).
+    func windowDidResignKey(_ notification: Notification) { if !Self.keepForTests { close() } }
+    /// Tests (`--type`, launched in the background): the box can't keep the keyboard there, so it stays open anyway.
+    static var keepForTests = false
 }
 
 extension TypeBox {
@@ -190,6 +350,8 @@ extension TypeBox {
             try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: outDir + "/\(name).png"))
         }
         box.open()
+        if ProcessInfo.processInfo.environment["POINKY_SHOT_DARK"] == "1" { box.panel?.appearance = NSAppearance(named: .darkAqua) }
+        keepForTests = true
         log("open \(box.isOpen), key \(box.panel?.isKeyWindow == true), placeholder \(box.text?.placeholder ?? "")")
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
             shot("empty")
@@ -199,7 +361,32 @@ extension TypeBox {
             log("after Shift-Return: \(String(reflecting: box.text?.string ?? "")), height \(Int(box.panel?.frame.height ?? 0))")
             shot("typed")
             key(36)
-            log("after Return: open \(box.isOpen)")
+            log("after Return: open \(box.isOpen), placeholder \(box.text?.placeholder ?? "")")
+            // Typed in, text out: the answer under the question, with Copy (pictures in light and dark).
+            box.onCopy = { t in log("copied \(String(reflecting: t))") }
+            box.asked("Why does this fail?\nTypeError: x is undefined")
+            log("thinking: \(box.statusLabel?.stringValue ?? ""), copy hidden \(box.copyButton?.isHidden ?? false)")
+            shot("answer-thinking")
+            box.showAnswer("x is undefined because the loop starts at 1, so the first item is never set.")
+            box.answerDone(copy: nil)
+            log("answered: \(String(reflecting: box.answerView?.string ?? "")), height \(Int(box.panel?.frame.height ?? 0)), copy shown \(box.copyButton?.isHidden == false)")
+            shot("answer")
+            box.copyButton?.performClick(nil)
+            box.asked("make this shorter")
+            box.showAnswer("Here's a shorter version: We ship Friday, tested and ready. Want me to swap it in?")
+            box.answerDone(copy: "We ship Friday, tested and ready.")
+            box.copyButton?.performClick(nil)
+            shot("answer-rewrite")
+            let long = (1...30).map { "Sentence number \($0) of a long answer that goes on for a while." }.joined(separator: " ")
+            box.asked("explain all of it in detail please, with every step")
+            box.showAnswer(long)
+            box.answerDone(copy: nil)
+            log("long: height \(Int(box.panel?.frame.height ?? 0)) (≤ 420), scrolls \((box.answerView?.frame.height ?? 0) > (box.answerScroll?.frame.height ?? 0))")
+            shot("answer-long")
+            box.asked("מה זה אומר?")
+            box.showAnswer("זה אומר שהקובץ נשמר בתיקייה הראשית, ולא בתיקייה של הפרויקט.")
+            box.answerDone(copy: nil)
+            shot("answer-hebrew")
             box.open(helper: (3, "Violet", NSColor(hex: "#9b6bff")))
             log("for a helper: placeholder \(box.text?.placeholder ?? "")")
             box.text?.insertText("also add a test", replacementRange: NSRange(location: NSNotFound, length: 0))
@@ -255,6 +442,60 @@ final class PlaceholderTextView: NSTextView {
         let attrs: [NSAttributedString.Key: Any] = [.font: font ?? .systemFont(ofSize: 15), .foregroundColor: NSColor.placeholderTextColor]
         (placeholder as NSString).draw(at: NSPoint(x: textContainerInset.width, y: textContainerInset.height), withAttributes: attrs)
     }
+}
+
+/// A small capsule button that shows it's a button: brighter under the mouse, darker and a touch smaller while
+/// pressed, and a pointing-hand cursor (the type box is the key window, so its tracking areas always work).
+final class HoverButton: NSButton {
+    private(set) var hot = false { didSet { needsDisplay = true } }
+    private var pressed = false { didSet { needsDisplay = true } }
+    override var title: String { didSet { invalidateIntrinsicContentSize(); needsDisplay = true } }
+
+    override init(frame: NSRect) { super.init(frame: frame); setUp() }
+    required init?(coder: NSCoder) { super.init(coder: coder); setUp() }
+    convenience init(title: String, target: AnyObject?, action: Selector?) {
+        self.init(frame: .zero)
+        self.title = title; self.target = target; self.action = action
+    }
+    private func setUp() {
+        isBordered = false
+        font = .systemFont(ofSize: 11.5, weight: .semibold)
+        setButtonType(.momentaryChange)
+    }
+    override var intrinsicContentSize: NSSize {
+        let w = (title as NSString).size(withAttributes: [.font: font ?? .systemFont(ofSize: 11.5)]).width
+        return NSSize(width: ceil(w) + 24, height: 22)
+    }
+    override func sizeToFit() { setFrameSize(intrinsicContentSize) }
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackingAreas.forEach(removeTrackingArea)
+        addTrackingArea(NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
+    }
+    override func mouseEntered(with event: NSEvent) { hot = true }
+    override func mouseExited(with event: NSEvent) { hot = false }
+    override func resetCursorRects() { addCursorRect(bounds, cursor: .pointingHand) }
+    override func mouseDown(with event: NSEvent) {
+        pressed = true
+        super.mouseDown(with: event)   // tracks until mouse up, then sends the action
+        pressed = false
+    }
+    override func draw(_ dirtyRect: NSRect) {
+        let r = bounds.insetBy(dx: pressed ? 1.5 : 0.5, dy: pressed ? 1.5 : 0.5)
+        let accent = NSColor.controlAccentColor
+        (pressed ? accent.blended(withFraction: 0.25, of: .black) ?? accent : hot ? accent : accent.withAlphaComponent(0.82)).setFill()
+        NSBezierPath(roundedRect: r, xRadius: r.height / 2, yRadius: r.height / 2).fill()
+        if hot && !pressed {
+            NSColor.white.withAlphaComponent(0.35).setStroke()
+            let ring = NSBezierPath(roundedRect: r.insetBy(dx: 0.5, dy: 0.5), xRadius: r.height / 2, yRadius: r.height / 2)
+            ring.lineWidth = 1; ring.stroke()
+        }
+        let attrs: [NSAttributedString.Key: Any] = [.font: font ?? .systemFont(ofSize: 11.5), .foregroundColor: NSColor.white]
+        let size = (title as NSString).size(withAttributes: attrs)
+        (title as NSString).draw(at: NSPoint(x: bounds.midX - size.width / 2, y: bounds.midY - size.height / 2), withAttributes: attrs)
+    }
+    /// Tests: what the mouse would do.
+    func testHover(_ on: Bool) { hot = on }
 }
 
 /// The colored dot for who you're typing to (Poinky's blue, or the helper's color).

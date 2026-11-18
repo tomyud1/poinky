@@ -391,6 +391,17 @@ private struct VoiceTab: View {
     var body: some View {
         Form {
             Section {
+                Toggle(isOn: $model.config.quiet) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Quiet mode: write, don't talk")
+                        Text("For a library, a lecture or a call. Answers are written next to the buddy (with Copy) and nothing is played: no voice, no sounds, videos muted with subtitles. You can still ask out loud. Also in the notch, or \(HotKey.displayString(model.config.quietHotkey)), or say \u{201C}be quiet\u{201D}.")
+                            .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                Text("Questions you type (\(HotKey.displayString(model.config.typeHotkey))) are always answered in writing, in the box.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Section {
                 Picker("Voice engine", selection: $model.config.voiceEngine) {
                     Text("Natural (Phonon, on this Mac)").tag("phonon")
                     Text("Apple voices").tag("apple")

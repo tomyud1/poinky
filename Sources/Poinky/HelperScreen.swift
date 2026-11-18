@@ -26,7 +26,7 @@ final class HelperScreen {
     }
 
     func settings(_ config: AppConfig) {
-        overlay.helperSounds(on: config.sounds, volume: config.soundVolume)
+        overlay.helperSounds(on: config.sounds && !config.quiet, volume: config.soundVolume)   // quiet mode: helpers move, silently
     }
 
     /// It buds off the main buddy, gets its task and flies to the edge.

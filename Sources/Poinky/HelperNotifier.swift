@@ -33,6 +33,7 @@ final class HelperNotifier {
 
     func settings(_ c: AppConfig) {
         config = c
+        SystemNotifications.quiet = c.quiet
         isAway = { AwayNotifier.userIsAway(minutes: c.awayMinutes) }
         if !c.helperNotify { withdrawAll() }
     }
@@ -142,6 +143,8 @@ protocol NotificationPosting: AnyObject {
 /// (`registered`), so a click on one from before a restart still works.
 @MainActor
 final class SystemNotifications: NSObject, NotificationPosting, UNUserNotificationCenterDelegate {
+    /// Quiet mode: notifications come without a sound.
+    nonisolated(unsafe) static var quiet = false
     var onAction: ((String, HelperNotifier.Action) -> Void)?
     private var state: Authorization = .unknown
     private var waiting: [UNNotificationRequest] = []
@@ -185,7 +188,7 @@ final class SystemNotifications: NSObject, NotificationPosting, UNUserNotificati
         content.body = body
         content.categoryIdentifier = category
         content.threadIdentifier = "helper-\(agent)"
-        content.sound = category == HelperNotifier.doneCategory ? nil : .default
+        content.sound = category == HelperNotifier.doneCategory || Self.quiet ? nil : .default   // quiet mode: a banner, no sound
         content.interruptionLevel = category == HelperNotifier.doneCategory ? .passive : .active
         content.userInfo = ["agent": agent]
         waiting.append(UNNotificationRequest(identifier: id, content: content, trigger: nil))

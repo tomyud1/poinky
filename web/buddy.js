@@ -40,6 +40,26 @@
   #bubble.dim{opacity:.55}
   #bubble.you.miss{color:rgba(255,255,255,.72);background:rgba(24,24,28,.7)}
   #bubble.left{transform-origin:100% 0}
+  /* Reading (quiet mode, a typed answer when the box is gone, something to paste): the whole answer, parked where
+     it opened, in a deeper blue so long text reads at 4.5:1. It takes clicks: scroll, Copy, ✕. */
+  #bubble.read{max-width:380px;padding:9px 13px 9px;background:#2563eb;line-height:1.45;font-weight:450}
+  #bubble.live{pointer-events:auto;cursor:default}
+  #bubble.calm{transform:none;transition:opacity .22s}
+  #bubble .txt{display:block;max-height:min(46vh,420px);overflow-y:auto;overscroll-behavior:contain;white-space:pre-wrap;
+    overflow-wrap:anywhere;user-select:text;-webkit-user-select:text;scrollbar-width:thin}
+  #bubble .txt::-webkit-scrollbar{width:6px}
+  #bubble .txt::-webkit-scrollbar-thumb{background:rgba(255,255,255,.35);border-radius:3px}
+  #bubble.snip .txt{border-left:2px solid rgba(255,255,255,.55);padding-left:9px}
+  #bubble .foot{display:flex;gap:4px;justify-content:flex-end;align-items:center;margin:7px -4px -2px 0}
+  #bubble .foot button{font:600 12px/1 -apple-system,system-ui,sans-serif;color:#fff;background:rgba(255,255,255,.18);border:0;
+    border-radius:999px;padding:5px 11px;cursor:pointer}
+  /* Hover is .hot, set from the cursor the app sends every frame (the overlay is never the key window, so
+     WebKit's own :hover can't be relied on there); :hover is kept for browsers. Pressed: .down / :active. */
+  #bubble .foot button{transition:background .12s,transform .12s}
+  #bubble .foot button:hover,#bubble .foot button.hot{background:rgba(255,255,255,.34);box-shadow:0 0 0 1px rgba(255,255,255,.45)}
+  #bubble .foot button:active,#bubble .foot button.down{background:rgba(255,255,255,.12);transform:scale(.94)}
+  #bubble .foot button.x{background:transparent;color:rgba(255,255,255,.7);padding:5px 7px}
+  #bubble .foot button.x:hover,#bubble .foot button.x.hot{color:#fff;background:rgba(255,255,255,.18);box-shadow:none}
   .sb-ripple{position:absolute;width:34px;height:34px;margin:-17px 0 0 -17px;border-radius:50%;border:2.5px solid #3b82ff;
     pointer-events:none;z-index:49;animation:sbRipple .6s ease-out forwards;box-shadow:0 0 10px rgba(59,130,255,.6)}
   @keyframes sbRipple{from{transform:scale(.3);opacity:1}to{transform:scale(1.4);opacity:0}}
@@ -81,6 +101,9 @@
   let tucked = false, blink = false;         // gone into its home; hidden for a moment (Reduced Motion's fade)
   let look = null, lookRot = 0;              // a helper it's facing (id), and the extra turn
   let bubbleKind = null, bubbleText = '', bubbleW = 0, bubbleH = 0, fadeTimer = 0;
+  // Reading: the whole answer, parked where it opened ({ax, ay, left, up}: the edge it grows from), and once it's
+  // done its Copy button. mode: 'speech' (the sentence being said) or 'read'.
+  let mode = 'speech', parked = null, done = null, lingerTimer = 0, hovered = false, lastRect = '';
   const OFFSET = { x: 20, y: 23 };           // its tip sits this far below-right of the real cursor
   const BODY = { w: 21, h: 21 };             // its size, measured from the tip
   const MARGIN = 8;                          // never closer to the screen's edge than this
@@ -207,12 +230,32 @@
       ring.style.opacity = (0.35 + level * 0.65).toFixed(2);
     } else { ring.style.opacity = ''; }
     placeBubble();
+    hoverButtons();
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
 
+  // The bubble's buttons light up under the cursor (from SB.tick), like a button should.
+  let hotBtn = null;
+  function hoverButtons() {
+    let hit = null;
+    if (parked && cursor && bubble.classList.contains('on')) {
+      for (const b of bubble.querySelectorAll('.foot button')) {
+        const r = b.getBoundingClientRect();
+        if (cursor.x >= r.left - 2 && cursor.x <= r.right + 2 && cursor.y >= r.top - 2 && cursor.y <= r.bottom + 2) { hit = b; break; }
+      }
+      hovered = cursor.x >= bubbleRectNow.x && cursor.x <= bubbleRectNow.x + bubbleW && cursor.y >= bubbleRectNow.y && cursor.y <= bubbleRectNow.y + bubbleH;
+    }
+    if (hit === hotBtn) return;
+    if (hotBtn) hotBtn.classList.remove('hot', 'down');
+    hotBtn = hit;
+    if (hit) hit.classList.add('hot');
+  }
+  const bubbleRectNow = { x: 0, y: 0 };
+
   function placeBubble() {
     if (!bubble.classList.contains('on')) return;
+    if (parked) return placeParked();
     // Beside the buddy, on its side of the cursor.
     let x = side.x > 0 ? B.x + 28 : B.x - 28 - bubbleW;
     let y = side.y > 0 ? B.y + 4 : B.y - 8 - bubbleH;
@@ -227,9 +270,11 @@
   function setBubble(kind, text, extra) {
     clearTimeout(fadeTimer);
     if (!buddyOn || !shown || !text) {
-      if (!kind || kind === bubbleKind) { bubble.classList.remove('on'); bubbleKind = null; }
+      if (!kind || kind === bubbleKind) { bubble.classList.remove('on'); bubbleKind = null; unpark(); }
       return;
     }
+    if (kind === 'claude' && mode === 'read') return setReading(text);
+    unpark();
     bubbleKind = kind; bubbleText = text;
     bubble.className = (kind === 'you' ? 'you' : '') + (extra ? ' ' + extra : '');
     // Your words are dimmed while Claude thinks about them (the question can arrive after the phase).
@@ -239,6 +284,106 @@
     bubble.classList.add('on');
     placeBubble();
   }
+
+  // ---------- reading: the whole answer, parked, with Copy ----------
+  function setReading(text) {
+    const box = bubble.querySelector('.txt');
+    const atEnd = !box || box.scrollTop + box.clientHeight >= box.scrollHeight - 4;
+    if (!box || bubbleKind !== 'claude' || !parked || done || !bubble.classList.contains('on')) {
+      unpark();   // a new answer (or the last one went away): a fresh bubble beside the buddy
+      bubble.className = 'read' + (calm ? ' calm' : '');
+      bubble.innerHTML = '<span class="txt" dir="auto"></span>';
+    }
+    bubbleKind = 'claude'; bubbleText = text;
+    const t = bubble.querySelector('.txt');
+    if (t.textContent !== text) t.textContent = text;
+    bubble.classList.add('on');
+    if (!parked) park();
+    measure();
+    if (atEnd) t.scrollTop = t.scrollHeight;   // new words come in at the bottom, unless you scrolled up to re-read
+    placeParked();
+  }
+  function measure() { bubbleW = bubble.offsetWidth; bubbleH = bubble.offsetHeight; }
+  // Where it opens: beside the buddy, like a caption, then it stays there while the buddy follows you.
+  function park() {
+    measure();
+    const left = side.x < 0 || B.x + 28 + bubbleW > innerWidth - 12, up = side.y < 0 || B.y + 4 + Math.min(bubbleH, 160) > innerHeight - 12;
+    parked = { left, up, ax: left ? B.x - 14 : B.x + 28, ay: up ? B.y - 10 : B.y + 4 };
+    bubble.classList.add('live');
+  }
+  function placeParked() {
+    const p = parked; if (!p) return;
+    let x = p.left ? p.ax - bubbleW : p.ax, y = p.up ? p.ay - bubbleH : p.ay;
+    x = Math.min(innerWidth - bubbleW - 8, Math.max(8, x));
+    y = Math.min(innerHeight - bubbleH - 8, Math.max(8, y));
+    bubble.classList.toggle('left', p.left);
+    bubble.style.left = x.toFixed(1) + 'px'; bubble.style.top = y.toFixed(1) + 'px';
+    bubbleRectNow.x = x; bubbleRectNow.y = y;
+    reportRect(x, y);
+  }
+  function reportRect(x, y) {
+    const r = parked && bubble.classList.contains('on') ? [Math.round(x), Math.round(y), Math.round(bubbleW), Math.round(bubbleH)] : null;
+    const k = JSON.stringify(r);
+    if (k === lastRect) return;
+    lastRect = k;
+    post({ kind: 'bubble', rect: r });
+  }
+  function unpark() {
+    clearTimeout(lingerTimer);
+    if (!parked && !done) return;
+    parked = null; done = null; hovered = false;
+    bubble.classList.remove('live', 'read', 'snip', 'calm');
+    reportRect();
+  }
+  function post(m) { try { window.webkit.messageHandlers.sb.postMessage(m); } catch (e) {} }
+  // The answer is done: a Copy button (and ✕). `keep`: it stays until the next question, ✕ or a click elsewhere
+  // (a short line goes by itself after a while). Not kept (it was said out loud): the part to paste stays a while.
+  function captionDone(copy, keep) {
+    if (keep) {
+      if (mode !== 'read' || bubbleKind !== 'claude' || !parked || !bubbleText) return;   // nothing being read
+      done = { copy: copy || bubbleText, keep: true };
+    } else {
+      // Said out loud: the bubble shows only the part to paste, with Copy.
+      if (!copy || !buddyOn || !shown) return;
+      unpark();
+      setReading(copy);
+      bubble.classList.add('snip');
+      done = { copy, keep: false };
+    }
+    const f = document.createElement('div'); f.className = 'foot';
+    f.innerHTML = '<button class="copy">Copy</button><button class="x" title="Close" aria-label="Close">✕</button>';
+    f.querySelector('.copy').onclick = e => {
+      e.stopPropagation();
+      if (done) post({ kind: 'copy', text: done.copy });
+      const b = e.currentTarget; b.textContent = 'Copied ✓';
+      setTimeout(() => { if (b.isConnected) b.textContent = 'Copy'; }, 1400);
+    };
+    f.querySelector('.x').onclick = e => { e.stopPropagation(); away(); };
+    for (const b of f.querySelectorAll('button')) {
+      b.onmousedown = () => b.classList.add('down');
+      b.onmouseup = b.onmouseleave = () => b.classList.remove('down');
+    }
+    bubble.appendChild(f);
+    measure(); placeParked();
+    const words = String(bubbleText).split(/\s+/).filter(Boolean).length;
+    if (!keep) linger(12000);
+    else if (words < 12 && done.copy === bubbleText) linger(6000);   // "Quiet mode is on.": no need to click it away
+  }
+  // Goes by itself after `ms`, but never while the mouse is on it.
+  function linger(ms) {
+    clearTimeout(lingerTimer);
+    lingerTimer = setTimeout(() => { if (hovered) linger(2500); else away(); }, ms);
+  }
+  // Put away (✕, a click elsewhere, lingered long enough): it fades where it is.
+  function away() {
+    if (!parked && !done) return;
+    clearTimeout(lingerTimer);
+    bubble.classList.remove('on', 'live');
+    bubbleKind = null; done = null; hovered = false; parked = null;
+    reportRect();
+  }
+  bubble.addEventListener('mouseenter', () => { hovered = true; });
+  bubble.addEventListener('mouseleave', () => { hovered = false; });
 
   // A long question shows its end (what you're saying now), not a bubble growing down the screen.
   function latestWords(t) {
@@ -272,11 +417,12 @@
   SB.caption = function (which, text) {
     caption0.call(SB, which, text);
     if (which === 'you') setBubble('you', text);
-    else setBubble('claude', text ? latestSentence(text) : null);
+    else setBubble('claude', text ? (mode === 'read' ? String(text) : latestSentence(text)) : null);
   };
   SB.fadeCaptions = function () {
     fade0.call(SB);
-    if (buddyOn) { clearTimeout(fadeTimer); fadeTimer = setTimeout(() => { bubble.classList.remove('on'); bubbleKind = null; }, 300); }
+    if (done) return;   // an answer kept to read or copy goes when you're done with it
+    if (buddyOn) { clearTimeout(fadeTimer); fadeTimer = setTimeout(() => { bubble.classList.remove('on'); bubbleKind = null; unpark(); }, 300); }
   };
 
   // ---------- the buddy points at what Claude marks ----------
@@ -320,8 +466,8 @@
       buddy.classList.toggle('listening', phase === 'listening');
       buddy.classList.toggle('thinking', phase === 'thinking' || phase === 'starting');
       if (phase === 'thinking' && bubbleKind === 'you') bubble.classList.add('dim'); else bubble.classList.remove('dim');
-      if (phase === 'listening' && bubbleKind === 'claude') setBubble(null, null);
-      if (phase === 'off') { setBubble(null, null); fly = null; home = null; tucked = blink = false; B.placed = false; }
+      if (phase === 'listening' && bubbleKind === 'claude' && !done && mode !== 'read') setBubble(null, null);   // (an answer kept to read stays)
+      if (phase === 'off') { setBubble(null, null); unpark(); fly = null; home = null; tucked = blink = false; B.placed = false; }
     },
     /** You held the keys but nothing was heard: a quiet note in your bubble that goes away by itself
      *  (the next caption replaces it at once). */
@@ -329,10 +475,18 @@
       setBubble('you', text, 'miss');
       if (bubbleKind === 'you') fadeTimer = setTimeout(() => { bubble.classList.remove('on'); bubbleKind = null; }, 1800);
     },
+    /** 'read': captions show the whole answer, parked where it opened (quiet mode, typed answers); 'speech': the
+     *  sentence being said, next to the buddy. */
+    captionMode(m) { mode = m === 'read' ? 'read' : 'speech'; },
+    captionDone,
+    /** A click somewhere else: a bubble kept for reading or copying goes away. */
+    bubbleAway() { away(); },
     /** For tests: what the bubble shows. */
     bubbleState() {
-      const r = bubble.getBoundingClientRect();
-      return { on: bubble.classList.contains('on'), kind: bubbleKind, text: bubble.textContent, cls: bubble.className,
+      const r = bubble.getBoundingClientRect(), t = bubble.querySelector('.txt');
+      return { on: bubble.classList.contains('on'), kind: bubbleKind, text: t ? t.textContent : bubble.textContent, cls: bubble.className,
+               mode, parked: !!parked, copy: done ? done.copy : null, live: bubble.classList.contains('live'),
+               scroll: t ? { top: t.scrollTop, height: t.scrollHeight, view: t.clientHeight } : null,
                x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height),
                buddy: B.placed ? { x: Math.round(B.x), y: Math.round(B.y) } : null, phase, shown, buddyOn,
                visible: buddy.classList.contains('on'), vw: innerWidth, vh: innerHeight };

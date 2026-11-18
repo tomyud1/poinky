@@ -37,7 +37,15 @@ final class CallController: NSObject, NSMenuDelegate {
     private let notifier = HelperNotifier()       // Mac notifications: a helper needs you outside a session, or finished while you're away
     private var typeHotKey: HotKey?
     private var helpersHotKey: HotKey?   // ⌃⌥H: the Helpers window
-    private var typedAfterStart: (text: String, helper: Int?)?   // typed while no session was running
+    private var typedAfterStart: (text: String, helper: Int?, box: Bool)?   // typed while no session was running
+    // Quiet (Quiet.swift): with quiet mode on, or for a question typed in the box, nothing is played. The voice's
+    // whole pipeline still runs (at reading pace, in silence), so captions, steps and the turn's end stay in step.
+    private var textTurn = false          // the question was typed in the box: its answer is written there, not said
+    private var quietHotKey: HotKey?
+    private var silent: Bool { config.quiet || textTurn }
+    /// The answer goes to the type box (still open after you sent the question), not the bubble.
+    private var answerInBox: Bool { textTurn && typeBox.isOpen }
+    private var answerQuestion = ""       // what the answer being written answers (the notch keeps the last few)
     private var pendingLine: String?              // a short line to say once a session is up
     private var agentReports: [(id: Int, text: String)] = []   // finished agents the user hasn't heard about yet
     private var reportingIDs: [Int] = []       // helpers next to the buddy while Poinky tells you what they did
@@ -209,7 +217,8 @@ final class CallController: NSObject, NSMenuDelegate {
     var callState: State { state }
     var guideActive: Bool { guide != nil }
     var handsFreeHearing: Bool { mode == .handsFree && state != .idle && !listener.currentText.isEmpty }
-    var soundsOn: Bool { config.sounds }
+    var soundsOn: Bool { config.sounds && !config.quiet }
+    var quietOn: Bool { config.quiet }
     var soundsVolume: Double { Double(config.soundVolume) }
 
     // MARK: - Setup
@@ -228,10 +237,11 @@ final class CallController: NSObject, NSMenuDelegate {
             MainActor.assumeIsolated { self?.checkReminders() }
         }
         listener.onPartial = { [weak self] text in self?.heard(partial: text) }
-        listener.onUtterance = { [weak self] text in self?.heard(utterance: text) }
+        listener.onUtterance = { [weak self] text in self?.textTurn = false; self?.heard(utterance: text) }
         listener.onStatus = { [weak self] msg in self?.overlay.setClaudeCaption(msg) }
         listener.onDied = { [weak self] in self?.restartListener() }
         speaker.onTurnFinished = { [weak self] in self?.finishedSpeaking() }
+        speaker.isQuiet = { [weak self] in self?.silent ?? false }
         // Captions follow the voice: each sentence appears as it's spoken.
         speaker.onSentenceStarted = { [weak self] sentence, tag in
             guard let self, self.state != .idle else { return }
@@ -241,7 +251,13 @@ final class CallController: NSObject, NSMenuDelegate {
             }
             self.spokenCaption = self.spokenCaption.isEmpty ? sentence : self.spokenCaption + " " + sentence
             self.home.model.lastLine = sentence
-            self.overlay.setClaudeCaption(self.spokenCaption)
+            self.home.model.noteAnswer(turn: self.turn, question: self.answerQuestion, text: self.spokenCaption)
+            if self.answerInBox {
+                self.typeBox.showAnswer(self.spokenCaption)
+            } else {
+                self.overlay.setReading(self.silent)
+                self.overlay.setClaudeCaption(self.spokenCaption)
+            }
             // A lesson line just started: draw what goes with it.
             if let tag {
                 self.startedTags.insert(tag)
@@ -298,7 +314,9 @@ final class CallController: NSObject, NSMenuDelegate {
         video.window.onWantClose = { [weak self] in self?.closeVideo() }
         video.window.onClosed = { [weak self] job in self?.videoClosed(job) }
         overlay.onLessonSaved = { [weak self] url, pages in self?.lessonSaved(url, pages: pages) }
-        typeBox.onSend = { [weak self] text, helper in self?.typed(text, helper: helper) }
+        typeBox.onSend = { [weak self] text, helper in self?.typed(text, helper: helper, box: true) }
+        typeBox.onCopy = { [weak self] text in self?.copyText(text, from: "box") }
+        overlay.onCopy = { [weak self] text in self?.copyText(text, from: "bubble") }
         agents.onStarted = { [weak self] a in self?.helperScreen.started(a) }
         agents.onEvent = { [weak self] a, e in self?.helperScreen.event(a, e) }
         agents.onStopped = { [weak self] a in self?.helperScreen.stopped(id: a.id); self?.askEnded(a.id); self?.notifyAsks(nil) }
@@ -360,6 +378,10 @@ final class CallController: NSObject, NSMenuDelegate {
         m.onUpdate = { [weak self] in self?.home.collapse(); self?.config.save(); SettingsWindowController.shared.show(tab: "general") }
         m.onQuit = { NSApp.terminate(nil) }
         m.onReceipts = { [weak self] in self?.home.collapse(); ReceiptsWindow.shared.show() }
+        m.onQuiet = { [weak self] in self?.toggleQuiet() }
+        m.onCopy = { [weak self] text in self?.copyText(text, from: "notch") }
+        m.quiet = config.quiet
+        video.window.quiet = config.quiet
         ReceiptsWindow.shared.model.onSettings = { SettingsWindowController.shared.show(tab: "privacy") }
         Receipts.enabled = config.receipts
         let refreshReceipt = { [weak m] in
@@ -399,6 +421,12 @@ final class CallController: NSObject, NSMenuDelegate {
             MainActor.assumeIsolated {
                 self?.ptt.cancel()   // ⌃⌥T starts with ⌃⌥: that wasn't talking
                 self?.openTypeBox()
+            }
+        }
+        quietHotKey = HotKey(spec: config.quietHotkey) { [weak self] in
+            MainActor.assumeIsolated {
+                self?.ptt.cancel()   // ⌃⌥Q starts with ⌃⌥: that wasn't talking
+                self?.toggleQuiet()
             }
         }
         helpersHotKey = HotKey(spec: config.helpersHotkey) { [weak self] in
@@ -567,7 +595,7 @@ final class CallController: NSObject, NSMenuDelegate {
             }
             if let t = typedAfterStart {
                 typedAfterStart = nil
-                deliverTyped(t.text, helper: t.helper)
+                deliverTyped(t.text, helper: t.helper, box: t.box)
             }
             if let line = pendingLine {
                 pendingLine = nil
@@ -649,7 +677,7 @@ final class CallController: NSObject, NSMenuDelegate {
         mergeNext = false
         stopWatchers()
         if !quitting { firstRun.sessionEnded() }
-        if !quietly, config.sounds {
+        if !quietly, config.sounds, !config.quiet {
             // After the audio engine stopped (and echo cancellation let go of the speakers).
             let volume = Float(config.soundVolume)
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { Earcons.playStandalone(.end, volume: volume) }
@@ -710,7 +738,7 @@ final class CallController: NSObject, NSMenuDelegate {
     }
 
     private func playSound(_ sound: Earcons.Sound) {
-        guard config.sounds, config.soundVolume > 0, let b = Earcons.buffer(sound) else { return }
+        guard config.sounds, !config.quiet, config.soundVolume > 0, let b = Earcons.buffer(sound) else { return }
         let volume = Float(min(1, max(0, config.soundVolume)))
         if !audio.playSound(b, volume: volume) { Earcons.playStandalone(sound, volume: volume) }
     }
@@ -793,6 +821,7 @@ final class CallController: NSObject, NSMenuDelegate {
         let here = screenWithMouse()
         if here != overlay.screen, overlay.occupiedRects.isEmpty { overlay.show(on: here) }
         pushCommitted = true
+        textTurn = false   // talking: the answer is said (unless quiet mode is on)
         Timeline.log("keys.down", ["state": "\(state)"])
         captionFade?.cancel()
         if buddyHidden { setBuddyHidden(false) }
@@ -880,6 +909,7 @@ final class CallController: NSObject, NSMenuDelegate {
             }
             self.playSound(.send)
             self.overlay.setYouCaption(text)   // the final words (the live ones can lag or differ)
+            self.textTurn = false
             self.heard(utterance: text)
         }
     }
@@ -932,6 +962,13 @@ final class CallController: NSObject, NSMenuDelegate {
         if Self.isStartFresh(text) {
             mergeNext = false
             DispatchQueue.main.async { [weak self] in self?.resetEverything() }
+            return
+        }
+        // "Be quiet" / "you can talk again": switched right here (the talker's own reply would be heard first).
+        if guide == nil, talkTarget == nil, let on = QuietPhrase.intent(text) {
+            mergeNext = false
+            clearedForUtterance = false
+            setQuiet(on, said: text)
             return
         }
         // A helper is waiting for your answer: a clear yes or no (or a pick) goes straight to it.
@@ -1043,6 +1080,7 @@ final class CallController: NSObject, NSMenuDelegate {
 
     /// A short line now if a session is up, or in a quiet one.
     func sayWhenFree(_ line: String) {
+        textTurn = false   // nobody typed this: said, or written in quiet mode
         if state == .idle {
             pendingLine = line
             startSession(.push)
@@ -1134,7 +1172,7 @@ final class CallController: NSObject, NSMenuDelegate {
         let free: Bool
         switch state {
         case .idle: free = Self.secondsSinceTyping() >= 2
-        case .ready: free = !ptt.isDown
+        case .ready: free = !ptt.isDown && !typeBox.isOpen
         case .listening: free = mode == .handsFree && listener.currentText.isEmpty && !ptt.isDown
         default: free = false
         }
@@ -1251,24 +1289,31 @@ final class CallController: NSObject, NSMenuDelegate {
 
     /// A typed question, as if from the type box (`--ask` tests).
     func askTyped(_ text: String) { typed(text, helper: nil) }
+    /// Tests (`--type`): a question typed in the type box, which stays open with the answer.
+    func typeInBox(_ text: String) {
+        if !typeBox.isOpen { typeBox.open() }
+        typeBox.testSend(text)
+    }
     /// Tests (`POINKY_ASK_WAIT`): nothing is being thought, said or sketched, so the next typed question can go.
     var quietForTests: Bool { state == .ready && !speaker.isSpeaking && !artistBusy }
 
-    private func typed(_ text: String, helper: Int?) {
+    /// `box`: typed in the type box (its answer is written there, not said); otherwise as if said (`--ask` tests).
+    private func typed(_ text: String, helper: Int?, box: Bool = false) {
         lastActivity = ProcessInfo.processInfo.systemUptime
         switch state {
         case .idle:
-            typedAfterStart = (text, helper)
+            typedAfterStart = (text, helper, box)
             startSession(.push)
         case .starting:
-            typedAfterStart = (text, helper)
+            typedAfterStart = (text, helper, box)
         default:
-            deliverTyped(text, helper: helper)
+            deliverTyped(text, helper: helper, box: box)
         }
     }
 
-    private func deliverTyped(_ text: String, helper: Int?) {
-        overlay.setYouCaption(text.count > 160 ? String(text.prefix(159)) + "…" : text)
+    private func deliverTyped(_ text: String, helper: Int?, box: Bool = false) {
+        textTurn = box
+        if box, helper == nil, typeBox.isOpen { typeBox.asked(text) } else { overlay.setYouCaption(text.count > 160 ? String(text.prefix(159)) + "…" : text) }
         if let helper, agents.agents.contains(where: { $0.id == helper }) { talkTarget = helper }
         heard(utterance: text)
     }
@@ -1346,6 +1391,8 @@ final class CallController: NSObject, NSMenuDelegate {
         lastActivity = ProcessInfo.processInfo.systemUptime
         if buddyHidden { setBuddyHidden(false) }
         if !proactive { lastQuestion = question; WelcomeWindowController.shared.model.did(.asked) }
+        if proactive { textTurn = false }   // a report or reminder nobody typed: said (or written in quiet mode)
+        answerQuestion = proactive ? "" : question
         // A background update (a helper's report) is built from helper output, which can contain text from
         // web pages or files: like a lookup reply, it may only speak and mark, never act.
         lookupReply = proactive
@@ -1355,7 +1402,8 @@ final class CallController: NSObject, NSMenuDelegate {
         // (Papers and 3D models stay until the talker clears them or the topic changes.)
         overlay.clearAnnotations()
         state = .thinking
-        overlay.setCaption(you: proactive ? nil : question, claude: nil)
+        overlay.setCaption(you: proactive || answerInBox ? nil : question, claude: nil)
+        if answerInBox { typeBox.asked(question) }
         parser = TalkParser()
         spokenCaption = ""
         speaker.beginTurn()
@@ -1573,6 +1621,10 @@ final class CallController: NSObject, NSMenuDelegate {
             lines.append("(The teacher is still drawing your last visual request.)")
         }
         if !proactive, let hint = Self.answerShapeHint(question) { lines.append(hint) }
+        if silent {
+            lines.append(textTurn ? "(The user typed this: your reply is shown as text in their box, not said out loud.)"
+                                  : "(Quiet mode is on: the user reads your reply; nothing is said out loud.)")
+        }
         // Last, where a model that answers without a thinking step still sees it: the shape of the reply.
         lines.append(Self.formatReminder)
         return lines.joined(separator: "\n")
@@ -1730,7 +1782,7 @@ final class CallController: NSObject, NSMenuDelegate {
             speaker.enqueue(s)
             state = .speaking
         }
-        if !ev.sentences.isEmpty, spokenCaption.isEmpty { overlay.setClaudeCaption("…") }
+        if !ev.sentences.isEmpty, spokenCaption.isEmpty, !answerInBox { overlay.setClaudeCaption("…") }
         let lines = lastSnapshot?.text.lines ?? []
         let shotSize = lastSnapshot.map { CGSize(width: $0.width, height: $0.height) } ?? .zero
         for d in ev.draws {
@@ -1887,7 +1939,8 @@ final class CallController: NSObject, NSMenuDelegate {
         state = restingState
         if endAfterSpeaking {
             endAfterSpeaking = false
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in self?.endCall() }
+            // Written, not said: a moment to read the goodbye before everything goes.
+            DispatchQueue.main.asyncAfter(deadline: .now() + (silent ? 1.6 : 0.4)) { [weak self] in self?.endCall() }
             return
         }
         // A helper came to ask while Claude was talking: its question comes first.
@@ -1901,14 +1954,27 @@ final class CallController: NSObject, NSMenuDelegate {
         if !agentReports.isEmpty {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in self?.deliverReports() }
         }
-        // Let the captions fade a few seconds after Claude stops talking.
+        // The answer stays reachable: in the box (typed), in the bubble until you're done with it (quiet mode),
+        // or, when it has something to paste (a rewrite, a command), in the bubble with Copy for a while.
+        // Otherwise the captions fade a few seconds after Claude stops talking.
         captionFade?.cancel()
-        let work = DispatchWorkItem { [weak self] in
-            guard let self, self.state == self.restingState else { return }
-            self.overlay.fadeCaptions()
+        let answer = spokenCaption
+        let copy = Copyable.extract(answer: answer, offer: pendingOffer?.actions.doTask)
+        home.model.finishAnswer(turn: turn, copy: copy)
+        if answerInBox, !answer.isEmpty {
+            typeBox.answerDone(copy: copy)
+        } else if silent, !answer.isEmpty {
+            overlay.captionDone(copy: copy ?? answer, keep: true)
+        } else if let copy, !answer.isEmpty {
+            overlay.captionDone(copy: copy, keep: false)
+        } else {
+            let work = DispatchWorkItem { [weak self] in
+                guard let self, self.state == self.restingState else { return }
+                self.overlay.fadeCaptions()
+            }
+            captionFade = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2, execute: work)
         }
-        captionFade = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2, execute: work)
         // The marks did their job while Claude talked: clear them a moment later (a walkthrough keeps its target).
         markFade?.cancel()
         let fade = DispatchWorkItem { [weak self] in
@@ -2207,6 +2273,8 @@ final class CallController: NSObject, NSMenuDelegate {
 
     private func startGuide(_ goal: String, acting wantsToAct: Bool = false) {
         endGuide()
+        // Typing into your app for you: the type box can't hold the keyboard (its answer stays in the notch).
+        if wantsToAct, typeBox.isOpen { typeBox.close() }
         var acting = wantsToAct && config.computerControl
         var waitForHands = false
         if acting && !Computer.trusted {
@@ -2693,6 +2761,7 @@ final class CallController: NSObject, NSMenuDelegate {
         if let v = flag("buddy") { cfg.buddy = v }
         if let v = num("buddyAutoHide") { cfg.buddyAutoHide = max(0, min(3600, v)) }
         if let v = flag("sounds") { cfg.sounds = v }
+        if let v = flag("quiet") { cfg.quiet = v }
         if let v = num("soundVolume") { cfg.soundVolume = min(1, max(0, v)); if v > 0 { cfg.sounds = true } }
         if let v = flag("artistEnabled") { cfg.artistEnabled = v }
         if let v = obj["paperLook"] as? String, ["auto", "paper", "chalkboard"].contains(v) { cfg.paperLook = v }
@@ -2720,6 +2789,7 @@ final class CallController: NSObject, NSMenuDelegate {
         let c = config
         return "voice \(c.phononVoice) at speed \(String(format: "%.2f", c.voiceSpeed)) (engine \(c.voiceEngine)\(c.voiceEngine == "phonon" && !PhononVoice.isInstalled ? ", not installed yet: Apple's voice is speaking" : "")); buddy \(c.buddy ? "on" : "off")"
             + (c.buddyAutoHide > 0 ? ", auto-hides after \(Int(c.buddyAutoHide)) s" : "") + "; sounds \(c.sounds ? "on at \(Int((c.soundVolume * 100).rounded()))% volume" : "off")"
+            + "; quiet mode \(c.quiet ? "on (answers are written, nothing is said)" : "off") (\(HotKey.displayString(c.quietHotkey)))"
             + "; teacher \(c.artistEnabled ? "on" : "off"); hold to talk \(PushToTalk.displayString(c.pushToTalk))"
             + "; hands-free call \(HotKey.displayString(c.hotkey)); hide buddy \(HotKey.displayString(c.buddyHotkey)); type instead of talking \(HotKey.displayString(c.typeHotkey)); Helpers window \(HotKey.displayString(c.helpersHotkey))"
             + "; pause before answering (calls) \(c.silenceSeconds) s; language \(c.language); memory \(c.memoryEnabled ? "on" : "off")"
@@ -2764,6 +2834,7 @@ final class CallController: NSObject, NSMenuDelegate {
 
     /// A short spoken line without asking the talker.
     private func sayQuick(_ text: String, said: String) {
+        answerQuestion = said
         turn += 1
         speaker.stop()
         speaker.beginTurn()
@@ -2949,6 +3020,8 @@ final class CallController: NSObject, NSMenuDelegate {
             // No session: start a quiet one just to say it.
             reportAfterStart = true
             startSession(.push)
+        case .ready where typeBox.isOpen:
+            later(2)   // typing a question (or reading its answer) in the box: after that
         case .ready:
             sayReports()
         case .listening where mode == .handsFree && listener.currentText.isEmpty && !ptt.isDown:
@@ -3056,12 +3129,12 @@ final class CallController: NSObject, NSMenuDelegate {
     private func updateUI() {
         let (symbol, baseStatus): (String, String) = {
             switch state {
-            case .idle: return ("sparkles", "off")
+            case .idle: return (config.quiet ? "speaker.slash" : "sparkles", "off")
             case .starting: return ("ellipsis.circle", "starting")
-            case .ready: return ("sparkles", "ready")
+            case .ready: return (config.quiet ? "speaker.slash" : "sparkles", "ready")
             case .listening: return ("waveform", "listening")
             case .thinking: return ("ellipsis.bubble", "thinking")
-            case .speaking: return ("speaker.wave.2", "speaking")
+            case .speaking: return (silent ? "text.bubble" : "speaker.wave.2", "speaking")
             }
         }()
         let img = NSImage(systemSymbolName: symbol, accessibilityDescription: "Poinky")
@@ -3071,6 +3144,7 @@ final class CallController: NSObject, NSMenuDelegate {
         home.model.phase = baseStatus
         home.model.guide = guide != nil
         home.model.inCall = state != .idle && mode == .handsFree
+        home.model.writing = silent
         if state != .listening { home.model.level = 0 }
     }
 
@@ -3106,6 +3180,7 @@ final class CallController: NSObject, NSMenuDelegate {
         add("Claude Code (your subscription)", #selector(pickBrain(_:)), indent: 1, on: config.brain == .claudeCode, rep: BrainKind.claudeCode.rawValue)
         add("Anthropic API (API key)", #selector(pickBrain(_:)), indent: 1, on: config.brain == .api, rep: BrainKind.api.rawValue)
         add("Teacher: sketches & 3D", #selector(toggleArtist), on: config.artistEnabled)
+        add("Quiet Mode: write, don't talk  (\(HotKey.displayString(config.quietHotkey)))", #selector(toggleQuiet), on: config.quiet)
         menu.addItem(.separator())
 
         add("Clear Drawings", #selector(clearAll))
@@ -3167,7 +3242,7 @@ final class CallController: NSObject, NSMenuDelegate {
         overlay.clearAll()
         overlay.clearMarks()
         let volume = Float(config.soundVolume)
-        if config.sounds { DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { Earcons.playStandalone(.start, volume: volume) } }
+        if config.sounds, !config.quiet { DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { Earcons.playStandalone(.start, volume: volume) } }
     }
 
     @objc private func clearAll() {
@@ -3194,7 +3269,8 @@ final class CallController: NSObject, NSMenuDelegate {
         notifier.settings(cfg)
         if cfg.checkForUpdates != config.checkForUpdates { Updater.shared.autoCheck(cfg.checkForUpdates) }
         let hotkeyChanged = cfg.hotkey != config.hotkey || cfg.buddyHotkey != config.buddyHotkey || cfg.typeHotkey != config.typeHotkey
-            || cfg.helpersHotkey != config.helpersHotkey
+            || cfg.helpersHotkey != config.helpersHotkey || cfg.quietHotkey != config.quietHotkey
+        let quietChanged = cfg.quiet != config.quiet
         config = cfg
         ScreenCapture.excludedBundleIDs = Set(cfg.excludedApps)
         if hotkeyChanged {
@@ -3202,6 +3278,7 @@ final class CallController: NSObject, NSMenuDelegate {
             buddyHotKey = nil
             typeHotKey = nil
             helpersHotKey = nil
+            quietHotKey = nil
             registerHotKey()
         }
         ptt.configure(cfg.pushToTalk)
@@ -3217,6 +3294,52 @@ final class CallController: NSObject, NSMenuDelegate {
         if state != .idle {
             speaker.phonon = wantsPhonon(cfg) ? phonon : nil
         }
+        if quietChanged {
+            home.model.quiet = cfg.quiet
+            speaker.quietChanged()        // what's being said goes silent at once (its captions keep going)
+            video.window.setQuiet(cfg.quiet)
+            updateUI()
+        }
+    }
+
+    // MARK: - Quiet mode, and copying answers
+
+    @objc func toggleQuiet() { setQuiet(!config.quiet) }
+
+    /// Quiet mode on or off: from the notch, ⌃⌥Q, the menu, Settings (`settingsChanged`), or saying / typing it
+    /// (`said`, which gets a short reply: written when it's now on, said when it's off).
+    func setQuiet(_ on: Bool, said: String? = nil) {
+        let was = config.quiet
+        if was != on {
+            var cfg = AppConfig.load()
+            cfg.quiet = on
+            cfg.save()
+            SettingsWindowController.shared.model.reload()
+            settingsChanged(cfg)
+            Timeline.log("quiet", ["on": on, "by": said == nil ? "control" : "words"])
+        }
+        let line = on ? (was ? "Quiet mode is already on: I'm writing instead of talking." : "Quiet mode is on. I'll write my answers instead of saying them.")
+                      : (was ? "Okay, I'll talk out loud again." : "I'm already talking out loud.")
+        if let said, state != .idle {
+            sayQuick(line, said: said)
+        } else if state == .ready || state == .listening, overlay.isShown {
+            // From a control: a short note, never cutting off an answer.
+            overlay.setReading(false)
+            overlay.setClaudeCaption(on ? "Quiet mode on" : "Quiet mode off")
+            captionFade?.cancel()
+            let work = DispatchWorkItem { [weak self] in self?.overlay.fadeCaptions() }
+            captionFade = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.6, execute: work)
+        }
+    }
+
+    /// A Copy button (the bubble, the type box, the notch): the text goes on the clipboard.
+    private func copyText(_ text: String, from: String) {
+        let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !t.isEmpty else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(t, forType: .string)
+        Timeline.log("copied", ["from": from, "chars": t.count])
     }
 
     private var previewPlayer: AVAudioPlayer?
