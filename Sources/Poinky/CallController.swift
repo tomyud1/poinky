@@ -667,6 +667,9 @@ final class CallController: NSObject, NSMenuDelegate {
         pendingOffer = nil
         offerNote = nil
         carriedOver = false
+        // Drawings hidden behind a window that covers them go now: un-hiding them first showed the paper over
+        // that window until the overlay was cleared (0.35 s later).
+        if overlay.contentHidden { overlay.clearAll() }
         overlay.bakeContent()
         overlay.setContentVisible(true)
         currentTag = nil
@@ -750,6 +753,7 @@ final class CallController: NSObject, NSMenuDelegate {
     func testKeys(down: Bool) { ptt.fakeFlags = down ? ptt.combo : [] }
     func testWords(_ text: String, final: Bool, live: Bool) { listener.fakeResult(text, isFinal: final, live: live) }
     /// A helper (POINKY_HELPER_CMD=tools/fake-helper.py for no tokens); its id, or nil if it didn't start.
+    func testEndSession() { endCall(quietly: true) }
     func testLessonSaved() { lessonSaved(FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Desktop/Poinky test.png"), pages: nil) }
     func testStartHelper(_ task: String) -> Int? { agents.start(AgentRequest(title: "Test helper", dir: nil, task: task), config: config)?.id }
     var testState: String { "\(state)" }

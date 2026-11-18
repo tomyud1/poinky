@@ -7,6 +7,9 @@ import AppKit
 ///   {"at": 1.6, "words": "what is", "final": false, "live": true}   a result (main transcriber unless "live")
 ///   {"at": 2.4, "probe": "label"}          writes what the bubble shows (SB.bubbleState) and the call state
 ///   {"at": 3.0, "killPage": true}         ends the overlay page's process (as memory pressure would)
+///   {"at": 1.0, "contentVisible": false}  the drawings' window is covered (WindowTracker hides them)
+///   {"at": 1.0, "endSession": true}       the session ends (as after 15 idle minutes)
+///   {"at": 1.0, "js": "expr", "expectJS": "value", "label": "…"}   evaluates in the overlay page and checks the result
 ///   {"at": 1.0, "saved": true}            a page was saved ("save my notes"): Poinky says where
 ///   {"at": 1.0, "helper": "fixture:fix-bug"}   starts a helper (POINKY_HELPER_CMD={root}/tools/fake-helper.py)
 ///   {"at": 2.0, "pointHelper": true}      as if the mouse rested on the newest helper (false: on nothing)
@@ -79,6 +82,17 @@ enum ListenTest {
                                     let bad = check(want, got: got, state: c.testState)
                                     write((bad.isEmpty ? "ok   " : "FAIL ") + label + (bad.isEmpty ? "" : " (" + bad.joined(separator: "; ") + ")"))
                                 }
+                            }
+                        }
+                    }
+                    if let on = step["contentVisible"] as? Bool { c.overlay.setContentVisible(on); write(String(format: "%.2f drawings %@", at, on ? "shown" : "hidden (a window covers them)")) }
+                    if step["endSession"] as? Bool == true { c.testEndSession(); write(String(format: "%.2f session ended", at)) }
+                    if let js = step["js"] as? String {
+                        c.overlay.evaluateForTest(js) { r in
+                            MainActor.assumeIsolated {
+                                let got = r.map { "\($0)" } ?? "nil"
+                                write(String(format: "%.2f js %@ = %@", at, js, got))
+                                if let want = step["expectJS"] as? String { write((got == want ? "ok   " : "FAIL ") + (step["label"] as? String ?? js) + (got == want ? "" : " (got \(got), wanted \(want))")) }
                             }
                         }
                     }
