@@ -23,6 +23,15 @@
     const f = (s, x) => T.compileFn(s)(x);
     check(f('x^2', 3) === 9 && f('2x+1', 2) === 5 && Math.abs(f('sin(pi/2)', 0) - 1) < 1e-9 && f('3(x+1)^2', 1) === 12, 'functions of x evaluate (x^2, 2x+1, sin(pi/2), 3(x+1)^2)');
     check(Math.abs(f('e^x', 1) - Math.E) < 1e-9 && f('-x^2', 2) === -4 && f('sqrt(x)/2', 16) === 2, 'e^x, -x^2 is -(x^2), sqrt(x)/2');
+    const flatTex = src => JSON.stringify(T.parseTex(src)).match(/"s":"[^"]*"/g).map(m => m.slice(5, -1)).join('');
+    const kinds = src => JSON.stringify(T.parseTex(src)).match(/"t":"cdot"/g) || [];
+    check(kinds('5\\cdot 2').length === 1 && kinds('5*2').length === 1 && kinds('5·2').length === 1, 'a middle dot (\\cdot, *, ·) is its own drawn dot, not the font\'s speck');
+    check(flatTex('5\\cdot 5 - 9') === '55−9' || flatTex('5\\cdot 5 - 9') === '55 − 9', `and the space after \\cdot doesn't make one side wider (${flatTex('5\\cdot 5 - 9')})`);
+    check(flatTex('2 \\times 3') === '2 × 3' && flatTex('a\\le b') === 'a ≤ b', `so do \\times and \\le (${flatTex('2 \\times 3')}, ${flatTex('a\\le b')})`);
+    const near = (a, b) => Math.abs(a - b) < 1e-9;
+    check(near(f('sin x', Math.PI / 2), 1) && f('x²', 3) === 9 && f('|x|', -4) === 4 && f('sqrt x', 9) === 3 && near(f('2pi x', 1), 2 * Math.PI),
+      'functions as people type them: sin x, x², |x|, sqrt x, 2pi x');
+    check(near(f('100*0.5^t', 2), 25) && f('n^2', 3) === 9 && f('f(t) = 3t', 2) === 6 && near(f('e^(-t)', 0), 1), 'a function of t or n is drawn like one of x');
     let threw = false; try { T.compileFn('alert(1)')(0); } catch (e) { threw = true; }
     check(threw, 'anything that is not math is refused (no code runs)');
 
@@ -77,6 +86,24 @@
     const al = item('a').querySelector('text').getBBox();
     check(al.y + al.height < 450 || al.y > 450, `an arrow's label sits beside the arrow, not on it (label ${Math.round(al.y)}–${Math.round(al.y + al.height)}, arrow at 450)`);
 
+    // A mark on a point circles its dot, not the dashed guides down to the axes; operator names in math get room.
+    SB.lessonStep({ ops: [
+      { op: 'point', id: 'pg', graph: 'g', at: [1, 1], guides: true, color: 'green' },
+      { op: 'mark', id: 'pgm', target: 'pg', style: 'circle' },
+      { op: 'math', id: 'sn', x: 480, y: 640, text: 'mg\\sin\\theta', size: 30 },
+      { op: 'math', id: 'cd', x: 480, y: 700, text: '5\\cdot 2', size: 30 },
+      { op: 'text', id: 'cdt', x: 480, y: 760, text: 'Test: 5·2 − 9 = 1', size: 24 },
+    ] }, 1);
+    await done();
+    const mk = item('pgm').querySelector('path').getBBox();
+    check(mk.width < 70 && mk.height < 70, `a mark on a point circles the dot (${Math.round(mk.width)}×${Math.round(mk.height)})`);
+    const cdot = item('cd').querySelector('circle'), cdt = [...item('cd').querySelectorAll('text')].map(t => t.getBBox());
+    const cb = cdot && cdot.getBBox(), gapL = cb && cb.x - (cdt[0].x + cdt[0].width), gapR = cb && cdt[1].x - (cb.x + cb.width);
+    check(cdot && +cdot.getAttribute('r') >= 1.7 && gapL > 2 && gapR > 2 && Math.abs(gapL - gapR) < 4, `5·2 shows a clear dot with room on both sides (${cb && Math.round(gapL)} / ${cb && Math.round(gapR)})`);
+    check(item('cdt').querySelector('circle') != null, 'a middle dot between numbers in plain text is drawn as a real dot too');
+    const snt = [...item('sn').querySelectorAll('text')].map(t => t.textContent).join('');
+    check(/g\u2009sin\u2009θ/.test(snt), `operator names get a little room in math (${JSON.stringify(snt)})`);
+
     // Tables: columns fit the paper, later rows fit their columns, the header is filled.
     SB.lessonStep({ ops: [
       { op: 'table', id: 't', x: 40, y: 700, rows: [['', 'Plant', 'Animal'], ['Cell wall', 'yes', 'no']], color: 'green' },
@@ -92,19 +119,32 @@
     check(lb && lb.x >= c1 - 1 && lb.x + lb.width <= c2 + 1, `a long cell in a later row shrinks into its column (${lb && Math.round(lb.x)}–${lb && Math.round(lb.x + lb.width)} in ${Math.round(c1)}–${Math.round(c2)})`);
     check(Math.round(tt.bottom - tt.y) === 3 * tt.rowH, 'the added row goes under the others');
 
-    // Following the voice: while a step draws, earlier steps are dimmed except what it refers to.
-    SB.lessonStep({ ops: [{ op: 'mark', id: 'mk', target: 'fr', style: 'underline' }, { op: 'wait', s: 0.6 }] }, 1);
-    await wait(200);
-    check(item('h').classList.contains('past') && !item('fr').classList.contains('past'), 'a new step dims the earlier ones but not what it marks');
+    // Nothing already drawn fades while a later step draws (or while a past step is drawn again): the owner found
+    // dimming confusing. Every frame, every group drawn before the step must stay fully opaque.
+    const lowest = (groups, ms, untilIdle = true) => new Promise(res => {
+      let min = 1, t0 = performance.now();
+      (function f() {
+        for (const g of groups) min = Math.min(min, +W.getComputedStyle(g).opacity);
+        if (performance.now() - t0 < ms && (!untilIdle || SB.lessonBusy() || performance.now() - t0 < 300)) W.requestAnimationFrame(f); else res(min);
+      })();
+    });
+    const drawn = () => [...W.document.querySelectorAll('.card.lpaper svg.lsvg > g[data-step]')];
+    const before = drawn();
+    SB.lessonStep({ ops: [{ op: 'mark', id: 'mk', target: 'fr', style: 'underline' }, { op: 'text', id: 'later', x: 420, y: 230, text: 'a later step', size: 22 }, { op: 'wait', s: 0.6 }] }, 1);
+    const minDuring = await lowest(before, 6000);
+    check(before.length > 5 && minDuring === 1, `while a later step draws, nothing drawn before it fades (lowest opacity ${minDuring} over ${before.length} groups)`);
     await done();
-    // Clicking a past step draws it again, then everything comes back into focus.
+    const minAfter = await lowest(drawn(), 600);
+    check(minAfter === 1, `after the step, everything is fully opaque (${minAfter})`);
+    check(!W.document.querySelector('.card.lpaper .past'), 'no group is marked as a past step');
+    // Clicking a past step draws it again; the rest stays as it is.
     const t0 = performance.now();
+    const others = drawn().filter(g => g.dataset.step !== item('ch').dataset.step);
     const replay = T.replayStep(+item('ch').dataset.step);
-    await wait(100);
-    check(!item('ch').classList.contains('past') && item('t').classList.contains('past'), 'replaying a step brings it into focus and dims the rest');
+    const minReplay = await lowest(others, 1500, false);
+    check(minReplay === 1, `replaying a step doesn't fade the others (${minReplay})`);
     await replay;
     check(performance.now() - t0 > 300 && !item('ch').querySelector('[clip-path]') && !item('ch').querySelector('[style*="opacity: 0"]'), 'the step is inked again and left fully drawn');
-    T.focusStep(0);
 
     // Save: the page becomes a picture for the app to keep.
     const msgs = [];
