@@ -182,6 +182,36 @@ QUIET = {**DOER, "POINKY_STUCK_SECS": "5",
          "FAKE_GUIDE_REPLIES": json.dumps(['<act>{"do":"wait","s":0.2}</act>'] * 6 + ['<done>All done.</done>'])}
 HANDOVER = {"FAKE_CLAUDE_REPLY": "<say>Sure, let me show you.</say>"}
 
+def c_audio_lost(r):
+    # The output device goes away for good mid-answer (Apple's voice): the turn still ends ("speaking" never cleared).
+    f = []
+    seq = states(r)
+    if "speaking" not in seq: f.append(f"never spoke: {seq}")
+    if seq[-2:] != ["ready", "idle"]: f.append(f"ended with {seq[-3:]} (stuck on speaking?)")
+    return f
+
+
+def c_synth_hang(r):
+    # Apple's voice never answers: "speaking" with nothing heard is caught, logged and recovered from.
+    f = []
+    if not evs(r, "stuck", state="speaking"): f.append("no stuck detection while speaking")
+    if not evs(r, "reset"): f.append("no reset")
+    return f
+
+
+def c_search(r):
+    # <search>: "speaking" only while the short line is heard; the search itself is "thinking" (looking it up).
+    f = []
+    ev = [e for e in r["events"] if e["ev"] == "state"]
+    seq = [e["to"] for e in ev]
+    if r["speech"] != ["One sec.", "It is sunny."]: f.append(f"said {r['speech']}")
+    # The longest "speaking" stretch must be short (the search takes 6 s).
+    longest = max([b["t"] - a["t"] for a, b in zip(ev, ev[1:]) if a["to"] == "speaking"] or [0])
+    if longest > 4: f.append(f"'speaking' for {longest:.1f} s while it searched: {seq}")
+    if "thinking" not in seq[seq.index("speaking"):] if "speaking" in seq else True: f.append(f"states {seq}")
+    return f
+
+
 SCENARIOS = {
     "answer": (["what is this"], 10, {}, c_answer),
     "stuffed": (["what is this", "again"], 26, {"FAKE_CLAUDE_MODE": "stuffed", "POINKY_STALL_SECS": "8",
@@ -195,6 +225,10 @@ SCENARIOS = {
     "api-interrupt": (["tell me a long story", "stop, say something short"], 16,
                       {"_API": "18765", "FAKE_API_WORD_SECS": "0.12", "POINKY_ASK_GAP": "2",
                        "FAKE_API_REPLIES": json.dumps([LONG, "<say>Short.</say>"])}, c_api_interrupt),
+    "audio-lost": (["tell me a long story"], 16, {"FAKE_CLAUDE_REPLY": LONG, "POINKY_TEST_AUDIO_LOST": "3"}, c_audio_lost),
+    "synth-hang": (["what is this"], 16, {"POINKY_TEST_SYNTH_HANG": "1", "POINKY_STUCK_SECS": "5"}, c_synth_hang),
+    "search": (["what's the weather"], 16, {"FAKE_CLAUDE_REPLIES": json.dumps(["<say>One sec.</say><search>weather today</search>", "<say>It is sunny.</say>"]),
+                                            "FAKE_SEARCH_SECS": "6"}, c_search),
     "hang": (["what is this"], 22, {"FAKE_CLAUDE_MODE": "hang", "POINKY_STALL_SECS": "8", "POINKY_STUCK_SECS": "12"}, c_hang),
 }
 

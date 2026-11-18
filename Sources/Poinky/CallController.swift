@@ -194,13 +194,16 @@ final class CallController: NSObject, NSMenuDelegate {
     private var stateSince: TimeInterval = 0
     private var askedAt: TimeInterval?        // you finished asking (keys released, or the pause ended): for the wait time
     private var firstTokenTurn = -1
+    private var lookingUp = false             // a `<search>` / `<recall>` is running for the current question
     /// Longer than this in one state means Poinky is stuck (nothing legitimate takes this long:
     /// replies have their own 75 s watchdog, captures 6 s, web searches 30 s).
     /// Tests: the session takes this long to start (a speech engine that doesn't come up).
     static let testStallStart = ProcessInfo.processInfo.environment["POINKY_TEST_STALL_START"].flatMap(Double.init)
+    /// "Speaking" counts from the voice's last progress (a sentence queued, audio scheduled or heard), so a long
+    /// answer is fine; past the reply watchdog (75 s) with nothing heard, the voice is stuck.
     static let stuckAfter: [State: TimeInterval] = {
-        if let s = ProcessInfo.processInfo.environment["POINKY_STUCK_SECS"].flatMap(Double.init) { return [.thinking: s, .starting: s] }   // tests
-        return [.thinking: 150, .starting: 300]
+        if let s = ProcessInfo.processInfo.environment["POINKY_STUCK_SECS"].flatMap(Double.init) { return [.thinking: s, .starting: s, .speaking: s] }   // tests
+        return [.thinking: 150, .starting: 300, .speaking: 90]
     }()
 
     // Video explainers (CallController+Video.swift).
@@ -232,6 +235,11 @@ final class CallController: NSObject, NSMenuDelegate {
         listener.onStatus = { [weak self] msg in self?.overlay.setClaudeCaption(msg) }
         listener.onDied = { [weak self] in self?.restartListener() }
         speaker.onTurnFinished = { [weak self] in self?.finishedSpeaking() }
+        // Looking something up: once "One sec, let me check." has been heard, it's working, not speaking.
+        speaker.onDrained = { [weak self] in
+            guard let self, self.lookingUp, self.state == .speaking else { return }
+            self.state = .thinking
+        }
         // Captions follow the voice: each sentence appears as it's spoken.
         speaker.onSentenceStarted = { [weak self] sentence, tag in
             guard let self, self.state != .idle else { return }
@@ -649,6 +657,8 @@ final class CallController: NSObject, NSMenuDelegate {
         searcher?.stop()
         searcher = nil
         lookupReply = false
+        lookingUp = false
+        home.model.lookingUp = false
         pendingOffer = nil
         offerNote = nil
         carriedOver = false
@@ -735,6 +745,7 @@ final class CallController: NSObject, NSMenuDelegate {
     func testKeys(down: Bool) { ptt.fakeFlags = down ? ptt.combo : [] }
     func testWords(_ text: String, final: Bool, live: Bool) { listener.fakeResult(text, isFinal: final, live: live) }
     /// A helper (POINKY_HELPER_CMD=tools/fake-helper.py for no tokens); its id, or nil if it didn't start.
+    func testLessonSaved() { lessonSaved(FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Desktop/Poinky test.png"), pages: nil) }
     func testStartHelper(_ task: String) -> Int? { agents.start(AgentRequest(title: "Test helper", dir: nil, task: task), config: config)?.id }
     var testState: String { "\(state)" }
 
@@ -1064,6 +1075,13 @@ final class CallController: NSObject, NSMenuDelegate {
     func lessonSaved(_ url: URL?, pages: Int?) {
         let line = Self.savedLine(url, pages: pages)
         guard state != .idle else { sayWhenFree(line); return }
+        // You're talking (holding the keys, or mid-sentence in a call) or a question is being answered: after that,
+        // like a reminder, not over you (it set "speaking" while you held the keys).
+        if pushCommitted || ptt.isDown || state == .listening || state == .thinking || state == .starting {
+            dueLines.append(line)
+            deliverReminders()
+            return
+        }
         speaker.openSource()
         speaker.enqueue(line)
         speaker.endTurn()
@@ -1388,6 +1406,8 @@ final class CallController: NSObject, NSMenuDelegate {
         // A background update (a helper's report) is built from helper output, which can contain text from
         // web pages or files: like a lookup reply, it may only speak and mark, never act.
         lookupReply = proactive
+        lookingUp = false
+        home.model.lookingUp = false
         lastAskAt = ProcessInfo.processInfo.systemUptime
         markFade?.cancel()
         // Each question starts with a clean screen: the previous answer's marks go away.
@@ -1466,7 +1486,12 @@ final class CallController: NSObject, NSMenuDelegate {
                 // `<recall>` / `<search>`: look it up, then the talker answers from what was found.
                 if !proactive, ev.recall != nil || ev.search != nil {
                     if ev.search != nil, said.isEmpty { self.speaker.enqueue("One sec, let me check."); self.state = .speaking }
+                    // While it looks: "speaking" only as long as something is heard, then working on it.
+                    self.lookingUp = true
+                    self.home.model.lookingUp = true
+                    if !self.speaker.isSpeaking { self.state = .thinking }
                     let found = await self.lookUp(recall: ev.recall, search: ev.search, question: question, turn: myTurn)
+                    if myTurn == self.turn { self.lookingUp = false; self.home.model.lookingUp = false }
                     guard myTurn == self.turn else { return }
                     Receipts.update(self.receiptID) { r in
                         if let q = ev.search { r.lookups.append("Web search “\(q)” (Claude's web search got these words and your question)") }
@@ -1705,6 +1730,7 @@ final class CallController: NSObject, NSMenuDelegate {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 10) { [weak self] in
                     guard let self, searching, myTurn == self.turn else { return }
                     self.speaker.enqueue("Still looking.")
+                    if self.state == .thinking { self.state = .speaking }
                 }
                 let r = await searcher!.search(q, context: question)
                 searching = false
@@ -3035,9 +3061,15 @@ final class CallController: NSObject, NSMenuDelegate {
 
     /// Stuck in one state far longer than anything legitimate takes: write down why, start over, and say so.
     private func checkStuck() {
+        var since = stateSince
+        if state == .speaking {
+            if artistBusy { return }   // the teacher writes the next lines (it has its own watchdog)
+            since = max(since, speaker.lastProgress)
+        }
         guard let limit = Self.stuckAfter[state],
-              ProcessInfo.processInfo.systemUptime - stateSince > limit else { return }
-        Timeline.log("stuck", ["state": "\(state)", "secs": Int(ProcessInfo.processInfo.systemUptime - stateSince), "turn": turn,
+              ProcessInfo.processInfo.systemUptime - since > limit else { return }
+        Timeline.log("stuck", ["state": "\(state)", "secs": Int(ProcessInfo.processInfo.systemUptime - since), "turn": turn,
+                               "voice": speaker.debugState, "audio": audio.running, "lookingUp": lookingUp,
                                "finishingPush": finishingPush, "pushCommitted": pushCommitted, "guideBusy": guideBusy,
                                "guide": guide != nil, "artistBusy": artistBusy, "asking": askingNow != nil,
                                "lookupReply": lookupReply, "speaking": speaker.isSpeaking, "mode": "\(mode)"])

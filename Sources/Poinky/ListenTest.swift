@@ -7,6 +7,7 @@ import AppKit
 ///   {"at": 1.6, "words": "what is", "final": false, "live": true}   a result (main transcriber unless "live")
 ///   {"at": 2.4, "probe": "label"}          writes what the bubble shows (SB.bubbleState) and the call state
 ///   {"at": 3.0, "killPage": true}         ends the overlay page's process (as memory pressure would)
+///   {"at": 1.0, "saved": true}            a page was saved ("save my notes"): Poinky says where
 ///   {"at": 1.0, "helper": "fixture:fix-bug"}   starts a helper (POINKY_HELPER_CMD={root}/tools/fake-helper.py)
 ///   {"at": 2.0, "pointHelper": true}      as if the mouse rested on the newest helper (false: on nothing)
 ///   {"at": 9.0, "quit": true}
@@ -81,6 +82,7 @@ enum ListenTest {
                             }
                         }
                     }
+                    if step["saved"] as? Bool == true { c.testLessonSaved(); write(String(format: "%.2f a page was saved (state %@)", at, c.testState)) }
                     if let task = step["helper"] as? String {
                         write(String(format: "%.2f helper %@", at, c.testStartHelper(task).map { "\($0)" } ?? "didn't start"))
                     }

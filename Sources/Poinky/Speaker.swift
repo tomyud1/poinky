@@ -9,6 +9,14 @@ final class Speaker {
     /// Called when a sentence starts being heard (for captions that follow the voice).
     /// The tag is set for lesson lines, so their drawing step can start with them.
     var onSentenceStarted: ((String, Int?) -> Void)?
+    /// Everything given so far has been heard, but the turn is still open (more may come: a lookup, a lesson).
+    var onDrained: (() -> Void)?
+    /// When the voice last made progress (a sentence queued, audio scheduled or heard): uptime seconds.
+    /// "Speaking" with no progress for long means it's stuck (CallController.checkStuck).
+    private(set) var lastProgress: TimeInterval = 0
+    var debugState: String { "synth=\(synthesizing) playing=\(buffersPlaying) queued=\(queue.count) open=\(turnOpen) lost=\(deviceLost)" }
+    /// Tests: `POINKY_TEST_SYNTH_HANG=1`, Apple's voice never answers (a stuck synthesizer).
+    private static let testSynthHang = ProcessInfo.processInfo.environment["POINKY_TEST_SYNTH_HANG"] == "1"
     private var waitingCaptions: [(String, Int?)] = []   // sentences scheduled behind the one playing
 
     private let synth = AVSpeechSynthesizer()
@@ -160,6 +168,7 @@ final class Speaker {
         let said = SpokenText.normalize(s, language: usingPhonon ? "en" : (voice?.language ?? language))
         if said != s { spokenText += " " + said }    // the echo check hears the spoken words
         prepareVoices(for: s)
+        lastProgress = ProcessInfo.processInfo.systemUptime
         queue.append((s, tag))
         pump()
     }
@@ -412,6 +421,7 @@ final class Speaker {
         let u = AVSpeechUtterance(string: spoken)
         u.voice = other ?? voice
         u.rate = rate
+        if Self.testSynthHang { return }
         synth.write(u) { [weak self] buffer in
             guard let pcm = buffer as? AVAudioPCMBuffer else { return }
             DispatchQueue.main.async {
@@ -421,7 +431,13 @@ final class Speaker {
     }
 
     private func received(_ pcm: AVAudioPCMBuffer, gen: Int) {
-        guard gen == generation, let audio, audio.running else { return }
+        guard gen == generation else { return }
+        guard let audio, audio.running else {
+            // No engine to play it on (the device went away and couldn't be reopened): this sentence is over
+            // all the same, or "synthesizing" never clears and the turn never ends (stuck on "speaking").
+            if pcm.frameLength == 0 { appleSilence.removeAll(); synthesizing = false; pump() }
+            return
+        }
         // Silence after the first sound is held back until more speech comes: at the end of a part
         // another voice goes on from, Apple's 200 ms of trailing silence was a pause mid-sentence.
         if pcm.frameLength > 0, appleCaption == nil, Self.peak(pcm) < 0.003 { appleSilence.append(pcm); return }
@@ -537,6 +553,7 @@ final class Speaker {
             }
         }
         if Self.speechWav != nil { record(out) }
+        lastProgress = ProcessInfo.processInfo.systemUptime
         audioEndsAt = max(Date(), audioEndsAt).addingTimeInterval(Double(out.frameLength) / out.format.sampleRate)
         let endsSentence = endsCaption ?? wholeSentence
         buffersPlaying += 1
@@ -547,6 +564,7 @@ final class Speaker {
                     // Reported played, but the engine is stopped: it never was (the device changed).
                     if let audio = self.audio, !audio.engine.isRunning { self.lostDevice(); return }
                     self.buffersPlaying -= 1
+                    self.lastProgress = ProcessInfo.processInfo.systemUptime
                     if (endsSentence || self.buffersPlaying == 0), !self.waitingCaptions.isEmpty {
                         let (t, tg) = self.waitingCaptions.removeFirst()
                         self.sentenceStarted(t, tg)
@@ -584,7 +602,8 @@ final class Speaker {
     }
 
     private func checkDone() {
-        guard turnActive, !turnOpen, !synthesizing, queue.isEmpty, segments.isEmpty, buffersPlaying == 0 else { return }
+        guard turnActive, !synthesizing, queue.isEmpty, segments.isEmpty, buffersPlaying == 0 else { return }
+        if turnOpen { onDrained?(); return }
         turnActive = false
         resetPacing()
         onTurnFinished?()

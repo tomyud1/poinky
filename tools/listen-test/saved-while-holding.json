@@ -1,0 +1,13 @@
+{"about": "A page saved while you hold the keys: \"I saved…\" waits until you're done (it set the state to speaking under your hold), then comes after the answer.",
+ "steps": [
+  {"at": 1.5, "keys": "down"},
+  {"at": 2.0, "words": "hello", "live": true},
+  {"at": 2.6, "probe": "listening", "expect": {"state": "listening"}},
+  {"at": 2.7, "saved": true},
+  {"at": 3.0, "probe": "still listening after the save", "expect": {"state": "listening", "kind": "you"}},
+  {"at": 3.2, "words": "What is this button for?", "final": true},
+  {"at": 3.4, "keys": "up"},
+  {"at": 4.5, "probe": "the answer", "expect": {"kind": "claude", "contains": "Fake answer"}},
+  {"at": 9.0, "probe": "then where it was saved", "expect": {"kind": "claude", "contains": "saved a picture"}},
+  {"at": 9.5, "quit": true}
+ ]}
