@@ -87,6 +87,24 @@ check(HelperStream.gerund("Copy files") == "Copying files", "gerund copy")
 check(HelperStream.firstSentence("**Good.** Two tests fail. More") == "Good.", "first sentence strips markdown")
 check(HelperStream.firstSentence("My plan:\n1. Fix it") == "My plan", "first sentence stops at a colon")
 check(HelperStream.describe(tool: "mcp__github__create_issue", input: [:]) == "Using create_issue (github)", "mcp tool")
+check(HelperStream.describe(tool: "SubagentHandback", input: ["message": "report"]) == nil, "a sub-agent handing back isn't a step")
 check(HelperStream.describe(tool: "WebFetch", input: ["url": "https://docs.swift.org/x"]) == "Reading docs.swift.org", "web fetch")
+// A long summary is cut at its end, keeping what it did first (it used to keep the end: "…the chart shows…").
+let longSummary = "I saved the bar chart as a PNG and an HTML page. " + String(repeating: "Each lab has its latest figure and its target. ", count: 30) + "Check the conversion I used."
+let cutSummary = HelperStream.spokenSummary(longSummary)
+check(cutSummary.hasPrefix("I saved the bar chart") && cutSummary.hasSuffix("target.") && cutSummary.count <= 900, "a long summary keeps its start and ends on a whole sentence")
+check(HelperStream.spokenSummary("Short and sweet.") == "Short and sweet.", "a short summary is kept as it is")
+check(HelperStream.spokenSummary(String(repeating: "word ", count: 300)).hasSuffix("word…"), "no sentence ends: cut at a word")
+// Tokens: Claude Code stamps every part of a reply with its start's usage (2 output tokens), so the count
+// guesses from what it wrote while the turn runs, and takes the real total when the turn ends.
+var tok = HelperStream()
+let bigInput = String(repeating: "x", count: 8000)
+func line(_ o: [String: Any]) -> Data { var d = try! JSONSerialization.data(withJSONObject: o); d.append(0x0A); return d }
+_ = tok.feed(line(["type": "assistant", "message": ["id": "m1", "usage": ["output_tokens": 2, "input_tokens": 3], "content": [["type": "tool_use", "id": "t1", "name": "Write", "input": ["file_path": "/p/a.py", "content": bigInput]]]]]))
+check(tok.outputTokens >= 1900, "while it works, a reply's tokens come from what it wrote, not the 2 its start says (\(tok.outputTokens))")
+_ = tok.feed(line(["type": "result", "subtype": "success", "result": "Done.", "usage": ["output_tokens": 2300], "modelUsage": ["opus": ["outputTokens": 2300], "haiku": ["outputTokens": 700]]]))
+check(tok.outputTokens == 3000, "a turn's end gives the real total, sub-agents' models too (\(tok.outputTokens))")
+_ = tok.feed(line(["type": "assistant", "message": ["id": "m2", "usage": ["output_tokens": 2], "content": [["type": "text", "text": String(repeating: "y", count: 400)]]]]))
+check(tok.outputTokens == 3100, "the next turn counts on from there (\(tok.outputTokens))")
 print(failures == 0 ? "ALL PASSED" : "\(failures) FAILED")
 exit(failures == 0 ? 0 : 1)

@@ -1,0 +1,130 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>running</title>
+<!-- Checks that a helper card's time is wall-clock time. Runs the app's own frame loop (web/helpers-app.js)
+     on a virtual clock: smooth frames while something moves, a frame every 100 ms when helpers just work
+     (as in the app), and a long stretch with no frames at all (App Nap, a locked screen). The card's time
+     must match the clock and tick visibly; real durations (the "Stop Mint?" confirm) last what they say;
+     and the ticking never makes the layer "busy". Run by tools/tests/run-web-tests.mjs. -->
+<body style="margin:0;width:1400px;height:900px;position:relative">
+<script>
+// A virtual clock for the page's frames and timers (helpers-app.js uses requestAnimationFrame, setTimeout and performance.now).
+(function () {
+  let now = 1000, seq = 0, queue = [], frozenUntil = 0;
+  const FRAME = 1000 / 60;
+  const add = (at, fn, raf) => { const id = ++seq; queue.push({ at, fn, raf, id }); return id; };
+  window.requestAnimationFrame = fn => add(Math.max(frozenUntil, (Math.floor(now / FRAME + 1e-6) + 1) * FRAME), fn, true);
+  window.setTimeout = (fn, ms) => add(Math.max(frozenUntil, now + (+ms || 0)), fn, false);
+  window.clearTimeout = id => { queue = queue.filter(q => q.id !== id); };
+  performance.now = () => now;
+  window.vclock = {
+    get now() { return now; },
+    /** Runs everything due until `ms` from now. */
+    run(ms) {
+      const end = now + ms;
+      for (let guard = 0; ; guard++) {
+        if (guard > 2e5) throw new Error('vclock: runaway');
+        queue.sort((a, b) => a.at - b.at || a.id - b.id);
+        const q = queue[0];
+        if (!q || q.at > end) break;
+        queue.shift(); now = Math.max(now, q.at); q.fn(now);
+      }
+      now = end;
+    },
+    /** No frames or timers for `ms` (the page is asleep), then they run late. */
+    freeze(ms) { frozenUntil = now + ms; queue.forEach(q => { q.at = Math.max(q.at, frozenUntil); }); },
+  };
+})();
+</script>
+<script src="../../web/sounds.js"></script>
+<script src="../../web/helpers.js"></script>
+<script>
+// What the overlay gives helpers-app.js.
+window.matchMedia = window.matchMedia || (() => ({ matches: false }));
+const posted = [];
+window.webkit = { messageHandlers: { sb: { postMessage: m => posted.push(m) } } };
+let cursor = { x: 900, y: 700 };
+window.SB = { buddyPos: () => ({ x: 620, y: 520 }), buddyReact: () => {}, cursorPos: () => cursor };
+</script>
+<script src="../../web/helpers-app.js"></script>
+<script>
+(function () {
+  const results = [], fail = [];
+  const check = (ok, what) => { results.push((ok ? 'ok   ' : 'FAIL ') + what); if (!ok) fail.push(what); };
+  const SB = window.SB;
+  SB.helperSounds(false, 0);
+  const card = id => [...document.querySelectorAll('.hl-chip')].find(c => c.querySelector('.name').textContent === id);
+  const shown = name => { const c = card(name); return c ? c.querySelector('.elapsed').textContent : '(no card)'; };
+  const fmt = s => s < 60 ? `${s}s` : s < 3600 ? `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}` : `${Math.floor(s / 3600)}:${String(Math.floor(s / 60) % 60).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+
+  const t0 = vclock.now;
+  SB.helperSpawn('1', 'Mint', 'Make a chart', 0, 'Make a chart of lab compute', 'Poinky');
+  SB.helperStep('1', 'Searching the web');
+  const real = () => (vclock.now - t0) / 1000;
+
+  // Let it hand off and settle at the edge, then just work for a while: frames every 100 ms.
+  vclock.run(8000);
+  const checkpoints = [];
+  for (const at of [20, 45, 59, 61, 65, 90, 125]) {
+    vclock.run((at - real()) * 1000);
+    checkpoints.push([at, shown('Mint')]);
+  }
+  const wrong = checkpoints.filter(([at, txt]) => txt !== fmt(at) && txt !== fmt(at - 1));
+  check(!wrong.length, `the card's time follows the clock while it just works (${checkpoints.map(([a, t]) => a + 's→' + t).join(', ')})`);
+
+  // It ticks visibly every second, also after a minute (not "2 min" for a whole minute).
+  const seen = new Set();
+  for (let i = 0; i < 10; i++) { vclock.run(1000); seen.add(shown('Mint')); }
+  check(seen.size >= 9, `it ticks every second after a minute (${[...seen].join(' ')})`);
+
+  // The page sleeps for 40 s (no frames at all), then wakes: the time is right at once and nothing jumps.
+  const before = SB.helperPos('1');
+  vclock.freeze(40000); vclock.run(40000); vclock.run(150);
+  const after = SB.helperPos('1');
+  const r = Math.floor(real());
+  check(shown('Mint') === fmt(r) || shown('Mint') === fmt(r - 1), `right after a 40 s sleep (${shown('Mint')} at ${r}s)`);
+  check(Math.hypot(after.x - before.x, after.y - before.y) < 2, `nothing jumps after the sleep (moved ${Math.hypot(after.x - before.x, after.y - before.y).toFixed(1)}px)`);
+
+  // The ticking text never asks for smooth frames: frames stay ~100 ms apart while it just works.
+  SB.helperStats();
+  let frames = 0; const raf = window.requestAnimationFrame;
+  window.requestAnimationFrame = fn => raf(t => { frames++; fn(t); });
+  vclock.run(10000);
+  window.requestAnimationFrame = raf;
+  check(frames <= 110, `ticking doesn't make it busy (${frames} frames in 10 s)`);
+
+  // Stop asks "Stop Mint?" for 3 s of real time, even at ten frames a second.
+  const p = SB.helperPos('1');
+  cursor = { x: p.x + 6, y: p.y + 6 };   // rest on it: its card opens
+  vclock.run(1500);
+  const stop = card('Mint').querySelector('.stop');
+  stop.click();
+  vclock.run(200);
+  const asking = stop.textContent;
+  vclock.run(3300);
+  check(asking === 'Stop Mint?' && stop.textContent === 'Stop', `"Stop Mint?" lasts 3 s (${asking} → after 3.5 s: ${stop.textContent})`);
+
+  // Finished: the time stops where it finished (and the clock that matters is the one when it finished).
+  cursor = { x: 900, y: 700 };
+  vclock.run(1000);
+  const doneAt = Math.floor(real());
+  SB.helperDone('1', true, 'Saved the chart.');
+  vclock.run(30000);
+  const fin = shown('Mint');
+  check(fin === fmt(doneAt) || fin === fmt(doneAt + 1), `it stops counting when it finishes (${fin}, finished at ${doneAt}s)`);
+
+  // A helper that finishes during its hand-off: its time stops then, not when it reaches the edge.
+  SB.helperSpawn('2', 'Coral', 'Quick one', 1, 'Quick one', '');
+  vclock.run(1000);
+  SB.helperDone('2', true, 'Done quickly.');
+  vclock.run(15000);
+  const quick = shown('Coral');
+  check(quick === '1s' || quick === '0s', `finished mid hand-off: its time is when it finished (${quick})`);
+
+  document.body.querySelectorAll('.hl-root').forEach(e => e.remove());
+  document.body.textContent = results.join('\n');
+  document.title = fail.length ? 'FAIL' : 'PASS';
+  window.testResults = { pass: !fail.length, lines: results };
+})();
+</script>
+</body>

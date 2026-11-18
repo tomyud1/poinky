@@ -289,7 +289,8 @@ footer.off .composer{opacity:.55}
     return s.charAt(0).toUpperCase() + s.slice(1);
   }
 
-  const fmtTime = s => { s = Math.max(0, Math.round(s)); const m = Math.floor(s / 60); return m >= 60 ? `${Math.floor(m / 60)} h ${m % 60} min` : m ? `${m}:${String(s % 60).padStart(2, '0')}` : `${s} s`; };
+  // How long it has worked, ticking every second (like the card at the edge): "42 s", "1:05", "1:02:05".
+  const fmtTime = s => { s = Math.max(0, Math.floor(s)); const m = Math.floor(s / 60), p = n => String(n).padStart(2, '0'); return m >= 60 ? `${Math.floor(m / 60)}:${p(m % 60)}:${p(s % 60)}` : m ? `${m}:${p(s % 60)}` : `${s} s`; };
   // 950 → "950", 3240 → "3.2k", 48100 → "48k"
   // A live cost: Claude Code's figure, or "~" when part of it is estimated from tokens (HelperCost).
   const fmtCost = (d, est) => d == null || d < 0 ? '' : (est ? '~' : '') + '$' + (d < 0.01 ? '0.01' : d.toFixed(2));
@@ -427,6 +428,13 @@ footer.off .composer{opacity:.55}
   }
   $('todoRow').onclick = () => { st.todoOpen = !st.todoOpen; $('todo').classList.toggle('open', st.todoOpen); };
 
+  // A row's small line: how long a working one has been at it (`since`: seconds since the app sent the list), or when it ended.
+  function rowTag(it, since) {
+    const live = it.status === 'running' || it.status === 'queued';
+    return it.waiting ? 'Needs you' : it.paused ? 'Paused' : it.status === 'queued' ? 'Waiting' : live ? fmtTime((it.elapsed || 0) + since) + (it.tokens ? ' · ' + fmtTok(it.tokens) + ' tokens' : '') + (it.liveCost > 0 ? ' · ' + fmtCost(it.liveCost, it.costEstimated) : '')
+      : (it.status === 'done' ? '' : it.status === 'failed' ? 'Problem · ' : 'Stopped · ') + (it.ago || '') + (it.cost >= 0.01 ? ' · $' + it.cost.toFixed(2) : '');
+  }
+
   function render() {
     const s = st.status, pill = $('pill');
     const live = s === 'running' || s === 'queued';
@@ -458,7 +466,7 @@ footer.off .composer{opacity:.55}
       : st.paused ? `Tell ${st.name} what to do next…` : `Tell ${st.name} something…`;
   }
   setInterval(() => { if (st.status === 'running' && !st.waiting && !st.paused) render(); }, 1000);
-  setInterval(() => HW._tick(), 10000);
+  setInterval(() => HW._tick(), 1000);
 
   // Typing: Return sends, Shift-Return adds a line.
   function grow() { box.style.height = 'auto'; box.style.height = Math.min(180, box.scrollHeight) + 'px'; $('send').classList.toggle('on', !!box.value.trim()); }
@@ -626,11 +634,9 @@ footer.off .composer{opacity:.55}
     list(items, selected) {
       const box = $('items');
       st.items = items; st.selected = selected; st.listAt = Date.now();
-      const ago = s => { s = Math.max(0, Math.round(s || 0)); return s < 60 ? `${s} s` : s < 3600 ? `${Math.floor(s / 60)} min` : `${Math.floor(s / 3600)} h ${Math.floor((s % 3600) / 60)} min`; };
       const row = it => {
         const live = it.status === 'running' || it.status === 'queued';
-        const tag = it.waiting ? 'Needs you' : it.paused ? 'Paused' : it.status === 'queued' ? 'Waiting' : live ? ago(it.elapsed) + (it.tokens ? ' · ' + fmtTok(it.tokens) + ' tokens' : '') + (it.liveCost > 0 ? ' · ' + fmtCost(it.liveCost, it.costEstimated) : '')
-          : (it.status === 'done' ? '' : it.status === 'failed' ? 'Problem · ' : 'Stopped · ') + (it.ago || '') + (it.cost >= 0.01 ? ' · $' + it.cost.toFixed(2) : '');
+        const tag = rowTag(it, 0);
         const where = it.dir && it.line ? `${it.dir} · ` : it.dir || '';
         return `<div class="it${it.key === selected ? ' on' : ''}${live ? ' live' : ''}${it.waiting ? ' need' : ''}" data-key="${esc(it.key)}" style="--accent-row:${esc(it.color || '#34c98e')}"><span class="d" style="background:${esc(it.color || '#34c98e')};color:${esc(it.color || '#34c98e')}"></span>` +
           `<div class="t"><div class="n">${esc(it.name)}<small class="${it.waiting ? 'wait' : ''}">${esc(tag)}</small></div><div class="s">${esc(it.title || '')}</div>` +
@@ -644,7 +650,16 @@ footer.off .composer{opacity:.55}
       $('stopAll').hidden = now.filter(i => i.status === 'running' || i.status === 'queued').length < 2;
       document.body.classList.toggle('noside', items.length < 2);
     },
-    _tick() { if (st.items.some(i => i.status === 'running' && !i.waiting && !i.paused)) HW.list(st.items.map(i => i.status === 'running' && !i.waiting && !i.paused ? { ...i, elapsed: (i.elapsed || 0) + (Date.now() - st.listAt) / 1000 } : i), st.selected); },
+    // Each second: the working ones' time in the list, in place (the list itself is only redrawn when the app sends it).
+    _tick() {
+      const since = (Date.now() - (st.listAt || Date.now())) / 1000;
+      for (const it of st.items) {
+        if (it.status !== 'running' || it.waiting || it.paused) continue;
+        const sm = [...$('items').querySelectorAll('.it')].find(e => e.dataset.key === it.key)?.querySelector('small');
+        const tag = rowTag(it, since);
+        if (sm && sm.textContent !== tag) sm.textContent = tag;
+      }
+    },
     /// The new-helper form: its folders (recent ones first) from the app.
     newForm(d) {
       const sel = $('nDir');

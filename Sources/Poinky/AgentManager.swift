@@ -24,7 +24,9 @@ final class AgentManager {
         let title: String
         let task: String
         let dir: URL
-        let started: Date
+        /// When it started working (for one that waited in line, when its turn came), so its time on screen
+        /// and in its window counts work, not waiting.
+        var started: Date
         var finished: Date?
         var status: Status = .running
         var summary = ""
@@ -202,9 +204,9 @@ final class AgentManager {
             .replacingOccurrences(of: ":", with: "")
         let safeTitle = req.title.lowercased().map { $0.isLetter || $0.isNumber ? $0 : "-" }.prefix(40)
         let log = req.continueLog ?? Self.logDir.appendingPathComponent("\(stamp)-\(String(safeTitle)).md")
-        // Continuing an earlier helper: its old name if it's free, and everything it did so far.
-        let taken = Set(agents.filter { $0.status == .running || $0.status == .queued }.map(\.name))
-        let name = req.name.flatMap { taken.contains($0) ? nil : $0 } ?? freeName()
+        // Continuing an earlier helper: its old name if nobody in this run has it (the one it continues was
+        // taken out of the list), and everything it did so far.
+        let name = Self.pickName(used: agents.map { ($0.name, $0.status == .running || $0.status == .queued) }, reserved: reservedNames, requested: req.name)
         var agent = Agent(id: id, name: name, title: req.title, task: req.task, dir: dir, started: Date(), log: log)
         if req.continueLog != nil { agent.entries = HelperEntry.read(agent.chat) }
         if running.count >= maxRunning {
@@ -242,10 +244,13 @@ final class AgentManager {
         do { try input.write(contentsOf: line) } catch { return false }
         closeWork[id]?.cancel()
         closeWork[id] = nil
+        let wasPaused = agents[i].paused
         agents[i].paused = false
         agents[i].followUps.append(text)
         appendLog(agents[i], "\n## Follow-up\n\n\(text)\n\n")
         record(id, HelperEntry(k: "you", text: text))
+        // Its card said "Paused" until its next step (which can be a while): now it says it's going on.
+        if wasPaused { agents[i].latest = "Back to work"; onEvent?(agents[i], .step("Back to work")) }
         onChange?()
         return true
     }
@@ -777,10 +782,11 @@ final class AgentManager {
         agents[i].finished = Date()
         var s = (turn?.summary ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         if s.isEmpty { s = agents[i].latest.isEmpty ? "It stopped without saying why." : "It stopped while: \(agents[i].latest)" }
+        // Short enough to be read aloud: its start (what it did; the card shows its first sentence). Its window keeps all of it.
+        var spoken = HelperStream.spokenSummary(s)
         // Its own copy of the repo: its changes come back into your folder (or onto a branch).
-        if let w = worktrees.removeValue(forKey: id), let note = finishWorktree(i, w, ok: ok) { s += " " + note }
-        // Keep the summary short enough to be read aloud.
-        agents[i].summary = s.count > 900 ? "…" + s.suffix(900) : s
+        if let w = worktrees.removeValue(forKey: id), let note = finishWorktree(i, w, ok: ok) { s += " " + note; spoken += " " + note }
+        agents[i].summary = spoken
         appendLog(agents[i], "\n## Result (\(agents[i].status.rawValue))\n\n\(agents[i].summary)\n")
         record(id, HelperEntry(k: "end", text: s, kind: ok ? "done" : "failed", cost: agents[i].cost,
                                seconds: agents[i].finished!.timeIntervalSince(agents[i].started)))
@@ -858,6 +864,7 @@ final class AgentManager {
             let next = waiting.removeFirst()
             guard let i = agents.firstIndex(where: { $0.id == next.id }), agents[i].status == .queued else { continue }
             agents[i].status = .running
+            agents[i].started = Date()
             if let exe = Self.executable(config: next.config), launch(id: next.id, req: next.req, config: next.config, exe: exe) {
                 onChange?()
                 onStarted?(agents[i])
@@ -882,8 +889,10 @@ final class AgentManager {
 
     /// A name for a new helper that nobody in this run has had, so the Helpers window never lists two
     /// "Mint"s: Mint, Coral… then "Mint 2", "Coral 2"… (same colors). `used`: this run's helpers.
-    static func pickName(used: [(name: String, active: Bool)], reserved: Set<String> = []) -> String {
+    /// `requested`: the name of the earlier helper it continues, if that's free.
+    static func pickName(used: [(name: String, active: Bool)], reserved: Set<String> = [], requested: String? = nil) -> String {
         let taken = Set(used.map(\.name)).union(reserved)
+        if let r = requested, !r.isEmpty, !taken.contains(r) { return r }
         if let n = names.first(where: { !taken.contains($0) }) { return n }
         var k = 2
         while true {

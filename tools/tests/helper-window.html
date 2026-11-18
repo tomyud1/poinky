@@ -107,8 +107,11 @@ const run = () => {
       { key: 'f/x.chat.jsonl', name: 'Amber', title: 'Yesterday', status: 'done', earlier: true, line: 'Did it.', dir: 'api' }], 'a1');
     const rows = qa('.it');
     check(rows.length === 4 && rows[0].classList.contains('need') && /Needs you/.test(rows[0].textContent), 'the helper that needs you is first, marked "Needs you"');
-    check(/tipsplit · Running the tests/.test(rows[1].querySelector('.l').textContent) && rows[1].querySelector('small').textContent === '2 min · 3.2k tokens', `each row: its folder, what it's doing, how long, tokens so far (${rows[1].querySelector('.l').textContent} / ${rows[1].querySelector('small').textContent})`);
+    check(/tipsplit · Running the tests/.test(rows[1].querySelector('.l').textContent) && rows[1].querySelector('small').textContent === '2:05 · 3.2k tokens', `each row: its folder, what it's doing, how long, tokens so far (${rows[1].querySelector('.l').textContent} / ${rows[1].querySelector('small').textContent})`);
     check(rows[2].querySelector('small').textContent === '2 min ago · $0.42', 'a finished one: when, and its usage (' + rows[2].querySelector('small').textContent + ')');
+    { const now0 = w.Date.now, at = now0.call(w.Date); w.Date.now = () => at + 7000; w.HW._tick(); w.Date.now = now0;
+      const t = qa('.it')[1].querySelector('small').textContent, need = qa('.it')[0].querySelector('small').textContent;
+      check(t === '2:12 · 3.2k tokens' && need === 'Needs you', `a working one's time ticks every second in the list (${t}; ${need})`); }
     check(!q('#stopAll').hidden, 'two at work: "Stop all" is offered');
     q('#stopAll').click();
     check(JSON.stringify(w.HW_OUT.slice(-1)[0]) === '{"type":"stopAll"}', 'Stop all tells the app');

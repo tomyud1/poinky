@@ -25,6 +25,7 @@ enum HelperTest {
         func counts() -> String { "running \(m.running.count), waiting \(m.queued.count)" }
         m.onHands = { id in log("mouse and keyboard: \(id.map { "#\($0)" } ?? "free")") }
         m.onEvent = { a, e in log("#\(a.id) \(a.name) event \(e)") }
+        m.onStarted = { a in log("#\(a.id) \(a.name) started, its time: \(Int(Date().timeIntervalSince(a.started)))s") }
         m.onChange = {
             log("change: " + counts())
             notifier?.stillOpen(m.agents.flatMap { h in h.asks.map { (h.id, $0) } })   // like the app: answered ones go away
@@ -651,6 +652,9 @@ extension HelperTest {
         let n2 = AgentManager.pickName(used: AgentManager.names.map { ($0, false) })
         let n3 = AgentManager.pickName(used: AgentManager.names.map { ($0, false) } + [("Mint 2", true)], reserved: ["Coral 2"])
         check(n1 == "Coral" && n2 == "Mint 2" && n3 == "Violet 2", "names: a finished Mint isn't reused (\(n1)); after all six: \(n2), then \(n3)")
+        // Continuing yesterday's Mint while today's Mint (finished) is still listed: not a second "Mint".
+        let n4 = AgentManager.pickName(used: [("Mint", false)], requested: "Mint"), n5 = AgentManager.pickName(used: [("Coral", false)], requested: "Mint")
+        check(n4 == "Coral" && n5 == "Mint", "continuing an earlier Mint: its name only if this run has no Mint (\(n4), \(n5))")
         // Tokens from the stream: a reply's usage repeats on each of its parts, so it counts once.
         var ts = HelperStream()
         let reply = { (id: String, out: Int, ctx: Int, nested: Bool) in

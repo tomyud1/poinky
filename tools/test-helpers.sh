@@ -51,6 +51,7 @@ expect "$TMP/A.txt" "Also handled: Also add a test for 4 people" "the follow-up 
 expect "$TMP/A.txt" "#2 Coral FINISHED done .*checklist=4 blocked=5" "to-do list and refusals are tracked"
 expect "$TMP/A.txt" "#2 Coral FINISHED done .*tokens=[1-9][0-9]*/[1-9][0-9]*:" "tokens are counted while it works (written / its conversation)"
 expect "$TMP/A.txt" "#4 Amber FINISHED done" "the waiting helper runs after a slot frees up"
+expect "$TMP/A.txt" "#4 Amber started, its time: 0s" "its time counts from when it starts working, not from when it got in line"
 expect "$TMP/A.txt" "ALL DONE" "everything finishes"
 
 echo "4. Stop, and a follow-up right after a helper finished"
@@ -168,6 +169,7 @@ expect "$TMP/P.txt" "pause #1: true" "it can be paused"
 expect "$TMP/P.txt" "#1 after pausing: status running, paused true, talk: Mint is paused" "paused, it keeps waiting (and says so)"
 expect "$TMP/P.txt" "status line: .*PAUSED by the user" "the main agent knows it's paused"
 expect "$TMP/P.txt" "new direction to #1: true, paused now false" "a new direction gets it going again"
+expect "$TMP/P.txt" "#1 Mint event step\\(\"Back to work\"\\)" "its card stops saying Paused"
 expect "$TMP/P.txt" "FINISHED done.*Done: Use yarn instead" "it finishes with the new direction"
 grep -q "You paused it" "$TMP"/logs-P/*.chat.jsonl && pass "its window shows the pause" || bad "its window shows the pause"
 
