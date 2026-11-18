@@ -60,6 +60,17 @@
   style.textContent = css;
   document.head.appendChild(style);
 
+  // Which way a caption, label or note reads: right to left when most of its letters are Hebrew or Arabic, so the
+  // period of "Python היא שפת תכנות." lands on the left (dir="auto" goes by the first letter: "P", left to right).
+  // Shared with overlay.html and lesson.js.
+  window.textDir = window.textDir || function (s) {
+    s = String(s || '');
+    const rtl = (s.match(/[\u0590-\u08FF\uFB1D-\uFDFF\uFE70-\uFEFF]/g) || []).length;
+    if (!rtl) return 'ltr';
+    const ltr = (s.match(/[A-Za-z\u00C0-\u024F\u0370-\u03FF\u0400-\u04FF]/g) || []).length;
+    return rtl >= ltr ? 'rtl' : 'ltr';
+  };
+
   const buddy = document.createElement('div');
   buddy.id = 'buddy';
   buddy.innerHTML = '<div class="ring"></div>' +
@@ -68,7 +79,7 @@
   const ring = buddy.querySelector('.ring');
   const bubble = document.createElement('div');
   bubble.id = 'bubble';
-  bubble.dir = 'auto';   // Hebrew or Arabic reads right to left
+  bubble.dir = 'auto';   // Hebrew or Arabic reads right to left (set per text by textDir)
   document.body.append(buddy, bubble);
   const hud = document.getElementById('hud');
 
@@ -235,6 +246,7 @@
     // Your words are dimmed while Claude thinks about them (the question can arrive after the phase).
     if (kind === 'you' && phase === 'thinking') bubble.classList.add('dim');
     bubble.textContent = kind === 'you' ? latestWords(text) : text;
+    bubble.dir = window.textDir(bubble.textContent);
     bubbleW = bubble.offsetWidth; bubbleH = bubble.offsetHeight;
     bubble.classList.add('on');
     placeBubble();

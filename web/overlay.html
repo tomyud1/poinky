@@ -145,12 +145,15 @@
     const r = el('rect', {class:'tagbg', rx:9, ry:9}, t);
     const tx = el('text', {class:'lbl'}, t);
     tx.textContent = text;
+    // Hebrew or Arabic: laid out right to left (its period on the left), anchored at its right edge, written on from the right.
+    const rtl = window.textDir && window.textDir(text) === 'rtl';
+    if (rtl) tx.setAttribute('direction', 'rtl');
     const bb = tx.getBBox();
     const padX = 10, w = bb.width + padX*2, h = 34;
     if (anchor === 'end') x -= w;
     x = Math.max(8, Math.min(innerWidth - w - 8, x)); y = Math.max(30, Math.min(innerHeight - h - 8, y));
     r.setAttribute('x', x); r.setAttribute('y', y); r.setAttribute('width', w); r.setAttribute('height', h);
-    tx.setAttribute('x', x + padX); tx.setAttribute('y', y + h/2 + 7);
+    tx.setAttribute('x', rtl ? x + padX + bb.width : x + padX); tx.setAttribute('y', y + h/2 + 7);
     // Write-on: reveal the handwriting with a growing clip.
     const id = 'lc' + (++clipN);
     const cp = el('clipPath', {id}, t);
@@ -160,7 +163,9 @@
     setTimeout(() => t.animate([{opacity:0, transform:'translateY(3px)'},{opacity:1, transform:'none'}], {duration:220, fill:'forwards'}), (delay ?? 380) - 120);
     const step = now => {
       const u = Math.max(0, Math.min(1, (now - start) / dur));
-      cr.setAttribute('width', (bb.width + 4) * (1 - Math.pow(1 - u, 2)));
+      const cw = (bb.width + 4) * (1 - Math.pow(1 - u, 2));
+      cr.setAttribute('width', cw);
+      if (rtl) cr.setAttribute('x', x + padX + bb.width + 2 - cw);
       if (u < 1) requestAnimationFrame(step);
     };
     requestAnimationFrame(step);
@@ -315,6 +320,7 @@
     Object.assign(c.style, {left:x+'px', top:y+'px', width:w+'px', height:h+'px'});
     c.innerHTML = '<div class="bar"><span></span><button class="x" title="Close">✕</button></div>';
     c.querySelector('.bar span').textContent = it.title || (is3d ? '3D model' : '');
+    c.querySelector('.bar span').dir = (window.textDir ? window.textDir(it.title || '') : 'auto');
     const f = document.createElement('iframe');
     f.setAttribute('sandbox', 'allow-scripts');
     f.srcdoc = is3d ? sceneDoc(it.code || '', !!it.stream) : panelDoc(it.html || it.svg || '');
@@ -398,6 +404,7 @@
       if (!text) { e.hidden = true; e.textContent=''; return; }
       // Keep long captions short: just the latest part.
       e.textContent = text.length > 240 ? '…' + text.slice(-240) : text; e.hidden = false;
+      e.dir = (window.textDir ? window.textDir(e.textContent) : 'auto');
       document.getElementById('hud').classList.remove('faded');
     },
     /** Captions at the top or bottom of the screen, and fading them out when idle. */
@@ -453,6 +460,7 @@
       c.querySelector('.note').style.setProperty('--tilt', (o.tilt ?? (x < (owner ? owner.getBoundingClientRect().left : 0) ? -3 : 3)) + 'deg');
       c.querySelector('img').src = o.src;
       c.querySelector('.pcap').textContent = o.caption || '';
+      c.querySelector('.pcap').dir = (window.textDir ? window.textDir(o.caption || '') : 'auto');
       c.querySelector('.x').addEventListener('click', () => removeCard(c));
       dragBy(c.querySelector('.note'), c);
       cards.appendChild(c);
@@ -527,6 +535,7 @@
     li.innerHTML = '<span class="n"></span><span class="t"></span>';
     li.querySelector('.n').textContent = i + 1;
     li.querySelector('.t').textContent = text;
+    li.querySelector('.t').dir = (window.textDir ? window.textDir(text) : 'auto');
     ol.appendChild(li);
     box.scrollTo({top: box.scrollHeight, behavior: 'smooth'});
     return i;
