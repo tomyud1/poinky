@@ -49,6 +49,7 @@ final class CallController: NSObject, NSMenuDelegate {
     private var lookupReply = false           // the talker is answering from lookup results: it may only speak and mark
     private var pendingOffer: PendingOffer?   // the talker's `<offer>`: runs on a clear yes, with no model call (Offer.swift)
     private var offerNote: String?            // for the talker: the user said yes and Poinky did what it offered
+    private var savedNote: String?            // for the talker: the paper was saved (said after its turn)
     private var carriedOver = false           // this session's first question got the end of the last one
     private var askingNow: Int?               // the helper next to the buddy with its hand up, waiting for your answer
     private var askSpoken: String?            // its request that Poinky already said out loud
@@ -660,6 +661,7 @@ final class CallController: NSObject, NSMenuDelegate {
         lookupReply = false
         pendingOffer = nil
         offerNote = nil
+        savedNote = nil
         carriedOver = false
         overlay.bakeContent()
         overlay.setContentVisible(true)
@@ -1043,6 +1045,9 @@ final class CallController: NSObject, NSMenuDelegate {
     /// A save you asked for out loud ("save my notes") is done: say where it went, after what's being said.
     func lessonSaved(_ url: URL?, pages: Int?) {
         let line = Self.savedLine(url, pages: pages)
+        // Said outside the talker's turn: the talker (and the record) learn it was saved, and where.
+        if url != nil { savedNote = "(Poinky already saved it and told the user: «\(line)»)" }
+        logExchange("", line, note: url == nil ? "nothing to save" : "saved the paper", history: false)
         guard state != .idle else { sayWhenFree(line); return }
         speaker.openSource()
         speaker.enqueue(line)
@@ -1595,6 +1600,11 @@ final class CallController: NSObject, NSMenuDelegate {
         }
         if let c = helperContext { lines.append(c); helperContext = nil }
         if let n = offerNote, !proactive { lines.append(n); offerNote = nil }
+        if let n = savedNote, !proactive { lines.append(n); savedNote = nil }
+        // No teacher this session (turned off): "let me draw it" would be followed by nothing.
+        if artist == nil, !proactive, sendOnce("noTeacher", "off") {
+            lines.append("(Sketches and 3D models are turned off right now: don't write <visual> or say you'll draw or show something; answer in words and screen marks.)")
+        }
         lines.append(contentsOf: videoContext)
         if let h = agents.handsHolder, let a = agents.agents.first(where: { $0.id == h }) {
             lines.append("(\(a.name) is using the mouse and keyboard right now. Don't click or type for the user until it's done; if they ask you to, say \(a.name) is using them.)")
