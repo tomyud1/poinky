@@ -101,13 +101,18 @@ enum SpokenError {
         if has("usage limit", "hit your limit", "limit reached", "rate limit", "rate_limit", "api error: 429") { return limitLine(nil, now: now) }
         if has("/login", "not logged in", "invalid api key", "authentication", "api error: 401", "oauth") { return notSignedIn }
         if has("isn't installed") { return notInstalled }
+        // Claude Code itself: it quit (crashed) or went quiet (the watchdog restarted it). An interrupt isn't spoken.
+        if has("stopped unexpectedly", "isn't running", "couldn't talk to claude code") { return claudeQuit }
+        if has("stopped answering") { return claudeStalled }
         if has("overloaded", "api error: 5") { return "Claude's servers are busy right now. Try again in a moment." }
         if has("connection", "network", "offline", "timed out", "could not resolve", "internet") {
             return "I can't reach Claude. Check your internet connection and ask again."
         }
-        if has("stopped answering", "stopped unexpectedly") { return "Claude Code got stuck, so I restarted it. Ask me again." }
         return "Sorry, that didn't work. The details are on screen."
     }
+
+    static let claudeQuit = "Claude Code quit in the middle of that. Ask me again and I'll start it fresh."
+    static let claudeStalled = "Claude Code stopped answering, so I restarted it. Ask me again."
 
     // These two also open the window with the button that fixes it (WelcomeWindowController.offerFix).
     static let notSignedIn = "Claude Code isn't signed in. I've opened a window with a Sign in button; ask me again after."

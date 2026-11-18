@@ -3,7 +3,7 @@
 
 Each scenario launches build/Poinky.app in a scratch support folder, asks typed questions (`--ask`), quits
 (`--quit-after`), and checks the timeline and the speech log (what was captioned and said). It needs the
-build's Screen Recording permission and an awake display, and it speaks through the speakers, so it's a
+build's Screen Recording permission and an awake display, and it plays its audio at volume 0 (POINKY_MUTE=0 to hear it), so it's a
 local check (not CI). A run that doesn't quit by itself is killed (by its own pid) and fails.
 
 Usage: tools/test-call-loop.py [scenario …]     (no names: all of them; --list shows them)
@@ -35,7 +35,8 @@ def run(name, asks, quit_after, env=None, args=()):
         json.dump({"homeShown": True, "checkForUpdates": False, "sounds": False,
                    **({"brain": "api", "apiKey": "test"} if api else {})}, f)
     e = {"POINKY_SUPPORT_DIR": f"{d}/support", "POINKY_TIMELINE_DIR": f"{d}/tl",
-         "POINKY_SPEECH_LOG": f"{d}/speech.txt", "POINKY_CLAUDE_CMD": FAKE, "FAKE_CLAUDE_LOG": f"{d}/fake.txt"}
+         "POINKY_SPEECH_LOG": f"{d}/speech.txt", "POINKY_CLAUDE_CMD": FAKE, "FAKE_CLAUDE_LOG": f"{d}/fake.txt",
+         "POINKY_MUTE": os.environ.get("POINKY_MUTE", "1")}   # (POINKY_MUTE=0 to hear it)
     e.update(env)
     if api: e["POINKY_API_URL"] = f"http://127.0.0.1:{api}/v1/messages"
     cmd = ["open", "-n", "-g"]
@@ -182,6 +183,24 @@ QUIET = {**DOER, "POINKY_STUCK_SECS": "5",
          "FAKE_GUIDE_REPLIES": json.dumps(['<act>{"do":"wait","s":0.2}</act>'] * 6 + ['<done>All done.</done>'])}
 HANDOVER = {"FAKE_CLAUDE_REPLY": "<say>Sure, let me show you.</say>"}
 
+def c_said(*words):
+    # One spoken error line, with these words: what happened, not a generic "got stuck".
+    def check(r):
+        if len(r["speech"]) != 1 or not all(w in r["speech"][0] for w in words): return [f"said {r['speech']}, want one line with {words}"]
+        return []
+    return check
+
+
+def c_blind(r):
+    # The display is asleep (every capture fails): the question goes without a picture, told so, and is answered.
+    f = []
+    if r["speech"] != ["Fake answer."]: f.append(f"said {r['speech']}")
+    if not evs(r, "capture.failed"): f.append("no capture.failed in the timeline")
+    log = open(r["dir"] + "/fake.txt").read() if os.path.exists(r["dir"] + "/fake.txt") else ""
+    if "couldn't be captured" not in log: f.append("the talker wasn't told there's no screenshot")
+    return f
+
+
 def c_audio_lost(r):
     # The output device goes away for good mid-answer (Apple's voice): the turn still ends ("speaking" never cleared).
     f = []
@@ -229,6 +248,9 @@ SCENARIOS = {
     "synth-hang": (["what is this"], 16, {"POINKY_TEST_SYNTH_HANG": "1", "POINKY_STUCK_SECS": "5"}, c_synth_hang),
     "search": (["what's the weather"], 16, {"FAKE_CLAUDE_REPLIES": json.dumps(["<say>One sec.</say><search>weather today</search>", "<say>It is sunny.</say>"]),
                                             "FAKE_SEARCH_SECS": "6"}, c_search),
+    "blind": (["what's two plus two"], 10, {"POINKY_TEST_CAPTURE_FAIL": "1"}, c_blind),
+    "crash": (["what is this"], 10, {"FAKE_CLAUDE_MODE": "crash"}, c_said("quit")),
+    "stall-line": (["what is this"], 16, {"FAKE_CLAUDE_MODE": "hang", "POINKY_STALL_SECS": "6"}, c_said("stopped answering")),
     "hang": (["what is this"], 22, {"FAKE_CLAUDE_MODE": "hang", "POINKY_STALL_SECS": "8", "POINKY_STUCK_SECS": "12"}, c_hang),
 }
 
