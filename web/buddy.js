@@ -186,14 +186,14 @@
     }
     // Facing a helper it's handing a task to (or hearing back from).
     const facing = home ? { x: home.fx, y: home.fy } : look && SB.helperPos ? SB.helperPos(look) : null;
-    if (facing || look) {
+    // The helper it faced is gone (stopped, finished and removed): it turns back, instead of keeping the turn.
+    if (look && !home && !facing) look = null;
+    if (facing) {
       const t = facing;
-      if (t) {
-        const d0 = Math.atan2(-fy, -fx) * 180 / Math.PI;           // where its tip points now
-        let want = Math.atan2(t.y - B.y, t.x - B.x) * 180 / Math.PI - d0;
-        want = ((want + 540) % 360) - 180;
-        lookRot += (((want - lookRot + 540) % 360) - 180) * Math.min(1, dt * 10);
-      }
+      const d0 = Math.atan2(-fy, -fx) * 180 / Math.PI;           // where its tip points now
+      let want = Math.atan2(t.y - B.y, t.x - B.x) * 180 / Math.PI - d0;
+      want = ((want + 540) % 360) - 180;
+      lookRot += (((want - lookRot + 540) % 360) - 180) * Math.min(1, dt * 10);
     } else lookRot += (((0 - lookRot + 540) % 360) - 180) * Math.min(1, dt * 8);
     rot += lookRot;
     const P = pose(now);
@@ -335,7 +335,7 @@
       return { on: bubble.classList.contains('on'), kind: bubbleKind, text: bubble.textContent, cls: bubble.className,
                x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height),
                buddy: B.placed ? { x: Math.round(B.x), y: Math.round(B.y) } : null, phase, shown, buddyOn,
-               visible: buddy.classList.contains('on'), vw: innerWidth, vh: innerHeight };
+               visible: buddy.classList.contains('on'), vw: innerWidth, vh: innerHeight, look, lookRot: Math.round(lookRot) };
     },
     /** Hide the buddy for now (it comes back when you ask something). */
     buddyShow(on) {

@@ -1,0 +1,43 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>running</title>
+<!-- buddy.js: the buddy turns to face a helper during its hand-off or report, and turns back when the helper is
+     gone even if nobody says "handoffEnd" (it kept a frozen turn while `look` pointed at a removed helper).
+     Run by tools/tests/run-web-tests.mjs (`node tools/tests/run-web-tests.mjs buddy-look`). -->
+<body style="margin:0;width:1000px;height:700px">
+<div id="hud"></div>
+<script>window.SB = { caption() {}, fadeCaptions() {}, apply() {} };</script>
+<script src="../../web/buddy.js"></script>
+<script>
+(async function () {
+  const results = [], fail = [];
+  const check = (ok, what) => { results.push((ok ? 'ok   ' : 'FAIL ') + what); if (!ok) fail.push(what); };
+  const wait = ms => new Promise(r => setTimeout(r, ms));
+  let helper = { x: 120, y: 80 };   // a helper up and to the left
+  SB.helperPos = id => (id === 'h1' ? helper : null);
+  SB.buddyOn(true); SB.phase('ready'); SB.tick(600, 450, 0);
+  await wait(400);
+  const st = () => SB.bubbleState();
+  const before = st().lookRot;
+  SB.buddyReact('handoff', { id: 'h1' });
+  await wait(700);
+  const turned = st().lookRot;
+  check(Math.abs(turned - before) > 15, `it turns to face the helper (${before}° → ${turned}°)`);
+  // The helper disappears without a handoffEnd (removed mid-hand-off).
+  helper = null;
+  await wait(900);
+  check(st().look === null, `it stops looking at a helper that's gone (look ${st().look})`);
+  check(Math.abs(st().lookRot) < 3, `and turns back (${st().lookRot}°)`);
+  // A new hand-off still turns it.
+  helper = { x: 950, y: 650 };
+  SB.buddyReact('handoff', { id: 'h1' });
+  await wait(700);
+  check(Math.abs(st().lookRot) > 15, `the next hand-off turns it again (${st().lookRot}°)`);
+  SB.buddyReact('handoffEnd', { id: 'h1' });
+  await wait(900);
+  check(Math.abs(st().lookRot) < 3, `handoffEnd turns it back too (${st().lookRot}°)`);
+  document.body.textContent = results.join('\n');
+  document.title = fail.length ? 'FAIL' : 'PASS';
+  window.testResults = { pass: !fail.length, lines: results };
+})();
+</script>
