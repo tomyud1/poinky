@@ -99,18 +99,34 @@ enum StudySource {
                 if let out = f.outputImage { image = out }
             }
         }
-        // Even out shadows and make ink dark on light paper (the document enhancer when there is one).
-        if let f = CIFilter(name: "CIDocumentEnhancer") {
+        // Even out the light: the photo divided by the paper alone (the ink taken out by a local maximum, then
+        // blurred), so a dim room, a warm lamp and the phone's own hard shadow all come out white paper with the
+        // ink as dark as it was against the paper around it. (CIDocumentEnhancer alone left hard shadows gray
+        // and dim photos faint: see tools/study/make-hard.py.) Then the ink a little darker.
+        image = evenLight(image)
+        if let f = CIFilter(name: "CIGammaAdjust") {
             f.setValue(image, forKey: kCIInputImageKey)
-            f.setValue(1.0, forKey: "inputAmount")
-            if let out = f.outputImage { image = out }
-        } else if let f = CIFilter(name: "CIColorControls") {
-            f.setValue(image, forKey: kCIInputImageKey)
-            f.setValue(1.25, forKey: kCIInputContrastKey)
-            f.setValue(0.05, forKey: kCIInputBrightnessKey)
+            f.setValue(1.5, forKey: "inputPower")
             if let out = f.outputImage { image = out }
         }
         let ctx = CIContext(options: [.useSoftwareRenderer: false])
         return ctx.createCGImage(image, from: image.extent.integral) ?? cg
+    }
+
+    /// The image divided by an estimate of the bare paper under it (flat-field correction).
+    static func evenLight(_ image: CIImage) -> CIImage {
+        let ext = image.extent
+        guard ext.width > 64, ext.height > 64 else { return image }
+        // Worked out at a quarter size (fast); the radius is a little wider than a pen stroke.
+        let k: CGFloat = 0.25
+        let r = max(6, min(ext.width, ext.height) / 110) * k
+        let small = image.transformed(by: CGAffineTransform(scaleX: k, y: k))
+        guard let paper = CIFilter(name: "CIMorphologyMaximum", parameters: [kCIInputImageKey: small.clampedToExtent(), kCIInputRadiusKey: r])?.outputImage,
+              let soft = CIFilter(name: "CIGaussianBlur", parameters: [kCIInputImageKey: paper, kCIInputRadiusKey: r])?.outputImage,
+              let f = CIFilter(name: "CIDivideBlendMode") else { return image }
+        // (CIDivideBlendMode gives background ÷ input: the photo ÷ the paper.)
+        f.setValue(soft.transformed(by: CGAffineTransform(scaleX: 1 / k, y: 1 / k)).cropped(to: ext), forKey: kCIInputImageKey)
+        f.setValue(image, forKey: kCIInputBackgroundImageKey)
+        return f.outputImage?.cropped(to: ext) ?? image
     }
 }
