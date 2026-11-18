@@ -264,7 +264,8 @@ def seed_previous(mins=4, app="Notebook Test App", window="bugs.md", you="can yo
 def c_carry_dropped(r):
     talk = asked(r, "talker")
     if not talk: return ["no question"]
-    return ["the old answer about another app was sent as context: " + talk[0][:700]] if "Mint timer" in talk[0] else []
+    # (Checked by the block's own words: the real front window can contain anything, even "Mint timer".)
+    return ["the old answer about another app was sent as context: " + talk[0][:700]] if "previous session" in talk[0] or "so I'll shorten that one" in talk[0] else []
 
 
 def c_carry_kept(r):
