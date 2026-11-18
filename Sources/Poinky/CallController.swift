@@ -3271,6 +3271,7 @@ final class CallController: NSObject, NSMenuDelegate {
         if let v = flag("memoryEnabled") { cfg.memoryEnabled = v }
         if let v = flag("conversationLog") { cfg.conversationLog = v }
         if let v = flag("webSearch") { cfg.webSearch = v }
+        if let v = flag("careful") { cfg.use(v ? .careful : .quick) }   // Quick / Careful (Settings → Claude)
         // "Forget what we talked about today": the conversation log (not memory facts, which <forget> handles).
         switch obj["forgetConversations"] as? String {
         case "today"?: ConversationLog.clearToday()
@@ -3294,6 +3295,7 @@ final class CallController: NSObject, NSMenuDelegate {
             + "; teacher \(c.artistEnabled ? "on" : "off"); hold to talk \(PushToTalk.displayString(c.pushToTalk))"
             + "; hands-free call \(HotKey.displayString(c.hotkey)); hide buddy \(HotKey.displayString(c.buddyHotkey)); type instead of talking \(HotKey.displayString(c.typeHotkey)); Helpers window \(HotKey.displayString(c.helpersHotkey))"
             + "; pause before answering (calls) \(c.silenceSeconds) s; language \(c.language); memory \(c.memoryEnabled ? "on" : "off")"
+            + "; answers \(c.pace?.rawValue ?? "custom") (Quick / Careful)"
             + "; models (effort): talker \(c.model(for: .talker)) (\(c.talkerEffort.isEmpty ? "auto" : c.talkerEffort)), teacher \(c.model(for: .artist)) (\(c.artistEffort.isEmpty ? "auto" : c.artistEffort)), guide \(c.model(for: .guide)), doer \(c.model(for: .doer)), helpers \(c.agentModel.isEmpty ? "Claude Code default" : c.agentModel) (\(c.agentEffort.isEmpty ? "default" : c.agentEffort))"
     }
 
