@@ -204,9 +204,9 @@ final class AgentManager {
             .replacingOccurrences(of: ":", with: "")
         let safeTitle = req.title.lowercased().map { $0.isLetter || $0.isNumber ? $0 : "-" }.prefix(40)
         let log = req.continueLog ?? Self.logDir.appendingPathComponent("\(stamp)-\(String(safeTitle)).md")
-        // Continuing an earlier helper: its old name if it's free, and everything it did so far.
-        let taken = Set(agents.filter { $0.status == .running || $0.status == .queued }.map(\.name))
-        let name = req.name.flatMap { taken.contains($0) ? nil : $0 } ?? freeName()
+        // Continuing an earlier helper: its old name if nobody in this run has it (the one it continues was
+        // taken out of the list), and everything it did so far.
+        let name = Self.pickName(used: agents.map { ($0.name, $0.status == .running || $0.status == .queued) }, reserved: reservedNames, requested: req.name)
         var agent = Agent(id: id, name: name, title: req.title, task: req.task, dir: dir, started: Date(), log: log)
         if req.continueLog != nil { agent.entries = HelperEntry.read(agent.chat) }
         if running.count >= maxRunning {
@@ -889,8 +889,10 @@ final class AgentManager {
 
     /// A name for a new helper that nobody in this run has had, so the Helpers window never lists two
     /// "Mint"s: Mint, Coral… then "Mint 2", "Coral 2"… (same colors). `used`: this run's helpers.
-    static func pickName(used: [(name: String, active: Bool)], reserved: Set<String> = []) -> String {
+    /// `requested`: the name of the earlier helper it continues, if that's free.
+    static func pickName(used: [(name: String, active: Bool)], reserved: Set<String> = [], requested: String? = nil) -> String {
         let taken = Set(used.map(\.name)).union(reserved)
+        if let r = requested, !r.isEmpty, !taken.contains(r) { return r }
         if let n = names.first(where: { !taken.contains($0) }) { return n }
         var k = 2
         while true {
