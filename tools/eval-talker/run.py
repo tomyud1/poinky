@@ -234,7 +234,7 @@ def run_once(sc, jpg, model, workdir, prompt, keep_thinking=False):
 # ---------- parsing and scoring ----------
 
 TAGS = ["say", "visual", "draw", "guide", "do", "agent", "remember", "forget", "remind", "remind-cancel", "set",
-        "tell", "video", "search", "recall"]
+        "tell", "video", "search", "recall", "replace"]
 
 
 OFFER_RE = r"<offer(\s[^>]*)?>([\s\S]*?)</offer>"
@@ -389,6 +389,8 @@ def compare_parsers(r, sw):
         bad.append(f"<offer>: {bool(o)} vs {bool(so)}")
     elif o and not so.get("empty") and (first_of(o, "do") or None) != (so.get("do") or None):
         bad.append("the offer's <do> differs")
+    elif o and not so.get("empty") and (first_of(o, "replace") or None) != (so.get("replace") or None):
+        bad.append("the offer's <replace> differs")
     return bad
 
 

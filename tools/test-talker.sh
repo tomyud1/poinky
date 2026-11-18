@@ -9,6 +9,7 @@
 #   4. routing: TalkerRoute's phrase table (tools/tests/talker-route/cases.tsv, English and Hebrew) and the
 #      hand-over gate while the teacher sketches
 #   5. "About me": only what the user said about themselves (UserFacts)
+#   6. `<replace from=… to=…>`: the span of the document it names (TextSpan, tools/tests/text-swap)
 # Usage: tools/test-talker.sh     (a live run with real replies: see tools/eval-talker/README.md)
 set -uo pipefail
 cd "$(dirname "$0")/.."
@@ -54,5 +55,15 @@ swiftc -O -o "$TMP/user-facts" Sources/Poinky/UserFacts.swift tools/tests/user-f
 "$TMP/user-facts" --test > "$TMP/uf.txt"; code=$?
 grep -E "^FAIL" "$TMP/uf.txt" | sed 's/^/  /'
 [ $code = 0 ] && printf "  \033[32mok\033[0m   %s\n" "$(tail -1 "$TMP/uf.txt")" || { printf "  \033[31mFAIL\033[0m about me\n"; fail=1; }
+
+echo "T6. New wording goes over the right text: <replace from=… to=…> finds its span (TextSpan)"
+mkdir -p "$TMP/swap"
+cp tools/tests/text-swap/main.swift "$TMP/swap/main.swift"
+awk '/^\/\/\/ Putting new wording into/{exit} {print}' Sources/Poinky/TextSwap.swift | grep -v "^import AppKit\|^import ApplicationServices" > "$TMP/swap/TextSpan.swift"
+{ echo "import Foundation"; cat "$TMP/swap/TextSpan.swift"; } > "$TMP/swap/span.swift"
+swiftc -O -o "$TMP/swap-test" "$TMP/swap/span.swift" "$TMP/swap/main.swift" 2>"$TMP/swiftc.log" || { cat "$TMP/swiftc.log"; exit 1; }
+"$TMP/swap-test" > "$TMP/swap.txt"; code=$?
+grep -E "^FAIL" "$TMP/swap.txt" | sed 's/^/  /'
+[ $code = 0 ] && printf "  \033[32mok\033[0m   %s checks\n" "$(grep -c '^ok' "$TMP/swap.txt")" || { printf "  \033[31mFAIL\033[0m text spans\n"; fail=1; }
 
 exit $fail

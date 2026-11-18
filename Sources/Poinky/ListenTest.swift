@@ -5,7 +5,8 @@ import AppKit
 /// `at` seconds after launch:
 ///   {"at": 1.0, "keys": "down"}            the talk keys go down (or "up"); PushToTalk's own timing applies
 ///   {"at": 1.6, "words": "what is", "final": false, "live": true}   a result (main transcriber unless "live")
-///   {"at": 2.4, "probe": "label"}          writes what the bubble shows (SB.bubbleState) and the call state
+///   {"at": 2.4, "probe": "label"}          writes what the bubble shows (SB.bubbleState), the call state and how many
+///                                          doer acts ran ("actsAtMost" / "actsAtLeast" in "expect")
 ///   {"at": 3.0, "killPage": true}         ends the overlay page's process (as memory pressure would)
 ///   {"at": 1.0, "contentVisible": false}  the drawings' window is covered (WindowTracker hides them)
 ///   {"at": 1.0, "endSession": true}       the session ends (as after 15 idle minutes)
@@ -76,7 +77,7 @@ enum ListenTest {
                 MainActor.assumeIsolated {
                     if let k = step["keys"] as? String {
                         c.testKeys(down: k == "down")
-                        write(String(format: "%.2f keys %@ (state %@, %.2f s late)", at, k, c.testState,
+                        write(String(format: "%.2f keys %@ (state %@, hold %@, %.2f s late)", at, k, c.testState, c.testHold,
                                      ProcessInfo.processInfo.systemUptime - started - at))
                     }
                     if let w = step["words"] as? String {
@@ -86,10 +87,12 @@ enum ListenTest {
                         c.overlay.evaluateForTest("JSON.stringify(SB.bubbleState ? SB.bubbleState() : null)") { r in
                             MainActor.assumeIsolated {
                                 let json = (r as? String) ?? "null"
-                                write(String(format: "%.2f probe %@ state=%@ bubble=%@", at, label, c.testState, json))
+                                write(String(format: "%.2f probe %@ state=%@ acts=%d bubble=%@", at, label, c.testState, c.testActs, json))
                                 if let want = step["expect"] as? [String: Any] {
                                     let got = (try? JSONSerialization.jsonObject(with: Data(json.utf8))) as? [String: Any] ?? [:]
-                                    let bad = check(want, got: got, state: c.testState)
+                                    var bad = check(want, got: got, state: c.testState)
+                                    if let n = (want["actsAtMost"] as? NSNumber)?.intValue, c.testActs > n { bad.append("the doer went on: \(c.testActs) acts") }
+                                    if let n = (want["actsAtLeast"] as? NSNumber)?.intValue, c.testActs < n { bad.append("only \(c.testActs) acts ran") }
                                     write((bad.isEmpty ? "ok   " : "FAIL ") + label + (bad.isEmpty ? "" : " (" + bad.joined(separator: "; ") + ")"))
                                 }
                             }

@@ -73,9 +73,7 @@
   "id": "writer-punchier",
   "source": "r3-final3",
   "raw": "<say>Want me to swap it in?</say>\n<offer say=\"Swapping it in.\"><do>Replace the selected text in the open Pages document \"Onboarding proposal\" with exactly: Onboarding often takes too long and has more steps than it needs. This proposal makes it faster and better for everyone involved.</do></offer>",
-  "fails": [
-   "replaces it for them (<do>) or reads the rewrite aloud"
-  ]
+  "fails": []
  },
  {
   "id": "writer-punchier",
@@ -318,17 +316,13 @@
   "id": "offer-rewrite",
   "source": "r3-final3",
   "raw": "<say>Here's a more polite version: \"Hi Sam, could you please send me the slides by tomorrow? I'd really appreciate it, as I've followed up twice already. Thanks so much!\" Want me to swap it in?</say>\n<offer say=\"Swapping it in.\"><do>Replace the selected text in the Mail window \"Slides for Thursday\" with exactly: Hi Sam, could you please send me the slides by tomorrow? I'd really appreciate it, as I've followed up twice already. Thanks so much!</do></offer>",
-  "fails": [
-   "replaces just the selection (no greeting or sign-off added)"
-  ]
+  "fails": []
  },
  {
   "id": "offer-rewrite",
   "source": "r3-final2",
   "raw": "<say>Hi Sam, could you please send me the slides by tomorrow? I've asked a couple of times, so I'd really appreciate it if you could get them to me. Thanks so much.\n\nWant me to swap it in?</say>\n<offer say=\"Swapping it in.\"><do>Replace the selected text in the Mail window \"Slides for Thursday\" with exactly: Hi Sam, could you please send me the slides by tomorrow? I've asked a couple of times, so I'd really appreciate it if you could get them to me. Thanks so much.</do></offer>",
-  "fails": [
-   "replaces just the selection (no greeting or sign-off added)"
-  ]
+  "fails": []
  },
  {
   "id": "offer-helper",

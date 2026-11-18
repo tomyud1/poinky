@@ -821,7 +821,7 @@ final class CallController: NSObject, NSMenuDelegate {
     private var holdStart: TimeInterval = 0
 
     // Tests (`--listen-test`, ListenTest.swift): the talk keys and the words, scripted.
-    func testKeys(down: Bool) { ptt.fakeFlags = down ? ptt.combo : [] }
+    func testKeys(down: Bool) { ptt.fakeFlags = down ? ptt.combo : []; ptt.pollNow() }
     func testWords(_ text: String, final: Bool, live: Bool) { listener.fakeResult(text, isFinal: final, live: live) }
     /// A helper (POINKY_HELPER_CMD=tools/fake-helper.py for no tokens); its id, or nil if it didn't start.
     func testEndSession() { endCall(quietly: true) }
@@ -831,6 +831,9 @@ final class CallController: NSObject, NSMenuDelegate {
     func testLessonSaved() { lessonSaved(FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Desktop/Poinky test.png"), pages: nil) }
     func testStartHelper(_ task: String) -> Int? { agents.start(AgentRequest(title: "Test helper", dir: nil, task: task), config: config)?.id }
     var testState: String { "\(state)" }
+    var testHold: String { "\(ptt.isDown ? "down" : "up")\(ptt.committed ? " committed" : "")" }
+    /// Tests: how many of the doer's acts have started (a stop must hold it at one more, at most).
+    private(set) var testActs = 0
 
     /// The talk keys went down: open the mic right away (so your first word isn't cut off).
     private func pushDown() {
@@ -877,6 +880,7 @@ final class CallController: NSObject, NSMenuDelegate {
 
     /// A quick tap of the talk keys: stop Claude (nothing is sent).
     private func pushTap() {
+        Timeline.log("keys.tap", ["state": "\(state)", "guide": guide != nil])
         WelcomeWindowController.shared.model.did(.tapped)   // the first-run tour's "tap to stop" tip
         firstRun.interrupt("tap")
         // A video being made: a tap cancels it (holding to ask something else doesn't).
@@ -2142,6 +2146,7 @@ final class CallController: NSObject, NSMenuDelegate {
         if let brief = ev.visual, teacherStartedTurn != turn, ev.guide == nil { requestVisual(brief) }
         if let goal = ev.guide { startGuide(goal) }
         if let task = ev.doTask { startGuide(task, acting: true) }
+        if let r = ev.replace { replaceText(r) }
         for json in ev.settings { applyVoiceSettings(json) }
         if config.memoryEnabled {
             for f in ev.remember { Memory.remember(f) }
@@ -2207,7 +2212,9 @@ final class CallController: NSObject, NSMenuDelegate {
                                      app: Self.frontBundle(),
                                      window: frontContext.window, selection: frontContext.selection) {
             pendingOffer = o
-            Timeline.log("offer.made", ["do": o.actions.doTask != nil, "agents": o.actions.agents.count, "reminders": o.actions.reminders.count])
+            // New wording waiting for a yes: shown on screen (it's what gets pasted, word for word).
+            if let r = o.actions.replace { showNewText(r.text) }
+            Timeline.log("offer.made", ["replace": o.actions.replace != nil, "do": o.actions.doTask != nil, "agents": o.actions.agents.count, "reminders": o.actions.reminders.count])
         }
     }
 
@@ -2246,6 +2253,7 @@ final class CallController: NSObject, NSMenuDelegate {
         guard let offer = pendingOffer else { return false }
         pendingOffer = nil   // one answer per offer
         let reply = OfferReply.classify(said)
+        if reply != .yes, offer.actions.replace != nil { hideNewText() }
         guard reply != .other else { return false }
         mergeNext = false
         clearedForUtterance = false
@@ -2293,6 +2301,70 @@ final class CallController: NSObject, NSMenuDelegate {
         handle(offer.actions)
         offerNote = "(The user said \"\(said)\" to what you offered, so Poinky already did it: \(Recall.clip(offer.what, 200)). Don't do it again.)"
         logExchange(said, line, note: Recall.clip(offer.what, 160))
+    }
+
+    // MARK: - New wording, pasted in (`<replace>`)
+
+    private static let newTextCard = "poinky-new-text"
+
+    /// The rewrite the talker offered, on a small card beside the document: a long one is easier read than
+    /// heard, and it's exactly what will be pasted.
+    private func showNewText(_ text: String) {
+        guard let screen = overlay.screen else { return }
+        let focus = HelperScreen.frontWindowRect(on: screen) ?? focusRegion
+        let room = Placement.paper(screen: screen.frame.size, focus: focus, occupied: overlay.occupiedRects,
+                                   maxWidth: Placement.minPaperWidth)
+        let lines = text.components(separatedBy: "\n").reduce(0) { $0 + max(1, Int((Double($1.count) / 50).rounded(.up))) }
+        let h = min(room.height, max(180, CGFloat(lines) * 24 + 80))
+        let esc = text.replacingOccurrences(of: "&", with: "&amp;").replacingOccurrences(of: "<", with: "&lt;").replacingOccurrences(of: ">", with: "&gt;")
+        let html = "<div style=\"font:16px/1.45 -apple-system,system-ui,sans-serif;white-space:pre-wrap;height:100%;overflow:auto\">\(esc)</div>"
+        let item: [String: Any] = ["type": "panel", "id": Self.newTextCard, "title": "New version: say yes to swap it in",
+                                   "x": room.minX, "y": room.minY, "w": room.width, "h": h, "html": html]
+        guard let data = try? JSONSerialization.data(withJSONObject: ["items": [item]]),
+              let json = String(data: data, encoding: .utf8) else { return }
+        overlay.apply(json, scale: 1)
+    }
+
+    private func hideNewText() {
+        overlay.apply("{\"remove\":[\"\(Self.newTextCard)\"]}", scale: 1)
+    }
+
+    /// Puts the new wording in place: over the selection, or over the span it names (selected through
+    /// accessibility), by pasting it (one ⌘Z undoes it; the clipboard is put back). No doer loop. If the app
+    /// won't let its text be selected that way, the doer does it; with nothing to replace, it's copied.
+    private func replaceText(_ r: ReplaceRequest) {
+        hideNewText()
+        Task { @MainActor in
+            @MainActor func copyInstead(_ why: String) {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(r.text, forType: .string)
+                Timeline.log("replace", ["how": "copied", "why": why])
+                self.says(why == "nothing selected"
+                          ? "Nothing's selected, so I copied it. Select the old text and press Command V."
+                          : "I copied it for you. Paste it with Command V.")
+            }
+            guard self.config.computerControl else { copyInstead("computer control off"); return }
+            guard Computer.trusted else { Computer.requestAccess(); copyInstead("no accessibility permission"); return }
+            guard DoerTest.mayAct else { return }
+            if let from = r.from {
+                if case .failure(let why) = TextSwap.select(from: from, to: r.to) {
+                    // This app's text can't be selected by accessibility (a web page, a canvas): the doer does it.
+                    Timeline.log("replace", ["how": "doer", "why": "\(why)"])
+                    self.startGuide("Select the text in the document that starts with «\(from)» and ends with «\(r.to ?? from)», "
+                                    + "then replace it with exactly this text and nothing else: \(r.text)", acting: true)
+                    return
+                }
+            } else if TextSwap.selectedText().isEmpty {
+                copyInstead("nothing selected"); return
+            }
+            Computer.acting = true
+            self.overlay.handsOff = true
+            let why = await Computer.paste(r.text)
+            Computer.acting = false
+            self.overlay.handsOff = false
+            Timeline.log("replace", ["how": "paste", "named": r.named, "ok": why == nil, "chars": r.text.count])
+            if let why { self.says("I couldn't put it in, \(why).") }
+        }
     }
 
     private func finishedSpeaking() {
@@ -2859,8 +2931,9 @@ final class CallController: NSObject, NSMenuDelegate {
                 if g.steps.isEmpty || g.handover { lines.append(contentsOf: g.context); self.guide?.handover = false }
                 if let a = action { lines.append("What the user just did: \(a)") }
                 lines.append(contentsOf: snap.notes)
-                if g.acting {
-                    // The app's real buttons, fields and menus, so clicks land on the right thing.
+                do {
+                    // The app's real buttons, fields and menus, so clicks (and the guide's marks) land on the right
+                    // thing, and the advice fits the app's real state (a plain .txt has no fonts, a menu item is disabled…).
                     let ui = AppReader.read(screen: screen, scale: snap.scale)
                     self.guide?.ui = ui
                     lines.append(contentsOf: ui.lines)
@@ -2897,10 +2970,12 @@ final class CallController: NSObject, NSMenuDelegate {
     }
 
     private func handleGuide(_ ev: TalkEvents, snap: Snapshot) {
+        // You're holding the keys (the speaker was stopped for you): its lines aren't said, and it must not
+        // switch to "speaking" (that stuck with no sound after you let go).
+        let holding = pushCommitted || (mode == .push && ptt.isDown)
         for s in ev.sentences {
             guideLine += (guideLine.isEmpty ? "" : " ") + s
-            speaker.enqueue(s)
-            state = .speaking
+            if !holding, speaker.enqueue(s) { state = .speaking }
         }
         for d in ev.draws {
             let snapped = MarkSnapper.snap(d, lines: snap.text.lines, size: CGSize(width: snap.width, height: snap.height), scale: snap.scale, text: snap.text)
@@ -2911,7 +2986,7 @@ final class CallController: NSObject, NSMenuDelegate {
         if !ev.acts.isEmpty { guide?.acts += ev.acts }
         if let a = ev.ask { guide?.ask = a }
         if let done = ev.done {
-            if !done.isEmpty { speaker.enqueue(done); state = .speaking }
+            if !done.isEmpty, !holding, speaker.enqueue(done) { state = .speaking }
             endGuide()
         }
     }
@@ -2945,9 +3020,14 @@ final class CallController: NSObject, NSMenuDelegate {
         }
         let my = Computer.token
         var did: [String] = []
+        // Hands at work: the overlay lets every click through, and ⌥ can't switch on marking meanwhile.
+        Computer.acting = true
+        overlay.handsOff = true
+        defer { Computer.acting = false; overlay.handsOff = false }
         for json in g.acts {
-            guard my == Computer.token, guide != nil else { return }
+            guard my == Computer.token, guide != nil, DoerTest.mayAct else { return }
             guard let a = (try? JSONSerialization.jsonObject(with: Data(json.utf8))) as? [String: Any] else { continue }
+            testActs += 1
             switch await perform(a, snap: snap, screen: screen) {
             case .did(let d): did.append(d)
             case .failed(let why): did.append("FAILED: \(why)")
@@ -3008,6 +3088,11 @@ final class CallController: NSObject, NSMenuDelegate {
                 return .failed("the field is a password field; the user must type it")
             }
             if (a["replace"] as? Bool) == true { _ = await Computer.press("cmd+a") }
+            // Long text over a selection: pasted (fast, one ⌘Z undoes it, the clipboard is put back).
+            if (a["paste"] as? Bool) == true {
+                if let why = await Computer.paste(text) { return .failed(why) }
+                return .did("pasted “\(text.count > 60 ? String(text.prefix(60)) + "…" : text)”")
+            }
             // New lines: new paragraphs, except in chat boxes where Return would send.
             let nl = (a["newline"] as? String)?.lowercased()
             let soft = nl == "shift" || (nl == nil && Computer.chatApps.contains(ui.bundleID))
@@ -3051,6 +3136,14 @@ final class CallController: NSObject, NSMenuDelegate {
             if let why = AppReader.pickMenu(path, pid: app.processIdentifier) { return .failed(why) }
             try? await Task.sleep(nanoseconds: 250_000_000)
             return .did("picked menu \(path.joined(separator: " > "))")
+        case "select":
+            // Selects text in the document by its first and last words (accessibility: exact, no dragging).
+            guard let from = (a["from"] as? String) ?? (a["text"] as? String), !from.isEmpty else { return .failed("select needs \"from\" (its first words)") }
+            switch TextSwap.select(from: from, to: a["to"] as? String) {
+            case .success(let t): return .did("selected «\(t.count > 80 ? String(t.prefix(40)) + " … " + String(t.suffix(30)) : t)»")
+            case .failure(.notFound): return .failed("couldn't find that text in the document's text (check the exact words)")
+            case .failure: return .failed("this app doesn't let its text be selected that way: click and shift-click instead")
+            }
         case "wait":
             try? await Task.sleep(nanoseconds: UInt64(min(3, max(0.1, Double(num("s") ?? 1))) * 1_000_000_000))
             return .did("waited")
@@ -3129,8 +3222,10 @@ final class CallController: NSObject, NSMenuDelegate {
             MainActor.assumeIsolated {
                 guard let self, self.state != .idle else { return }
                 let f: NSEvent.ModifierFlags = AppConfig.ignoresRealKeys ? [] : NSEvent.modifierFlags
-                // ⌥ alone marks; ⌃⌥ (holding to talk) marks too, so you can point while you talk.
-                self.overlay.setMarking(f.contains(.option) && !f.contains(.command))
+                // ⌥ alone marks; ⌃⌥ (holding to talk) marks too, so you can point while you talk. Never while
+                // Poinky's hands are at work (its clicks must reach the app), nor from its own key presses.
+                if Computer.acting { self.overlay.setMarking(false) }
+                else if !Computer.ownModifiersNow { self.overlay.setMarking(f.contains(.option) && !f.contains(.command)) }
                 self.overlay.trackMouse()
                 if let screen = self.overlay.screen {
                     let listening = self.state == .listening
@@ -3504,7 +3599,7 @@ final class CallController: NSObject, NSMenuDelegate {
 
     /// Seconds since the last key press anywhere (no permission needed for this).
     static func secondsSinceTyping() -> Double {
-        CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: .keyDown)
+        Computer.secondsSinceUserKey()   // (Poinky's own typing doesn't count)
     }
 
     private func refreshAgentsInHome() {

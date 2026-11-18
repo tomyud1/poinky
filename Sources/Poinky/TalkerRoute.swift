@@ -196,7 +196,7 @@ struct TalkerRoute: Equatable {
     var shapeHint: String? {
         switch shape {
         case .rewrite?:
-            return "(New wording: <say> must contain the whole new text itself, word for word, then \"Want me to swap it in?\", then <offer say=\"Swapping it in.\"><do>Replace the selected text with exactly: …the new text…</do></offer>. Rewrite only the selected words: no greeting or sign-off they didn't select. Never \"here's a version\" without the words.)"
+            return "(New wording: the whole new text goes in <offer say=\"Swapping it in.\"><replace>…the new text…</replace></offer>, which replaces the selected text. If nothing is selected, name what it replaces by its first and last words, copied exactly from the screen: <replace from=\"…\" to=\"…\">, and don't say \"selected\". In <say>: if the new text is one or two sentences, say those words themselves (no \"here's a version\"), then \"Want me to swap it in?\"; only if longer: \"Here's a shorter version. Want me to swap it in?\" (Poinky shows it). Only the words being replaced: no greeting or sign-off.)"
         case .summary?:
             return "(Summary: at most 3 short sentences, about 40 words, the main point first. Don't list every item.)"
         case .quiz?:

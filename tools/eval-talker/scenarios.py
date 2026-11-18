@@ -165,6 +165,20 @@ DRAFT = screen("Mail", ["File", "Edit", "View", "Mailbox", "Message", "Format", 
 <p style="color:#666">To: Sam Ortiz &lt;sam@lumen.co&gt;<br>Subject: Slides for Thursday</p>
 <p>Hi Sam,</p><p><span class="sel">{DRAFT_SENT}</span></p><p>Thanks,<br>Alex</p>""")
 
+ESSAY_P1 = ("This summer I worked at a small bakery in my town, and it was honestly a really great experience that taught "
+            "me a lot of things about work and also about myself and about people in general. At first I was really nervous "
+            "because I had never had a job before and I did not know what to expect at all, but the owner, who is called "
+            "Mrs. Alvarez, was very kind and patient with me and she showed me how to do everything step by step, from "
+            "opening the shop early in the morning to closing up at night and cleaning all of the machines. By the end of "
+            "the summer I could run the register on my own and I even helped decorate cakes for two weddings, which I "
+            "never thought I would be able to do.")
+ESSAY_TXT = screen("TextEdit", ["File", "Edit", "Format", "View", "Window", "Help"], "summer-job.txt", f"""
+<div style="font:15px Menlo,monospace;padding:6px 14px;white-space:pre-wrap">My summer job
+
+{ESSAY_P1}
+
+The hardest part was waking up at five in the morning. I learned that being on time matters more than being perfect.</div>""")
+
 DENTIST = screen("Mail", ["File", "Edit", "View", "Mailbox", "Message", "Format", "Window", "Help"], "Inbox — Please confirm your appointment", """
 <h3 style="margin-top:0">Please confirm your appointment</h3><p style="color:#666">From: Brightsmile Dental &lt;front@brightsmile.example&gt;</p>
 <p>Hi Alex,</p><p>You have a cleaning booked for Monday, November 16 at 9:00 AM. Please call us at (555) 201-3344
@@ -260,13 +274,39 @@ def asks_to_do(r):
     return re.search(r"\b(want me to|should I|shall I|do you want me|want a reminder|like me to|want one)\b", r["say"], re.I) is not None
 
 
+def new_text(r):
+    """The new words a rewrite would put in: the offer's (or the reply's) <replace>, or an older-style <do>."""
+    for src in (r.get("offer") or {"tags": {}}, r):
+        if src["tags"].get("replace"):
+            return src["tags"]["replace"][0][1]
+        if src["tags"].get("do"):
+            return re.split(r"exactly[:,]?|with:|text:", src["tags"]["do"][0][1], 1)[-1]
+    return None
+
+
+def app_trimmed(t):
+    """What the app pastes for a selection that had no greeting or sign-off (ReplaceRequest.trimmed)."""
+    t = t.strip()
+    m = re.match(r"(?i)^(hi|hello|hey|dear|good (morning|afternoon|evening))\b[^,\n!.]{0,30}[,!]\s*", t)
+    if m and m.end() < len(t):
+        t = t[m.end():]
+        t = t[:1].upper() + t[1:]
+    m = re.search(r"(?i)(\s|^)(thanks( so much| a lot| again)?|thank you( so much)?|best( regards)?|cheers|regards|kind regards|warmly|love)[.!,]?(\s*\n?\s*[A-Z][a-z]+)?\s*$", t)
+    if m and m.start() > 0:
+        t = t[:m.start()].strip()
+    return t
+
+
 def rewrite_ready(r):
-    """The offer's <do> carries the same new words the reply read out."""
-    if not offered("do")(r):
+    """The offer carries the new words (<replace>), and the reply read them out (or, for a long one, said it's
+    on screen: Poinky shows the <replace> text)."""
+    if not (offered("replace")(r) or offered("do")(r)):
         return False
-    new = r["offer"]["tags"]["do"][0][1]
+    w = re.findall(r"[a-z']+", (new_text(r) or "").lower())
     said = set(re.findall(r"[a-z']+", r["say"].lower()))
-    w = re.findall(r"[a-z']+", re.split(r"exactly[:,]?|with:|text:", new, 1)[-1].lower())
+    # The app shows the offered text on a card (showNewText), so a reply may just say it's a new version.
+    if len(re.findall(r"[.!?](\s|$)", (new_text(r) or "").strip() + " ")) > 2 or re.search(r"(?i)\bversion\b", r["say"]):
+        return len(w) >= 6
     return len(w) >= 6 and sum(x in said for x in w) >= 0.7 * len(w)
 
 
@@ -352,10 +392,9 @@ SCENARIOS = [
          ctx=["Front app: Pages, window “Onboarding proposal”.", "Open document: ~/Documents/Work/Onboarding proposal.pages.",
               "The user selected this text (when they say \"this\" or \"it\" without marking anything, they most likely mean it):\n«" + PAGES_PARA + "»"],
          said="make this paragraph punchier", cursor=(600, 200),
-         checks=[("replaces it for them (<do>) or reads the rewrite aloud", lambda r: bool(r["tags"].get("do")) or len(re.sub(r"(?i)want me to.*|^.*?here'?s an?( \w+)? version[.:]?", "", r["say"]).split()) >= 8),
-                 ("the new text is shorter than the old", lambda r: any(len(b.split(":")[-1]) < len(PAGES_PARA) * 0.8 for _, b in r["tags"].get("do") or []) or (not r["tags"].get("do") and len(r["say"]) < len(PAGES_PARA))),
-                 ("<do> carries the new text", lambda r: not r["tags"].get("do") or body("do", r"[:\"“«'].{20,}")(r)),
-                 ("offers to put it in", lambda r: bool(r["tags"].get("do")) or say(r"want me to|should I|shall I|swap|put it in|replace")(r)),
+         checks=[("the new text is ready to put in (<replace>, or an older <do>)", lambda r: new_text(r) is not None and len(new_text(r).split()) >= 8),
+                 ("the new text is shorter than the old", lambda r: new_text(r) is not None and len(new_text(r)) < len(PAGES_PARA) * 0.8),
+                 ("offers to put it in", lambda r: bool(r["tags"].get("replace") or r["tags"].get("do")) or say(r"want me to|should I|shall I|swap|put it in|replace")(r)),
                  ("no agent", lacks("agent"))]),
     dict(id="office-reply", who="office", html=MAIL, ctx=["Front app: Mail, window “Demo next week?”."],
          said="reply to this saying thursday works for me", cursor=(700, 260),
@@ -444,12 +483,28 @@ SCENARIOS = [
          ctx=["Front app: Mail, window “Slides for Thursday”.",
               "The user selected this text (when they say \"this\" or \"it\" without marking anything, they most likely mean it):\n«" + DRAFT_SENT + "»"],
          said="can you make this sound more polite", cursor=(600, 160),
-         checks=[("reads the new text and offers to put it in", lambda r: asks_to_do(r) and len(r["say"].split()) >= 12),
+         checks=[("reads the new text (or says it's a new version: it's shown) and offers to put it in", lambda r: asks_to_do(r) and (len(r["say"].split()) >= 12 or re.search(r"(?i)\bversion\b", r["say"]) is not None)),
                  ("doesn't change it yet (no top-level <do>)", lacks("do")),
-                 ("the swap is ready: <offer> with a <do> of the same words", rewrite_ready),
-                 ("the <do> says to replace the selected text", offer_body("do", r"replac|select")),
-                 ("replaces just the selection (no greeting or sign-off added)", lambda r: not offer_body("do", r"\bHi Sam\b|\bThanks\b|\bAlex\b")(r)),
+                 ("the swap is ready: <offer> with a <replace> of the same words", rewrite_ready),
+                 ("replaces just the selection (no greeting or sign-off added, after the app drops them)", lambda r: not re.search(r"\bHi Sam\b|\bThanks\b|\bAlex\b", app_trimmed(new_text(r) or ""))),
                  ("no agent", lacks("agent"))]),
+    # Nothing selected: the swap names the text it replaces (its first and last words), never "the selected text".
+    dict(id="offer-rewrite-unselected", who="student", html=ESSAY_TXT,
+         ctx=["Front app: TextEdit, window “summer-job.txt”.", "Open document: ~/Documents/summer-job.txt."],
+         said="can you make the first paragraph shorter", cursor=(700, 420),
+         checks=[("the swap is ready: <offer> with a <replace>", offered("replace")),
+                 ("it names the first paragraph by its first words", offer_attr("replace", "from", r"(?i)^this summer")),
+                 ("…and its last words", offer_attr("replace", "to", r"(?i)(able to do\.?|to do\.?)$")),
+                 ("never claims there's a selection", lambda r: not re.search(r"(?i)selected|selection", r["say"] + str((r.get("offer") or {}).get("tags", "")))),
+                 ("the new text is shorter", lambda r: new_text(r) is not None and len(new_text(r)) < len(ESSAY_P1) * 0.8),
+                 ("no top-level <do>", lacks("do"))]),
+    # "How do I…" in the app on screen: the guide (it reads the app's state; a .txt needs Make Rich Text first).
+    dict(id="guide-title-bigger", who="student", html=ESSAY_TXT,
+         ctx=["Front app: TextEdit, window “summer-job.txt”.", "Open document: ~/Documents/summer-job.txt."],
+         said="how do I make the title bigger", cursor=(400, 120),
+         checks=[("walks them through it (<guide>)", has("guide")),
+                 ("no <do> (they asked how)", lacks("do")),
+                 ("short line, not the steps read out", say_words_max(20))]),
     dict(id="offer-helper", who="coder", html=TERMINAL, ctx=["Front app: Terminal, window “tipcalc — -zsh — 120×36”."],
          said="why is this crashing?", cursor=(500, 300),
          checks=[("explains the crash (zero people)", say(r"zero|0|divid")),

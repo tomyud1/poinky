@@ -1,0 +1,14 @@
+{"about": "Holding the talk keys to say something pauses Poinky doing things for you within one act (here a walkthrough of waits, so nothing on screen is touched).",
+ "env": {"FAKE_CLAUDE_REPLY": "<say>On it.</say><do>wait a while</do>",
+         "FAKE_GUIDE_REPLIES": "[\"<act>{\\\"do\\\":\\\"wait\\\",\\\"s\\\":0.6}</act><act>{\\\"do\\\":\\\"wait\\\",\\\"s\\\":0.6}</act><act>{\\\"do\\\":\\\"wait\\\",\\\"s\\\":0.6}</act><act>{\\\"do\\\":\\\"wait\\\",\\\"s\\\":0.6}</act><act>{\\\"do\\\":\\\"wait\\\",\\\"s\\\":0.6}</act><act>{\\\"do\\\":\\\"wait\\\",\\\"s\\\":0.6}</act><act>{\\\"do\\\":\\\"wait\\\",\\\"s\\\":0.6}</act><act>{\\\"do\\\":\\\"wait\\\",\\\"s\\\":0.6}</act><act>{\\\"do\\\":\\\"wait\\\",\\\"s\\\":0.6}</act><act>{\\\"do\\\":\\\"wait\\\",\\\"s\\\":0.6}</act>\", \"<done>Done.</done>\"]"},
+ "steps": [
+  {"at": 1.5, "keys": "down"},
+  {"at": 2.2, "words": "do it for me", "final": true},
+  {"at": 2.4, "keys": "up"},
+  {"at": 4.6, "probe": "the doer is at work", "expect": {"actsAtLeast": 1}},
+  {"at": 4.7, "keys": "down"},
+  {"at": 5.6, "words": "wait", "final": true}, {"at": 5.8, "keys": "up"},
+  {"at": 4.85, "probe": "acts when you started talking"},
+  {"at": 8.5, "probe": "no act started after you started talking", "expect": {"actsAtMost": 5}},
+  {"at": 9.0, "quit": true}
+ ]}

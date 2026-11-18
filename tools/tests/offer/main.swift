@@ -87,5 +87,31 @@ check("say inside an offer isn't spoken now", { var q = TalkParser(); _ = q.feed
 check("an offer still arriving isn't acted on", { var q = TalkParser(); let e = q.feed("<say>Want me to?</say><offer><do>Type hi</do>"); return e.doTask == nil }())
 check("a <do> outside the offer still runs", { var q = TalkParser(); _ = q.feed("<say>On it.</say><do>Type hi</do><offer><visual>v</visual></offer>"); let e = q.finish(); return e.doTask == "Type hi" && e.visual == nil }() || { var q = TalkParser(); let e = q.feed("<say>On it.</say><do>Type hi</do>"); return e.doTask == "Type hi" }())
 
+// 5. New wording: `<replace>` carries the exact text that gets pasted (no doer loop)
+let swap = offer("<replace>Our Friday meetings run long.\nTwenty minutes is plenty.</replace>")
+check("a rewrite may wait as <replace>", swap?.actions.replace?.text == "Our Friday meetings run long.\nTwenty minutes is plenty." && swap?.actions.replace?.named == false)
+check("its default line", swap?.defaultLine == "Swapping it in.")
+let named = offer(#"<replace from="This summer I worked" to="able to do.">At my summer job…</replace>"#)
+check("a rewrite of a named span keeps its first and last words", named?.actions.replace == ReplaceRequest(text: "At my summer job…", from: "This summer I worked", to: "able to do."))
+check("with a <replace>, a <do> in the same offer doesn't also run", { let o = offer(#"<replace>New.</replace><do>Replace it with New.</do>"#); return o?.actions.replace != nil && o?.actions.doTask == nil }())
+check("<replace> is never spoken", { var q = TalkParser(); var said = q.feed("<say>Here's a shorter one. <replace>Secret words.</replace>Want me to swap it in?</say>").sentences; said += q.finish().sentences; return !said.joined().contains("Secret") && said.joined().contains("swap it in") }())
+check("a lookup reply can't replace text", { var q = TalkParser(); _ = q.feed("<say>Ok.</say><replace>x</replace>"); let e = q.finish(); return e.replace != nil && e.onlySpeech().replace == nil && e.wouldAct }())
+if let o = PendingOffer.make((say: nil, body: "<replace>Short.</replace>"), at: 100, app: "com.apple.TextEdit", window: "essay.txt", selection: "A long wordy sentence.") {
+    check("a swap over a selection lapses when the selection changed", o.check(now: 110, app: "com.apple.TextEdit", window: "essay.txt", selection: "Another sentence") == .moved)
+    check("…and runs when it's the same", o.check(now: 110, app: "com.apple.TextEdit", window: "essay.txt", selection: "A long wordy  sentence.") == .ok)
+} else { check("a swap offer is made", false) }
+
+// 6. A rewrite of a selected sentence doesn't bring the greeting / sign-off around it
+let sel = "I need you to send me the slides by tomorrow because I already asked twice and nobody has done it."
+func swapped(_ body: String, _ selection: String = sel) -> String? {
+    PendingOffer.make((say: nil, body: body), at: 0, app: "", window: "", selection: selection)?.actions.replace?.text
+}
+check("greeting and sign-off dropped", swapped("<replace>Hi Sam, could you send me the slides by tomorrow? I've asked a couple of times now. Thanks!</replace>") == "Could you send me the slides by tomorrow? I've asked a couple of times now.")
+check("a signed-off name goes too", swapped("<replace>Hi Sam,\nWould you send the slides by tomorrow?\nThanks so much,\nAlex</replace>") == "Would you send the slides by tomorrow?")
+check("kept when the selection had them", swapped("<replace>Hi Sam, slides by tomorrow please. Thanks!</replace>", "Hi Sam, I need the slides by tomorrow. Thanks,") == "Hi Sam, slides by tomorrow please. Thanks!")
+check("plain rewrites untouched", swapped("<replace>Our Friday meetings run long. Twenty minutes is plenty.</replace>") == "Our Friday meetings run long. Twenty minutes is plenty.")
+check("'thanks' inside a sentence stays", swapped("<replace>Thanks to the team, we shipped on time.</replace>") == "Thanks to the team, we shipped on time.")
+check("unknown selection: nothing trimmed", swapped("<replace>Hi Sam, slides please.</replace>", "") == "Hi Sam, slides please.")
+
 print(failures == 0 ? "ALL OK" : "\(failures) FAILED")
 exit(failures == 0 ? 0 : 1)

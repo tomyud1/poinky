@@ -79,7 +79,12 @@ final class PushToTalk {
         timer = nil
     }
 
+    /// Tests: scripted keys are seen at once (a quick tap can't fall between two polls of a busy main thread).
+    func pollNow() { poll() }
+
     private func poll() {
+        // Poinky's hands just pressed a shortcut (⌃⌥… included): what the keys read now is its own press, not you.
+        if fakeFlags == nil, Computer.ownModifiersNow { return }
         // (A test copy only hears scripted keys: `AppConfig.ignoresRealKeys`.)
         let flags = fakeFlags ?? (AppConfig.ignoresRealKeys ? [] : NSEvent.modifierFlags.intersection([.control, .option, .command, .shift]))
         let otherKeyDown = fakeFlags == nil && !AppConfig.ignoresRealKeys && Self.otherKeyDown()
@@ -119,7 +124,7 @@ final class PushToTalk {
     /// Is any non-modifier key held right now? (Reading key state needs no permission.)
     private static func otherKeyDown() -> Bool {
         for code in 0..<0x7F where !modifierCodes.contains(code) {
-            if CGEventSource.keyState(.combinedSessionState, key: CGKeyCode(code)) { return true }
+            if Computer.userKeyDown(code) { return true }
         }
         return false
     }

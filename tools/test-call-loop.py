@@ -21,6 +21,25 @@ def pids():
     return set(map(int, out))
 
 
+def idle_secs():
+    """Seconds since the last real keyboard or mouse input (HIDIdleTime)."""
+    out = subprocess.run(["ioreg", "-c", "IOHIDSystem", "-d", "4"], capture_output=True, text=True).stdout
+    for line in out.splitlines():
+        if '"HIDIdleTime"' in line:
+            return int(line.split("=")[-1].strip()) / 1e9
+    return 0.0
+
+
+def wait_until_idle(need=20, limit=float(os.environ.get("POINKY_IDLE_WAIT", "600"))):
+    """A scenario that takes the keyboard focus (its own window in front) waits until nobody is using the Mac,
+    so it never catches someone's typing or clicks. False if that didn't happen within `limit` seconds."""
+    t0 = time.time()
+    while time.time() - t0 < limit:
+        if idle_secs() >= need: return True
+        time.sleep(2)
+    return False
+
+
 def run(name, asks, quit_after, env=None, args=()):
     env = dict(env or {})
     api = env.pop("_API", None)   # the API brain, against tools/fake-api.py on this port
@@ -47,11 +66,12 @@ def run(name, asks, quit_after, env=None, args=()):
     e.update(env)
     if audio: e.pop("POINKY_MUTE", None)
     if api: e["POINKY_API_URL"] = f"http://127.0.0.1:{api}/v1/messages"
-    cmd = ["open", "-n", "-g"]
+    # (A scenario with a window of its own to act in launches in front, so that window can be the key one.)
+    cmd = ["open", "-n"] if "--doer-target" in args else ["open", "-n", "-g"]
     for k, v in e.items(): cmd += ["--env", f"{k}={v}"]
     cmd += [APP, "--args"]
     for q in asks: cmd += ["--ask", q]
-    cmd += list(args) + list(extra) + ["--quit-after", str(quit_after)]
+    cmd += [a.replace("{dir}", d) for a in args] + list(extra) + ["--quit-after", str(quit_after)]
     before = pids()
     subprocess.run(cmd, check=True)
     pid = None
@@ -446,6 +466,38 @@ def c_reminder_fired(r):
     return f
 
 
+
+def c_doer_keys(r):
+    # The doer presses every kind of shortcut (⌥, ⇧, ⌘, ⌃, ⌃⌥, fn) into a window of the app's own, then clicks
+    # and types there. Its key presses used to leave their modifiers held: ⌥ switched on marking mode and every
+    # later click became a red pin instead of reaching the app (and ⌃⌥ could open the mic).
+    f = []
+    log = open(f"{r['dir']}/target.txt").read().splitlines() if os.path.exists(f"{r['dir']}/target.txt") else []
+    if any("ABORT" in l for l in log): return ["the target window wasn't in front (nothing was pressed)"]
+    clicks = [l for l in log if l.startswith("click left")]
+    if len(clicks) < 2: f.append(f"{len(clicks)} of 2 clicks reached the window: {log[-6:]}")
+    if any("mods=-" not in l for l in clicks): f.append(f"clicks carried modifiers: {clicks}")
+    want = {"126": "option", "125": "option+shift", "124": "cmd", "14": "ctrl"}
+    for code, mods in want.items():
+        if not any(l.startswith(f"key {code} mods={mods} ") for l in log): f.append(f"key {code} with {mods} never arrived")
+    if not any("chars= ok" in l for l in log): f.append("the typed text never arrived")
+    if evs(r, "marking", on=True): f.append("marking mode switched on")
+    if evs(r, "mark"): f.append(f"{len(evs(r, 'mark'))} red pins/marks were dropped")
+    if evs(r, "keys.down"): f.append("the talk keys fired (mic / interrupt)")
+    if r["speech"][-1:] != ["Done."]: f.append(f"said {r['speech']}")
+    return f
+
+
+COMBOS = ["option+up", "option+shift+down", "shift+left", "cmd+right", "cmd+shift+left", "option+j", "ctrl+e",
+          "ctrl+option+j", "cmd+option+j", "ctrl+shift+j", "fn+left", "shift+tab"]
+DOER_KEYS = {"FAKE_CLAUDE_REPLY": "<say>Okay, doing it.</say><do>press keys in the test window</do>", "POINKY_REAL_KEYS": "1",
+             "FAKE_GUIDE_REPLIES": json.dumps(
+                 ["<say>Pressing keys.</say>" + "".join(f'<act>{{"do":"key","keys":"{k}"}}</act>' for k in COMBOS),
+                  '<act>{"do":"click","find":"TARGET WINDOW"}</act>',
+                  '<act>{"do":"key","keys":"option+up"}</act><act>{"do":"click","find":"second line here"}</act>'
+                  '<act>{"do":"type","text":" ok"}</act>',
+                  '<done>Done.</done>'])}
+
 SCENARIOS = {
     "answer": (["what is this"], 10, {}, c_answer),
     "stuffed": (["what is this", "again"], 26, {"FAKE_CLAUDE_MODE": "stuffed", "POINKY_STALL_SECS": "8",
@@ -485,6 +537,7 @@ SCENARIOS = {
     "carry-kept": (["what did we talk about earlier"], 9, {"_SEED": seed_previous()}, c_carry_kept),
     "reminder-fired": (["hi", "did my reminder go off"], 20, {"_SEED": seed_reminder(), "POINKY_REMINDER_TICK": "1",
                                                               "POINKY_ASK_GAP": "11"}, c_reminder_fired),
+    "doer-keys": (["do it for me"], 24, DOER_KEYS, c_doer_keys, ["--doer-target", "{dir}/target.txt"]),
     "hang": (["what is this"], 22, {"FAKE_CLAUDE_MODE": "hang", "POINKY_STALL_SECS": "8", "POINKY_STUCK_SECS": "12"}, c_hang),
 }
 
@@ -497,8 +550,11 @@ def main():
         print("build/Poinky.app is missing: run ./build.sh first"); return 1
     failed = 0
     for name in names or SCENARIOS:
-        asks, quit_after, env, check = SCENARIOS[name]
-        r = run(name, asks, quit_after, env)
+        asks, quit_after, env, check, *args = SCENARIOS[name]
+        if args and "--doer-target" in args[0] and not wait_until_idle():
+            print(f"  skip {name}: the Mac stayed in use (it needs the keyboard focus for ~20 s)")
+            continue
+        r = run(name, asks, quit_after, env, args[0] if args else ())
         problems = check(r)
         if problems:
             failed += 1

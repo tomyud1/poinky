@@ -162,9 +162,12 @@ final class Speaker {
         turnOpen = true
     }
 
-    func enqueue(_ sentence: String, tag: Int? = nil) {
+    /// Adds a sentence to the current turn. False when it was dropped (no turn: it was stopped, e.g. you
+    /// started talking), so callers don't switch to "speaking" for a line nobody will hear.
+    @discardableResult
+    func enqueue(_ sentence: String, tag: Int? = nil) -> Bool {
         let s = sentence.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard turnActive, !s.isEmpty else { return }
+        guard turnActive, !s.isEmpty else { return false }
         spokenText += " " + s
         let said = SpokenText.normalize(s, language: usingPhonon ? "en" : (voice?.language ?? language))
         if said != s { spokenText += " " + said }    // the echo check hears the spoken words
@@ -172,6 +175,7 @@ final class Speaker {
         lastProgress = ProcessInfo.processInfo.systemUptime
         queue.append((s, tag))
         pump()
+        return true
     }
 
     /// One source is done adding sentences. The turn ends once all are done and the audio finished.

@@ -49,6 +49,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             return
         }
+        // DoerTest.swift: `--keys-probe <out.txt>` presses keys into a window of its own and checks nothing stays held.
+        if let i = args.firstIndex(of: "--keys-probe"), i + 1 < args.count {
+            DoerTest.keysProbe(out: args[i + 1])
+            return
+        }
         if let i = args.firstIndex(of: "--read-app"), i + 1 < args.count {
             let out = args[i + 1], menu = i + 2 < args.count ? args[i + 2] : nil
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
@@ -130,6 +135,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let i = args.firstIndex(of: "--firstrun-hello") {
             let secs = args.indices.contains(i + 1) ? Double(args[i + 1]) ?? 0 : 0
             DispatchQueue.main.asyncAfter(deadline: .now() + secs) { c.testFirstRunHello() }
+        }
+        // DoerTest.swift: `--doer-target <log.txt>` opens a window of its own for a scripted doer (with --ask).
+        if let i = args.firstIndex(of: "--doer-target"), i + 1 < args.count {
+            let log = args[i + 1]
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { DoerTest.openTarget(log: log) }
         }
         // Developer checks for video explainers (see CallController+Video.swift).
         if let i = args.firstIndex(of: "--video"), i + 1 < args.count { c.devVideo(topic: args[i + 1]) }

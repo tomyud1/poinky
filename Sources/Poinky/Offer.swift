@@ -18,13 +18,14 @@ struct PendingOffer {
 
     static let lifetime: TimeInterval = 60
 
-    /// Only these may wait for a yes: doing it (`<do>`, `<guide>`), sketching it (`<visual>`), a helper,
+    /// Only these may wait for a yes: new wording (`<replace>`), doing it (`<do>`, `<guide>`), sketching it (`<visual>`), a helper,
     /// a reminder, a setting, a message to a helper. Never memory edits, lookups, stopping or undoing
     /// helpers, ending the session, a video, or another offer.
     static func allowed(_ e: TalkEvents) -> TalkEvents {
         var a = TalkEvents()
-        a.doTask = e.doTask
-        a.guide = a.doTask == nil ? e.guide : nil
+        a.replace = e.replace
+        a.doTask = a.replace == nil ? e.doTask : nil   // one way to put the words in
+        a.guide = a.doTask == nil && a.replace == nil ? e.guide : nil
         a.visual = e.visual
         a.agents = e.agents
         a.reminders = e.reminders
@@ -34,7 +35,7 @@ struct PendingOffer {
     }
 
     static func isEmpty(_ a: TalkEvents) -> Bool {
-        a.doTask == nil && a.guide == nil && a.visual == nil && a.agents.isEmpty && a.reminders.isEmpty
+        a.replace == nil && a.doTask == nil && a.guide == nil && a.visual == nil && a.agents.isEmpty && a.reminders.isEmpty
             && a.settings.isEmpty && a.tells.isEmpty
     }
 
@@ -48,8 +49,10 @@ struct PendingOffer {
         all.doTask = all.doTask ?? early.doTask
         all.guide = all.guide ?? early.guide
         all.visual = all.visual ?? early.visual
-        let actions = allowed(all)
+        var actions = allowed(all)
         guard !isEmpty(actions) else { return nil }
+        // What's pasted replaces just the selection: no greeting or sign-off it didn't have.
+        if let r = actions.replace, !r.named { actions.replace = r.trimmed(replacing: selection) }
         let say = offer.say.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.flatMap { $0.isEmpty ? nil : $0 }
         return PendingOffer(actions: actions, say: say, made: now, app: app, window: window, selection: selection)
     }
@@ -65,13 +68,14 @@ struct PendingOffer {
         if !self.app.isEmpty, !app.isEmpty, self.app != app { return .moved }
         if let w = window, !self.window.isEmpty, !same(self.window, w) { return .moved }
         // Typing over a selection replaces it: only if it's still the same text.
-        if actions.doTask != nil, !self.selection.isEmpty, let s = selection, !same(self.selection, s) { return .moved }
+        if actions.doTask != nil || actions.replace != nil, !self.selection.isEmpty, let s = selection, !same(self.selection, s) { return .moved }
         return .ok
     }
 
     /// What it did, in a few words (the log, and the talker's next message).
     var what: String {
         var n: [String] = []
+        if let r = actions.replace { n.append("put in the new text\(r.named ? " in place of «\(r.from ?? "")…\(r.to ?? "")»" : "") : \(r.text)") }
         if let d = actions.doTask { n.append("did for the user: \(d)") }
         if let g = actions.guide { n.append("started showing the steps: \(g)") }
         if let v = actions.visual { n.append("started a sketch: \(v)") }
@@ -84,6 +88,7 @@ struct PendingOffer {
 
     /// What to say when it runs, if the talker didn't write `say="…"`.
     var defaultLine: String {
+        if actions.replace != nil { return "Swapping it in." }
         if actions.doTask != nil { return "On it." }
         if actions.guide != nil { return "Okay, let me show you." }
         if actions.visual != nil { return "Sure, let me sketch it." }
