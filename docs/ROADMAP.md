@@ -127,7 +127,7 @@ Built (2026-11-15): math (fractions, powers, roots, Greek), `graph` / `plot` / `
 Still open: the session notebook lives only in the overlay (gone if Poinky quits; write it to disk as pages are kept); a light print version of chalkboard pages in the PDF; the talker remembering where your notes were saved.
 
 ## 7e. 3D models (status: done on `poinky-reliability`)
-Built (2026-11-15): coloured cut faces, labels that follow what's left after a cut and hide when zoomed in, Reduce Motion, idle models stop redrawing, hover names; clicking a part names it and tells the talker; a question about a clicked part gets a short narrated close-up on the same model (`PartQuestion.swift`, `kit.run(…, {aside:true})` / `kit.endAside()`), saved as a note to replay; double-click a part for a closer look, Esc to go back. Tests: `tools/tests/kit-*.html`.
+Built (2026-11-15): coloured cut faces, labels that follow what's left after a cut and hide when zoomed in, Reduce Motion, idle models stop redrawing, hover names; clicking a part names it and tells the talker; a question about a clicked part is a follow-up on the same model (`PartQuestion.swift`: the teacher is told which part); Esc or a click on empty space goes back to the lesson's view. (2026-11-18: the "aside" mode that put the model back by itself, and double-click for a closer look, were removed as more machinery than they were worth.) Tests: `tools/tests/kit-*.html`.
 Still open: an app test mode that fakes a click (the click → question → spoken answer flow is only tested in parts); pointing at a part while holding ⌃⌥ counts as asking about it; tuning how far the close-up zooms over several models.
 
 ## 7f. The talker (status: done on `poinky-reliability`)
