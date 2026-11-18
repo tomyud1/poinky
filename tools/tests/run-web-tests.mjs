@@ -9,7 +9,12 @@ const here = dirname(fileURLToPath(import.meta.url));
 const chromePath = process.env.CHROME || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const prof = mkdtempSync(join(tmpdir(), 'poinky-webtest-'));
 const port = 9400 + Math.floor(Math.random() * 400);
-const chrome = spawn(chromePath, ['--headless=new', `--remote-debugging-port=${port}`, `--user-data-dir=${prof}`, '--allow-file-access-from-files', 'about:blank'], { stdio: 'ignore' });
+// No throttling: on GitHub's virtual Macs headless Chrome otherwise draws a few frames a second, and the
+// motion tests (frames counted, cameras arriving) measured the runner instead of the page.
+const noThrottle = ['--disable-background-timer-throttling', '--disable-renderer-backgrounding',
+  '--disable-backgrounding-occluded-windows', '--disable-features=CalculateNativeWinOcclusion'];
+const chrome = spawn(chromePath, ['--headless=new', `--remote-debugging-port=${port}`, `--user-data-dir=${prof}`, '--allow-file-access-from-files',
+  ...noThrottle, 'about:blank'], { stdio: 'ignore' });
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 let ws, opened;
 for (let i = 0; i < 60 && !ws; i++) {
