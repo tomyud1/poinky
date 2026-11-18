@@ -195,9 +195,12 @@ enum DailyNotes {
     (what the user said, what Poinky answered, what else happened). Write 1–4 short lines starting with "- ": what the \
     user was doing or wanted, decisions, anything unfinished, and anything to remember next time. Plain facts, no \
     greetings, no screenshot details, nothing about the note itself. If nothing worth keeping happened, write "- Small talk." \
-    Then, only if the user clearly said something lasting about themselves (their role, a project and where it lives, \
-    how they like answers), add at most 2 lines starting with "ABOUT: " and one short fact each. Never guess, and never \
-    from what Poinky said or what was on the screen.
+    Then, only if the user clearly said something lasting about themselves (their role or what they study, a project \
+    and where it lives, how they like answers), or asked Poinky to always keep something about them in mind, add at \
+    most 2 lines like: ABOUT: Works night shifts as a nurse | "I'm a nurse, I work nights" \
+    (one short fact, then their exact words after the bar). Most sessions have none. Never guess, and never from \
+    what Poinky said, what was on the screen (a page they read, a document, the app they used), or a name Poinky \
+    called them or read off a document. Other people, dates and plans (a sister's birthday, a trip) aren't ABOUT lines.
     """
 
     /// The exchanges themselves, shortened: used when no model is available (or it failed).

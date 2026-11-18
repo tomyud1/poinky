@@ -90,7 +90,7 @@ enum Memory {
         }
         let first = NSFullUserName().split(separator: " ").first.map(String.init) ?? ""
         var s = "\n\n## What you know about the user (from earlier conversations)\n"
-        if !first.isEmpty { s += "- Their Mac account name is \(NSFullUserName()); call them \(first) unless they say otherwise.\n" }
+        if !first.isEmpty { s += "- Their Mac account name is \(NSFullUserName()), so they're probably \(first) (unless they say otherwise; use it rarely).\n" }
         let list = facts()
         s += list.isEmpty ? "- Nothing else yet: this may be one of your first conversations.\n" : list.joined(separator: "\n") + "\n"
         return s + DailyNotes.promptSection()

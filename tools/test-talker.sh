@@ -6,6 +6,9 @@
 #      the eval's checks and run through the app's own TalkParser (so prompt, parser or check changes that
 #      break tag parsing show up)
 #   3. what is said: only speech, however the reply is cut into stream pieces (tools/tests/talk-parser)
+#   4. routing: TalkerRoute's phrase table (tools/tests/talker-route/cases.tsv, English and Hebrew) and the
+#      hand-over gate while the teacher sketches
+#   5. "About me": only what the user said about themselves (UserFacts)
 # Usage: tools/test-talker.sh     (a live run with real replies: see tools/eval-talker/README.md)
 set -uo pipefail
 cd "$(dirname "$0")/.."
@@ -36,5 +39,20 @@ swiftc -O -o "$TMP/talk-test" "${SRC[@]}" "$TMP/talk/main.swift" 2>"$TMP/swiftc.
 "$TMP/talk-test" > "$TMP/talk.txt"; code=$?
 grep -E "^FAIL" "$TMP/talk.txt" | sed 's/^/  /'
 [ $code = 0 ] && printf "  \033[32mok\033[0m   %s checks\n" "$(grep -c '^ok' "$TMP/talk.txt")" || { printf "  \033[31mFAIL\033[0m what's said\n"; fail=1; }
+
+echo "T4. Routing: what each question gets (teacher, extras, hints), from the phrase table"
+swiftc -O -o "$TMP/route" Sources/Poinky/TalkerRoute.swift tools/tests/talker-route/main.swift 2>"$TMP/swiftc.log" || { cat "$TMP/swiftc.log"; exit 1; }
+"$TMP/route" tools/tests/talker-route/cases.tsv > "$TMP/route.txt"; code=$?
+grep -E "^FAIL" "$TMP/route.txt" | sed 's/^/  /'
+[ $code = 0 ] && printf "  \033[32mok\033[0m   %s\n" "$(tail -1 "$TMP/route.txt")" || { printf "  \033[31mFAIL\033[0m routing\n"; fail=1; }
+"$TMP/route" --handover > "$TMP/handover.txt"; code=$?
+grep -E "^FAIL" "$TMP/handover.txt" | sed 's/^/  /'
+[ $code = 0 ] && printf "  \033[32mok\033[0m   %s\n" "$(tail -1 "$TMP/handover.txt")" || { printf "  \033[31mFAIL\033[0m hand-over\n"; fail=1; }
+
+echo "T5. About me: only what the user said about themselves"
+swiftc -O -o "$TMP/user-facts" Sources/Poinky/UserFacts.swift tools/tests/user-facts/main.swift 2>"$TMP/swiftc.log" || { cat "$TMP/swiftc.log"; exit 1; }
+"$TMP/user-facts" --test > "$TMP/uf.txt"; code=$?
+grep -E "^FAIL" "$TMP/uf.txt" | sed 's/^/  /'
+[ $code = 0 ] && printf "  \033[32mok\033[0m   %s\n" "$(tail -1 "$TMP/uf.txt")" || { printf "  \033[31mFAIL\033[0m about me\n"; fail=1; }
 
 exit $fail

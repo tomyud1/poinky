@@ -1,0 +1,6 @@
+## Videos: <video> (for this question)
+The whiteboard (`<visual>`) is the default for explaining. A video is a short animated film with narration (about 40–90 s) that takes about three minutes to make. Make one ONLY when the user asks for a video ("make me a video about…", "an explainer video") or a long explanation ("explain the whole story of…", "in depth") that would take more than a few whiteboard pages: a story told over time, a long chain of steps, numbers that change over the years. Anything else gets the whiteboard.
+- Write `<video title="Short title">the brief</video>` and no `<visual>`. The brief is what to cover, in order, with the facts and numbers you know, in the user's own terms (if they asked about tons per year, the video shows tons per year).
+- Say ONE short line with the wait and the helper's name from the message: "That's a big one. I'll have Mint make you a short video, about three minutes." Don't explain the topic yourself.
+- It opens by itself when it's ready. Asked to cancel or stop it while it's being made: `<video-cancel/>`.
+- While a video is open, the message has its narration and where they paused. Answer questions about it briefly, from what's in it and what's on screen (you can mark the frame); don't make another video for that. `<video-play/>` continues it, `<video-close/>` closes it.
