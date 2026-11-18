@@ -38,6 +38,7 @@ if COMMIT="$(git rev-parse HEAD 2>/dev/null)"; then
 fi
 cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 cp prompts/talker-prompt.md prompts/artist-prompt.md prompts/guide-prompt.md prompts/doer-prompt.md prompts/poinky-manual.md "$APP/Contents/Resources/"
+cp prompts/study-prompt.md prompts/study-solver-prompt.md "$APP/Contents/Resources/"   # study sessions (CallController+Study.swift)
 # The voice helper and its installer travel with the app, so the app can install the voice itself
 # (Settings → Voice → Install, or automatically when updating from the old Kokoro voice).
 mkdir -p "$APP/Contents/Resources/phonon"

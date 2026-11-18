@@ -78,6 +78,9 @@
     .lpaper .save.done{background:#3a9a5b;color:#fff}
     .lpaper .save:disabled{opacity:.5;cursor:default}
     .lpaper .save[hidden]{display:none}
+    .lpaper .studystat{position:absolute;left:44px;top:9px;z-index:3;height:20px;line-height:20px;padding:0 9px;border-radius:10px;
+      background:rgba(52,120,246,.12);color:#2f62c4;font:600 11.5px -apple-system,system-ui;white-space:nowrap}
+    .lpaper .studystat:empty{display:none}
     /* The chalkboard: a dark board with soft smudges, chalk-white writing, and a grain that bites into
        every stroke (a pattern of board-colored specks over the drawing; the saved picture gets the same). */
     .card.lpaper.chalk{background-color:${BOARD};--halo:${BOARD};
@@ -365,7 +368,8 @@
     for (const k in graphs) delete graphs[k];
     for (const k in tables) delete tables[k];
     used = []; strokes = [];
-    notebook.push({ c, page: null });
+    notebook.push({ c, page: null, tag: studyTag });
+    studyBar(c);
     saveAllButton();
     paperSound();
     X.report();
@@ -502,6 +506,38 @@
   /** For tests: the session's pages (titles, looks). */
   SB.lessonNotebook = () => { if (paper && paper.isConnected) keepPage(paper); return keptPages().map(e => ({ title: e.page.title, look: e.page.chalk ? 'chalk' : 'paper', h: e.page.h })); };
   SB.notebookPictures = notebookPictures;
+
+  // ---------- study sessions (CallController+Study.swift): which part a paper belongs to ----------
+  // Every page drawn while a tag is set belongs to that part ("q1-0"): the app keeps those pages as pictures
+  // for the solved PDF. The paper shows a quiet status ("your turn") and a PDF button.
+  let studyTag = null, studyText = '';
+  SB.studyTag = t => {
+    studyTag = t || null;
+    // The open paper's latest page joins the part being worked on, if nothing of it was kept for another part.
+    const e = paper && [...notebook].reverse().find(n => n.c === paper);
+    if (e && !e.page) e.tag = studyTag;
+  };
+  SB.studyStatus = text => { studyText = text || ''; const b = paper && paper.querySelector('.studystat'); if (b) b.textContent = studyText; };
+  function studyBar(c) {
+    if (!studyTag) return;
+    const st = document.createElement('span'); st.className = 'studystat'; st.textContent = studyText;
+    c.querySelector('.bar').appendChild(st);
+    const b = document.createElement('button'); b.className = 'save pdf'; b.textContent = 'PDF'; b.title = 'Open the solved homework PDF';
+    b.addEventListener('mousedown', e => e.stopPropagation());
+    b.addEventListener('click', e => { e.stopPropagation(); X.post({ kind: 'studyPDF' }); });
+    c.querySelector('.saves').prepend(b);
+  }
+  /** The pages of one part, as pictures (the open paper as it is now). */
+  SB.studyPictures = async tag => {
+    if (paper && paper.isConnected) keepPage(paper);
+    const out = [];
+    for (const e of notebook) {
+      if (!e.page || e.tag !== tag) continue;
+      const pic = await picture(e.page);
+      if (pic && pic.png) out.push({ title: pic.title, png: pic.png, h: e.page.h });
+    }
+    return out;
+  };
 
   function retire(c) {
     if (!c) return;
@@ -1338,7 +1374,7 @@
       d = '';
       for (let i = 0; i <= 60; i++) { const a = a0 + Math.PI * 2 * 1.06 * i / 60; d += (i ? 'L' : 'M') + (cx + sp(Math.cos(a)) * rx).toFixed(1) + ',' + (cy + sp(Math.sin(a)) * ry).toFixed(1); }
     }
-    const p = el('path', { d, fill: 'none', stroke: look.pen, 'stroke-width': 3, 'stroke-linecap': 'round', opacity: .9 }, g);
+    const p = el('path', { d, fill: 'none', stroke: o.color ? theme(o.color)[0] : look.pen, 'stroke-width': 3, 'stroke-linecap': 'round', opacity: .9 }, g);
     await drawPath(p, onScreen, 800);
   }
 
@@ -1369,7 +1405,7 @@
     if (o.all && paper) {
       // The notebook keeps the page as it was; what comes next is a new page.
       keepPage(paper);
-      if (notebook.length && notebook[notebook.length - 1].page) notebook.push({ c: paper, page: null });
+      if (notebook.length && notebook[notebook.length - 1].page) notebook.push({ c: paper, page: null, tag: studyTag });
     }
     const ids = o.all ? Object.keys(items) : (o.ids || []);
     for (const id of ids) {
