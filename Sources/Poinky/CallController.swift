@@ -2309,6 +2309,7 @@ final class CallController: NSObject, NSMenuDelegate {
         // Still saying the last step: it stays "speaking" (finishedSpeaking turns it to "thinking" if this
         // step isn't ready by then), so the notch doesn't flip to thinking mid-sentence.
         if !speaker.isSpeaking { state = .thinking }
+        stateSince = ProcessInfo.processInfo.systemUptime   // each step is progress: a long walkthrough isn't "stuck"
         Task { @MainActor in
             do {
                 let snap = try await ScreenCapture.capture(screen: screen, marks: [], cursor: self.localCursor(on: screen))

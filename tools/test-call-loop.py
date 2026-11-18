@@ -170,6 +170,16 @@ def c_api_interrupt(r):
 
 LONG = "<say>" + " ".join(f"Word{i}." for i in range(60)) + "</say>"
 
+def c_doer_quiet(r):
+    # Many steps that only click (nothing said): each step is progress, so "thinking" that long isn't stuck.
+    f = []
+    if evs(r, "stuck"): f.append("the stuck detector reset a working walkthrough")
+    if r["speech"][-1:] != ["All done."]: f.append(f"said {r['speech']}")
+    return f
+
+
+QUIET = {**DOER, "POINKY_STUCK_SECS": "5",
+         "FAKE_GUIDE_REPLIES": json.dumps(['<act>{"do":"wait","s":0.2}</act>'] * 6 + ['<done>All done.</done>'])}
 HANDOVER = {"FAKE_CLAUDE_REPLY": "<say>Sure, let me show you.</say>"}
 
 SCENARIOS = {
@@ -180,6 +190,7 @@ SCENARIOS = {
     "teacher-fail": (["explain how the heart works"], 10, {**HANDOVER, "FAKE_ARTIST_MODE": "fail"}, c_teacher_fail),
     "teacher-crash": (["explain how the heart works"], 10, {**HANDOVER, "FAKE_ARTIST_MODE": "crash"}, c_teacher_fail),
     "doer": (["do it for me"], 22, DOER, c_doer),
+    "doer-quiet": (["do it for me"], 26, QUIET, c_doer_quiet),
     "start-stall": (["hi"], 14, {"POINKY_TEST_STALL_START": "60", "POINKY_STUCK_SECS": "6"}, c_start_stall),
     "api-interrupt": (["tell me a long story", "stop, say something short"], 16,
                       {"_API": "18765", "FAKE_API_WORD_SECS": "0.12", "POINKY_ASK_GAP": "2",
