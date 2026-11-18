@@ -14,7 +14,7 @@ jobs:
 
       - name: Check the scripts
         run: |
-          for f in install.sh build.sh phonon/install.sh tools/test-helpers.sh tools/test-voice.sh tools/test-talker.sh tools/test-update.sh; do bash -n "$f"; done
+          for f in install.sh build.sh phonon/install.sh tools/test-helpers.sh tools/test-voice.sh tools/test-talker.sh tools/test-update.sh tools/test-reminders.sh; do bash -n "$f"; done
           python3 -m py_compile phonon/phonon_server.py tools/fake-helper.py tools/fake-claude.py tools/test-call-loop.py tools/eval-talker/run.py tools/eval-talker/scenarios.py
           node --check web/lesson.js
           node --check web/buddy.js
@@ -41,6 +41,9 @@ jobs:
 
       - name: Test what the voice hears (spoken-text normalizer, sentence splitting)
         run: tools/test-voice.sh
+
+      - name: Test when repeating reminders come due (DST, time zones, months off, clock set back)
+        run: tools/test-reminders.sh
 
       - name: Test the talker's replies (offers; the talker eval replayed from saved replies; no tokens)
         run: tools/test-talker.sh

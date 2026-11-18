@@ -14,26 +14,52 @@ struct Reminder: Codable, Equatable {
     var every: Repeat?
     var agentTitle: String?     // set: start a helper with `text` as its task
     var agentDir: String?
+    /// The time zone it was set in: a repeating one keeps its time of day there ("9:00") and says it at that
+    /// time wherever the Mac is now. Nil (older files): the current zone.
+    var zone: String? = TimeZone.current.identifier
+    /// When it last came due (repeating ones), so a clock set far back can be told from a later start date.
+    var lastDue: Date?
 
     enum Repeat: String, Codable { case daily, weekdays, weekly, hourly }
 
-    /// The next time after `date` (for repeating ones).
-    func next(after date: Date, calendar cal: Calendar = .current) -> Date? {
+    /// The next time after `date` (for repeating ones): `at` itself if that's later, else the first time
+    /// after `date` with the same time of day (and weekday, for weekly). Worked out from the calendar, not by
+    /// stepping: an hourly one after months off fired on every check once 2000 steps ran out.
+    /// `keepStart` false: any time with its time of day, even before `at` (the clock was set back).
+    func next(after date: Date, calendar cal: Calendar = .current, keepStart: Bool = true) -> Date? {
         guard let every else { return nil }
-        var t = at
-        var guardCount = 0
-        while t <= date, guardCount < 2000 {
-            guardCount += 1
-            switch every {
-            case .hourly: t = cal.date(byAdding: .hour, value: 1, to: t)!
-            case .daily: t = cal.date(byAdding: .day, value: 1, to: t)!
-            case .weekly: t = cal.date(byAdding: .day, value: 7, to: t)!
-            case .weekdays:
-                t = cal.date(byAdding: .day, value: 1, to: t)!
-                while cal.isDateInWeekend(t) { t = cal.date(byAdding: .day, value: 1, to: t)! }
-            }
+        if keepStart, at > date { return at }
+        var home = cal
+        if let z = zone, let tz = TimeZone(identifier: z) { home.timeZone = tz }
+        let c = home.dateComponents([.hour, .minute, .second, .weekday], from: at)
+        func after(_ d: Date, _ want: DateComponents) -> Date? {
+            cal.nextDate(after: d, matching: want, matchingPolicy: .nextTime, repeatedTimePolicy: .first, direction: .forward)
         }
-        return t
+        switch every {
+        case .hourly:   // every 60 minutes from `at` (through DST changes too)
+            return at.addingTimeInterval((floor(date.timeIntervalSince(at) / 3600) + 1) * 3600)   // (before `at` too)
+        case .daily: return after(date, DateComponents(hour: c.hour, minute: c.minute, second: c.second))
+        case .weekly: return after(date, DateComponents(hour: c.hour, minute: c.minute, second: c.second, weekday: c.weekday))
+        case .weekdays:
+            var t = date
+            for _ in 0..<8 {
+                guard let n = after(t, DateComponents(hour: c.hour, minute: c.minute, second: c.second)) else { return nil }
+                if !cal.isDateInWeekend(n) { return n }
+                t = n
+            }
+            return nil
+        }
+    }
+
+    /// The longest a repeating one can be from its next time with a right clock (plus an hour of DST slack).
+    var period: TimeInterval {
+        switch every {
+        case .hourly?: return 3600 + 3600
+        case .daily?: return 86400 + 3600
+        case .weekdays?: return 3 * 86400 + 3600
+        case .weekly?: return 7 * 86400 + 3600
+        case nil: return .infinity
+        }
     }
 }
 
@@ -120,9 +146,16 @@ enum Reminders {
     static func takeDue(now: Date = Date()) -> [Reminder] {
         var list = all()
         let due = list.filter { $0.at <= now }
-        guard !due.isEmpty else { return [] }
+        // The clock was set far back: a repeating one that already came due would wait more than a whole period.
+        var moved = false
+        for i in list.indices where list[i].every != nil && list[i].lastDue != nil && list[i].at.timeIntervalSince(now) > list[i].period {
+            if let n = list[i].next(after: now, keepStart: false) { list[i].at = n; moved = true }
+        }
+        guard !due.isEmpty else { if moved { save(list) }; return [] }
         list.removeAll { $0.at <= now }
+        // Once, however many times it came due while the Mac was off or asleep; then its next time after now.
         for var r in due where r.every != nil {
+            r.lastDue = r.at
             if let n = r.next(after: now) { r.at = n; list.append(r) }
         }
         save(list)
