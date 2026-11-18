@@ -26,6 +26,10 @@ struct AppConfig: Codable {
     var doerEffort = ""
     var agentEffort = ""               // helpers ("" = your Claude Code default)
     var language = "en-US"         // speech recognition + voice language, e.g. "he-IL"
+    /// Other languages you speak to Poinky (recognized alongside `language`; the question goes in the one heard
+    /// best). Default: macOS's preferred languages that Apple's engine can hear (SpeechLanguages.defaults).
+    var otherLanguages: [String]? = nil
+    var speechEngine = "auto"      // who writes your words: "auto" (a local model if installed, else Apple), "apple", "parakeet"
     var voice = ""                 // voice name or identifier; empty = best installed voice
     var speechRate: Float = 0.53   // 0.0 – 1.0 (Apple voices)
     var voiceEngine = "phonon"     // "phonon" (free local neural voice) or "apple"
@@ -92,6 +96,8 @@ struct AppConfig: Codable {
         doerEffort = try c.decodeIfPresent(String.self, forKey: .doerEffort) ?? d.doerEffort
         agentEffort = try c.decodeIfPresent(String.self, forKey: .agentEffort) ?? d.agentEffort
         language = try c.decodeIfPresent(String.self, forKey: .language) ?? d.language
+        otherLanguages = try c.decodeIfPresent([String].self, forKey: .otherLanguages)
+        speechEngine = try c.decodeIfPresent(String.self, forKey: .speechEngine) ?? d.speechEngine
         voice = try c.decodeIfPresent(String.self, forKey: .voice) ?? d.voice
         speechRate = try c.decodeIfPresent(Float.self, forKey: .speechRate) ?? d.speechRate
         voiceEngine = try c.decodeIfPresent(String.self, forKey: .voiceEngine) ?? d.voiceEngine

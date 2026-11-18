@@ -2,21 +2,24 @@ import AVFoundation
 import CoreMedia
 import Speech
 
-/// Listens for the whole call using Apple's newer on-device speech engine (SpeechAnalyzer).
-/// English uses SpeechTranscriber; languages it doesn't cover (like Hebrew) use DictationTranscriber.
-/// A question ends after `silenceSeconds` of real silence (measured from the mic level),
-/// and a little longer when the sentence sounds unfinished ("…and", "…the", "um").
+/// Listens for the whole call. The words come from Apple's on-device engine (`AppleSpeechEngine`, SpeechAnalyzer):
+/// live while you talk, and the final text when you let go. With a local model installed (`LocalModelEngine`,
+/// Settings → Voice → Speech recognition), that model hears the same audio and its text is sent instead, if it
+/// answers in time; Apple's text is the fallback, so a missing or stuck model never costs a question.
 ///
-/// SpeechTranscriber is the better transcript but only updates about once per second of audio, so a short
-/// question showed no words at all until you let go. Where DictationTranscriber also covers the language, it
-/// runs alongside (same analyzer, same audio) for the live caption while you hold the keys (it updates ~4× a
-/// second); what's sent is SpeechTranscriber's text, or the live one if that came back empty though the mic
-/// heard a voice. Hands-free calls ignore it (in a quiet room it sometimes hears an "I"). `tools/test-listener.sh`.
+/// A question ends after `silenceSeconds` of real silence (measured from the mic level), and a little longer when
+/// the sentence sounds unfinished ("…and", "…the", "um"). Holding the keys, `finishUtterance()` ends it.
+///
+/// Several languages (`start(languages:)`, "Languages I speak"): Apple's engine runs one recognizer per language on
+/// the same audio and the question goes out in the one that heard it best (`SpeechPick`).
+/// `tools/test-listener.sh`, `tools/stt-test/run.sh`.
 @MainActor
 final class SpeechListener {
     var onPartial: ((String) -> Void)?     // live text of what you're saying
     var onUtterance: ((String) -> Void)?   // you finished talking
-    var onStatus: ((String) -> Void)?
+    var onStatus: ((String) -> Void)? {
+        didSet { SpeechStatus.shared.onStatus = onStatus }
+    }
     /// The speech engine stopped by itself (an audio device change, a system hiccup): nothing would be heard again.
     var onDied: (() -> Void)?
     var silenceSeconds = 1.0
@@ -25,18 +28,25 @@ final class SpeechListener {
     var autoEnd = true
     /// The mic level right now, 0…1.
     var level: Float { feeder?.voice.level ?? 0 }
+    /// "apple", or a local model's id ("parakeet", "whisper"); set before `start`. Default: the setting.
+    var engineChoice: String?
+    /// What's listening, for logs and the bench ("Apple: SpeechTranscriber en-us + …; final: Parakeet").
+    var engineDescription: String {
+        "Apple: \(apple?.modulesDescription ?? "-")" + (local.map { "; final: \($0.name)" } ?? "")
+    }
+    /// The engine that wrote the last question's text, and how long it took (`finishDetailed`).
+    private(set) var lastPick: SpeechPick.Result?
 
-    private var analyzer: SpeechAnalyzer?
-    private var resultsTask: Task<Void, Never>?
-    private var continuation: AsyncStream<AnalyzerInput>.Continuation?
+    private var apple: AppleSpeechEngine?
+    private var local: (any SpeechEngine)?
     private var feeder: MicFeeder?
     private weak var audio: AudioIO?
+    private var languages: [String] = ["en-US"]
 
-    private var committed = ""            // finished segments since the last question
-    private var volatile = ""             // the segment still being recognized
+    /// The words of each language's recognizer since the last question (track 0: the first language).
+    private var tracks: [Track] = [Track()]
     private var liveCommitted = ""        // the same from the live-caption module (if there is one)
     private var liveVolatile = ""
-    private var closing = 0               // > 0: the last question's segment is being closed; its results are dropped
     private var ending = false            // hands-free: a question is being settled before it's sent
     private var checkTimer: Timer?
     private var lastResultAt: TimeInterval = 0
@@ -47,15 +57,24 @@ final class SpeechListener {
     /// Scripted results instead of the speech engine (`--listen-test`); nothing is recognized from the mic.
     static var fake = false
 
-    var currentText: String { Self.join(committed, volatile) }
+    struct Track {
+        var committed = ""
+        var volatile = ""
+        var confidences: [Double] = []
+        var text: String { SpeechListener.join(committed, volatile) }
+    }
+
+    var currentText: String { tracks[best].text }
     /// The live caption's words (empty without a live-caption module).
     var liveText: String { Self.join(liveCommitted, liveVolatile) }
     /// What's shown while you talk: whichever transcript has got further (the live one, until the main one catches up).
     var shownText: String {
         let main = currentText, live = liveText
-        return Self.words(live) > Self.words(main) ? live : main
+        return best == 0 && Self.words(live) > Self.words(main) ? live : main
     }
-    private static func join(_ a: String, _ b: String) -> String {
+    /// The track that's heard you best so far (with one language, always 0).
+    private var best: Int { SpeechPick.best(tracks: tracks, languages: languages) }
+    nonisolated static func join(_ a: String, _ b: String) -> String {
         (a + " " + b).split(whereSeparator: \.isWhitespace).joined(separator: " ")
     }
     private static func words(_ s: String) -> Int { s.split(whereSeparator: \.isWhitespace).count }
@@ -63,9 +82,13 @@ final class SpeechListener {
     /// back empty though the mic heard a voice (it sometimes finalizes a lone "Yes" as just ".").
     private var questionText: String {
         var text = currentText
-        if text.isEmpty, !autoEnd, voicedSinceClear { text = liveText }
-        // (A "." left over from the segment before can start the next final: ". and how do I…")
-        return String(text.drop { ".,;:!?…-– ".contains($0) })
+        if text.isEmpty, !autoEnd, best == 0, voicedSinceClear { text = liveText }
+        return Self.trimmed(text)
+    }
+    /// (A "." left over from the segment before can start the next final: ". and how do I…")
+    static func trimmed(_ text: String) -> String {
+        // (Apple's Hebrew results start with a right-to-left mark.)
+        String(text.replacingOccurrences(of: "\u{200F}", with: "").drop { ".,;:!?…-– ".contains($0) }).trimmingCharacters(in: .whitespaces)
     }
     private var clearedAt: TimeInterval = 0
     /// The mic heard a voice (not just the room) since the last `clearText`.
@@ -85,53 +108,43 @@ final class SpeechListener {
     }
 
     func start(audio: AudioIO, language: String) async throws {
+        try await start(audio: audio, languages: [language])
+    }
+
+    /// `languages`: the languages you speak, the one you speak most first (e.g. ["en-US", "he-IL"]).
+    func start(audio: AudioIO, languages: [String]) async throws {
         guard !running else { return }
         self.audio = audio
+        self.languages = languages.isEmpty ? ["en-US"] : languages
         if Self.fake { startFake(); return }
-        let locale = Locale(identifier: language)
-        let wanted = locale.identifier(.bcp47).lowercased()
 
-        let module: any SpeechModule
-        var live: DictationTranscriber?
-        let transcriberLocales = await SpeechTranscriber.supportedLocales.map { $0.identifier(.bcp47).lowercased() }
-        let dictationLocales = await DictationTranscriber.supportedLocales.map { $0.identifier(.bcp47).lowercased() }
-        if transcriberLocales.contains(wanted) {
-            module = SpeechTranscriber(locale: locale, transcriptionOptions: [],
-                                       reportingOptions: [.volatileResults, .fastResults], attributeOptions: [])
-            if dictationLocales.contains(wanted), ProcessInfo.processInfo.environment["POINKY_LIVE_CAPTIONS"] != "0" {
-                let d = DictationTranscriber(locale: locale, preset: .progressiveLongDictation)
-                // Only if it's already on this Mac (no installation request: `status` says "supported" even then):
-                // never make the session wait for a download; it's fetched for next time.
-                do {
-                    if let request = try await AssetInventory.assetInstallationRequest(supporting: [d]) {
-                        Task.detached { try? await request.downloadAndInstall() }
-                    } else { live = d }
-                } catch { NSLog("Poinky: no live captions: \(error.localizedDescription)") }
+        let apple = AppleSpeechEngine()
+        try await apple.start(languages: self.languages)
+        apple.onResult = { [weak self] r in self?.handle(r) }
+        let myApple = apple
+        apple.onDied = { [weak self] in
+            guard let self, self.running, self.apple === myApple else { return }
+            self.stop()
+            self.onDied?()
+        }
+        self.apple = apple
+        // A local model for the final text (never blocks listening: no model or a failed load → Apple's alone).
+        local = LocalModels.engine(choice: engineChoice, languages: self.languages)
+        if let local {
+            do { try await local.start(languages: self.languages) } catch {
+                NSLog("Poinky: \(local.name) didn't start (\(error.localizedDescription)); Apple's engine only")
+                Timeline.log("stt.local.fail", ["engine": local.name])
+                self.local = nil
             }
-        } else {
-            guard dictationLocales.contains(wanted) else {
-                throw BrainError("Speech recognition doesn't support “\(language)” on this Mac.")
-            }
-            module = DictationTranscriber(locale: locale, preset: .progressiveLongDictation)
         }
-
-        if let request = try await AssetInventory.assetInstallationRequest(supporting: [module]) {
-            onStatus?("Downloading the speech model (one time)…")
-            try await request.downloadAndInstall()
-        }
-        let modules: [any SpeechModule] = [module] + (live.map { [$0] } ?? [])
-        guard let format = await SpeechAnalyzer.bestAvailableAudioFormat(compatibleWith: modules) else {
-            throw BrainError("Couldn't set up the speech engine's audio format.")
-        }
-
-        let (stream, cont) = AsyncStream<AnalyzerInput>.makeStream()
-        let feeder = MicFeeder(target: format, continuation: cont)
-        let analyzer = SpeechAnalyzer(modules: modules)
-        try await analyzer.start(inputSequence: stream)
-        self.analyzer = analyzer
-        self.continuation = cont
+        let feeder = MicFeeder(engines: [apple] + (local.map { [$0] } ?? []))
         self.feeder = feeder
-        committed = ""; volatile = ""; liveCommitted = ""; liveVolatile = ""; closing = 0; ending = false
+        apple.wordFilter = { [weak self, weak feeder] r in
+            guard let self, self.autoEnd, let feeder else { return true }
+            return feeder.hadVoice(in: r, margin: 0.1)
+        }
+        tracks = Array(repeating: Track(), count: self.languages.count)
+        liveCommitted = ""; liveVolatile = ""; ending = false
         running = true
         heardAudioFlag.reset()
         let flag = heardAudioFlag
@@ -139,44 +152,7 @@ final class SpeechListener {
         checkTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.checkForEnd() }
         }
-
-        let myAnalyzer = analyzer
-        if let t = module as? SpeechTranscriber {
-            resultsTask = Task { [weak self] in
-                do {
-                    for try await r in t.results {
-                        self?.handle(text: String(r.text.characters), isFinal: r.isFinal, range: r.range)
-                    }
-                } catch { NSLog("Poinky: speech engine stopped: \(error.localizedDescription)") }
-                self?.died(myAnalyzer)
-            }
-        } else if let d = module as? DictationTranscriber {
-            resultsTask = Task { [weak self] in
-                do {
-                    for try await r in d.results {
-                        self?.handle(text: String(r.text.characters), isFinal: r.isFinal, range: r.range)
-                    }
-                } catch { NSLog("Poinky: speech engine stopped: \(error.localizedDescription)") }
-                self?.died(myAnalyzer)
-            }
-        }
-        if let live {
-            liveTask = Task { [weak self] in
-                do {
-                    for try await r in live.results {
-                        self?.handle(text: String(r.text.characters), isFinal: r.isFinal, live: true, range: r.range)
-                    }
-                } catch { NSLog("Poinky: live captions stopped: \(error.localizedDescription)") }
-            }
-        }
-    }
-    private var liveTask: Task<Void, Never>?
-
-    /// The results ended while still listening (not by `stop()`): tell the call so it can start over.
-    private func died(_ which: SpeechAnalyzer?) {
-        guard running, which === analyzer, !Task.isCancelled else { return }
-        stop()
-        onDied?()
+        NSLog("Poinky: listening with \(engineDescription)")
     }
 
     func stop() {
@@ -185,108 +161,144 @@ final class SpeechListener {
         checkTimer?.invalidate()
         checkTimer = nil
         audio?.micRelay.set(nil)
-        continuation?.finish()
-        continuation = nil
-        resultsTask?.cancel()
-        resultsTask = nil
-        liveTask?.cancel()
-        liveTask = nil
-        if let a = analyzer { Task { await a.cancelAndFinishNow() } }
-        analyzer = nil
+        apple?.stop()
+        apple = nil
+        local?.stop()
+        local = nil
         feeder = nil
     }
 
-    /// Forget whatever is being heard right now (e.g. it was Claude's own voice): the segment is
-    /// closed, and what the engine still says about it is dropped.
+    /// Words to expect in the next question (what's on screen, names, recent words). Cheap; call before each one.
+    func setContext(_ context: SpeechContext) {
+        apple?.setContext(context)
+        local?.setContext(context)
+    }
+
+    /// Forget whatever is being heard right now (e.g. it was Claude's own voice): its analyzer is dropped
+    /// (what it still says about it never arrives) and the next one listens.
     func discardCurrent() {
         clearText()
-        closeSegment()
+        apple?.discard()
+        local?.discard()
     }
-
-    /// Asks the engine to settle everything heard so far, and drops its results until it has.
-    /// (Results can't be told apart by time: a new segment starts where the last final ended,
-    /// often before the moment the last question was sent, so new words looked old and were lost.)
-    private func closeSegment() {
-        guard let analyzer else { return }
-        closing += 1
-        Task { @MainActor [weak self] in
-            await Self.settle(analyzer, lastResult: { self?.lastResultAt ?? 0 })
-            if let self, self.closing > 0 { self.closing -= 1 }
-        }
-    }
-
-    /// Finalize everything received so far ("through: nil"; with a time it could hang), with a time limit,
-    /// then wait until the final words have come (nothing new for a moment). `final`: the words are already
-    /// final when finalize returns (they come just before it, measured): no need to wait for more.
-    private static func settle(_ analyzer: SpeechAnalyzer?, lastResult: @MainActor () -> TimeInterval,
-                               final: @MainActor () -> Bool = { false }) async {
-        final class Flag: @unchecked Sendable { var done = false }
-        let flag = Flag()
-        if let analyzer {
-            Task { try? await analyzer.finalize(through: nil); await MainActor.run { flag.done = true } }
-        } else { flag.done = true }
-        let start = ProcessInfo.processInfo.systemUptime
-        while !flag.done, ProcessInfo.processInfo.systemUptime - start < 1.2 {
-            try? await Task.sleep(nanoseconds: 40_000_000)
-        }
-        if flag.done, analyzer != nil, final() { return }
-        let settleStart = ProcessInfo.processInfo.systemUptime
-        while ProcessInfo.processInfo.systemUptime - settleStart < 0.5,
-              ProcessInfo.processInfo.systemUptime - lastResult() < 0.12 {
-            try? await Task.sleep(nanoseconds: 30_000_000)
-        }
-    }
-
-    /// `POINKY_SETTLE_EARLY=0`: always wait for 0.12 s of quiet after finalizing (as before 2026-11-18).
-    static let settleEarly = ProcessInfo.processInfo.environment["POINKY_SETTLE_EARLY"] != "0"
 
     /// You let go of the talk keys: get the final words of what you said, then start fresh.
     func finishUtterance() async -> String {
-        guard running, analyzer != nil || Self.fake else { return "" }
-        // (Finalize hands back the last words just before it returns: then nothing more is coming for them,
-        // and the 0.12 s wait for quiet only made you wait. With words still unsettled it waits as before.
-        // Holds only: hands-free, the wait also swallows a stray "you." about the silence after the question,
-        // which then started the next one; a straggler after a hold is cleared when the keys go down again.)
-        await Self.settle(analyzer, lastResult: { [weak self] in self?.lastResultAt ?? 0 },
-                          final: { [weak self] in Self.settleEarly && self?.volatile.isEmpty == true && self?.currentText.isEmpty == false })
-        let text = questionText
+        await finishDetailed().text
+    }
+
+    /// The same, with which engine's text was used and how long each took (for the timeline and the bench).
+    func finishDetailed() async -> SpeechPick.Result {
+        guard running, apple != nil || Self.fake else { return SpeechPick.Result(text: "", engine: "none") }
+        let r = await settleQuestion()
         clearText()
-        return text
+        return r
+    }
+
+    /// Settles Apple's engine and (if there is one) the local model on the same audio, and picks the text.
+    private func settleQuestion() async -> SpeechPick.Result {
+        let started = ProcessInfo.processInfo.systemUptime
+        apple?.settleEarly = !autoEnd   // holds only (see AppleSpeechEngine.finish)
+        let voiced = voicedSinceClear
+        // The local model starts on the audio right away, while Apple's engine settles.
+        var localTask: Task<String?, Never>?
+        if let local, voiced { localTask = Task { await local.finish() } } else { local?.discard() }
+        // Holding the keys with one language: the model's words go as soon as they come (~55 ms after you let
+        // go), without waiting for Apple's engine to settle (~200 ms); its late words are dropped.
+        if !autoEnd, languages.count == 1, let localTask, let local, LocalModels.speaks(local, languages.first) {
+            let appleTask = Task { _ = await apple?.finish() }
+            if let text = (await SpeechDeadline.value(seconds: LocalModels.deadline, localTask) ?? nil).map(Self.trimmed), !text.isEmpty {
+                apple?.abandonSettling()
+                let ms = (ProcessInfo.processInfo.systemUptime - started) * 1000
+                let r = SpeechPick.Result(text: text, engine: local.name, apple: questionText, language: languages.first, engineMs: ms)
+                Timeline.log("stt.final", ["engine": r.engine, "ms": Int(ms), "lang": r.language ?? "", "early": true])
+                MicDebug.shared.end(text: text)
+                lastPick = r
+                return r
+            }
+            Timeline.log("stt.local.timeout", ["engine": local.name, "ms": Int((ProcessInfo.processInfo.systemUptime - started) * 1000)])
+            localTask.cancel()
+            await appleTask.value
+            return finishWithApple(started: started)
+        }
+        _ = await apple?.finish()
+        var result = finishWithApple(started: started, log: false)
+        let appleText = result.text, appleMs = result.appleMs ?? 0
+        if let localTask, let local, LocalModels.speaks(local, result.language) {
+            // Never wait without a way out: past the deadline, Apple's text goes.
+            let deadline = max(0.25, LocalModels.deadline - (ProcessInfo.processInfo.systemUptime - started))
+            let text = await SpeechDeadline.value(seconds: deadline, localTask) ?? nil
+            let ms = (ProcessInfo.processInfo.systemUptime - started) * 1000
+            result.engineMs = ms
+            // In a call the model also hears what came before the question; if it heard far more than Apple's
+            // engine did, that was probably the room or Claude's own voice: Apple's text goes.
+            let tooLong = autoEnd && !appleText.isEmpty && Self.words(text ?? "") > 2 * Self.words(appleText) + 4
+            if let text = text.map(Self.trimmed), !text.isEmpty, !tooLong {
+                result.text = text
+                result.engine = local.name
+            } else if text == nil {
+                Timeline.log("stt.local.timeout", ["engine": local.name, "ms": Int(ms)])
+            }
+        }
+        Timeline.log("stt.final", ["engine": result.engine, "appleMs": Int(appleMs), "ms": Int(result.engineMs ?? appleMs),
+                                   "lang": result.language ?? "", "same": result.text == appleText])
+        MicDebug.shared.end(text: result.text)
+        lastPick = result
+        return result
+    }
+
+    /// Apple's words for the question (after its engine has settled).
+    private func finishWithApple(started: TimeInterval, log: Bool = true) -> SpeechPick.Result {
+        let appleText = questionText
+        let appleMs = (ProcessInfo.processInfo.systemUptime - started) * 1000
+        let pickedTrack = best
+        let result = SpeechPick.Result(text: appleText, engine: "apple", apple: appleText,
+                                       language: languages.indices.contains(pickedTrack) ? languages[pickedTrack] : nil,
+                                       appleMs: appleMs)
+        if log {
+            Timeline.log("stt.final", ["engine": "apple", "ms": Int(appleMs), "lang": result.language ?? ""])
+            MicDebug.shared.end(text: result.text)
+            lastPick = result
+        }
+        return result
     }
 
     /// Start a new question (hold-to-talk). Nothing that comes next is dropped: after
     /// `finishUtterance` everything earlier has already been settled, and the engine's final
     /// result for new speech can start slightly before the moment you pressed.
     func clearText() {
-        committed = ""
-        volatile = ""
+        tracks = Array(repeating: Track(), count: max(1, languages.count))
         liveCommitted = ""
         liveVolatile = ""
         heardAudioFlag.reset()
         clearedAt = ProcessInfo.processInfo.systemUptime
+        apple?.nextQuestion()
+        if !autoEnd { local?.discard() }   // holding the keys: the model hears from the moment you pressed
+        MicDebug.shared.begin(autoEnd ? "hands-free" : "hold")
     }
 
-    private func handle(text: String, isFinal: Bool, live: Bool = false, range: CMTimeRange? = nil) {
+    private func handle(_ r: SpeechEngineResult) {
         guard running else { return }
+        let text = r.text, isFinal = r.isFinal, live = r.live
         if live, autoEnd { return }   // live captions are for holding the keys
         // Hands-free, a long quiet stretch sometimes comes back as a word ("you.", "to.", "I"), often just as
         // you start the next question: a result about audio where the mic heard no voice is dropped.
-        if autoEnd, let range, let feeder, !feeder.hadVoice(in: range) { return }
-        // The last question's segment is being closed: what comes now still belongs to it.
-        if closing > 0 { return }
+        if autoEnd, let range = r.range, let feeder, !feeder.hadVoice(in: range) { return }
+        guard tracks.indices.contains(r.track) else { return }
         // Silence sometimes comes back as just "..." or "?": not words.
         let hasWords = text.unicodeScalars.contains { CharacterSet.alphanumerics.contains($0) }
         if !hasWords {
-            if !isFinal { if live { liveVolatile = "" } else { volatile = "" } }
+            if !isFinal { if live { liveVolatile = "" } else { tracks[r.track].volatile = "" } }
             return
         }
         if live {
             if isFinal { liveCommitted += " " + text; liveVolatile = "" } else { liveVolatile = text }
         } else if isFinal {
-            committed += " " + text
-            volatile = ""
+            tracks[r.track].committed += " " + text
+            tracks[r.track].volatile = ""
+            if let c = r.confidence { tracks[r.track].confidences.append(c) }
         } else {
-            volatile = text
+            tracks[r.track].volatile = text
         }
         let shown = shownText
         if !shown.isEmpty {
@@ -298,7 +310,7 @@ final class SpeechListener {
     // MARK: Scripted results (`--listen-test`)
 
     private func startFake() {
-        committed = ""; volatile = ""; liveCommitted = ""; liveVolatile = ""; closing = 0; ending = false
+        tracks = [Track()]; liveCommitted = ""; liveVolatile = ""; ending = false
         running = true
         checkTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.checkForEnd() }
@@ -308,7 +320,7 @@ final class SpeechListener {
     /// A scripted result, through the same path as the engine's (`live`: from the live-caption module).
     func fakeResult(_ text: String, isFinal: Bool, live: Bool = false) {
         heardAudioFlag.mark()
-        handle(text: text, isFinal: isFinal, live: live)
+        handle(SpeechEngineResult(text: text, isFinal: isFinal, live: live, range: nil))
     }
 
     /// Runs 10× a second: have you really finished talking?
@@ -350,12 +362,11 @@ final class SpeechListener {
     private func endOfUtterance() {
         ending = true
         Task { @MainActor in
-            await Self.settle(analyzer, lastResult: { [weak self] in self?.lastResultAt ?? 0 })
+            let r = await settleQuestion()
             ending = false
             guard running else { return }
-            let text = questionText
             clearText()
-            if !text.isEmpty { onUtterance?(text) }
+            if !r.text.isEmpty { onUtterance?(r.text) }
         }
     }
 }
@@ -369,65 +380,156 @@ final class OnceFlag: @unchecked Sendable {
     func reset() { lock.lock(); done = false; lock.unlock() }
 }
 
-/// Converts mic audio into the speech engine's format and timestamps it.
+/// Hands mic audio to the engines and keeps track of where the mic heard a voice.
 final class MicFeeder: @unchecked Sendable {
-    private let target: AVAudioFormat
-    private let continuation: AsyncStream<AnalyzerInput>.Continuation
-    private var converter: AVAudioConverter?
-    private var samples: Int64 = 0
+    private let engines: [any SpeechEngine]
     private let lock = NSLock()
+    private var seconds = 0.0          // audio fed so far (all engines see the same timeline)
 
     let voice = VoiceActivity()
-    /// Where the mic heard a voice (the engine's sample time), the last few hundred stretches.
-    private var voiced: [(start: Int64, end: Int64)] = []
+    /// Where the mic heard a voice (seconds of fed audio), the last few hundred stretches.
+    private var voiced: [(start: Double, end: Double)] = []
 
-    init(target: AVAudioFormat, continuation: AsyncStream<AnalyzerInput>.Continuation) {
-        self.target = target
-        self.continuation = continuation
-    }
-
-    var now: CMTime {
-        lock.lock(); defer { lock.unlock() }
-        return CMTime(value: samples, timescale: CMTimeScale(target.sampleRate))
-    }
+    init(engines: [any SpeechEngine]) { self.engines = engines }
 
     /// Did any of this stretch of audio (± a quarter second) have a voice in it?
-    func hadVoice(in range: CMTimeRange) -> Bool {
-        let rate = target.sampleRate, margin = Int64(rate * 0.25)
-        let a = Int64(range.start.seconds * rate) - margin, b = Int64(range.end.seconds * rate) + margin
+    func hadVoice(in range: CMTimeRange, margin: Double = 0.25) -> Bool {
+        let a = range.start.seconds - margin, b = range.end.seconds + margin
         lock.lock(); defer { lock.unlock() }
         return voiced.contains { $0.start < b && $0.end > a }
     }
 
     func feed(_ buffer: AVAudioPCMBuffer) {
+        MicDebug.shared.raw(buffer)
         let hasVoice = voice.process(buffer)
-        if converter == nil || converter?.inputFormat != buffer.format {
-            converter = AVAudioConverter(from: buffer.format, to: target)
-            // With voice processing the mic delivers several channels; channel 0 is the
-            // cleaned-up voice (echo removed). Use only that one.
-            if buffer.format.channelCount > 1 { converter?.channelMap = [0] }
-        }
-        guard let conv = converter else { return }
-        let ratio = target.sampleRate / buffer.format.sampleRate
-        let capacity = AVAudioFrameCount(Double(buffer.frameLength) * ratio + 64)
-        guard let out = AVAudioPCMBuffer(pcmFormat: target, frameCapacity: capacity) else { return }
-        var consumed = false
-        var error: NSError?
-        conv.convert(to: out, error: &error) { _, status in
-            if consumed { status.pointee = .noDataNow; return nil }
-            consumed = true
-            status.pointee = .haveData
-            return buffer
-        }
-        guard error == nil, out.frameLength > 0 else { return }
+        let dur = Double(buffer.frameLength) / buffer.format.sampleRate
         lock.lock()
-        let start = CMTime(value: samples, timescale: CMTimeScale(target.sampleRate))
         if hasVoice {
-            if let last = voiced.last, last.end >= samples { voiced[voiced.count - 1].end = samples + Int64(out.frameLength) }
-            else { voiced.append((samples, samples + Int64(out.frameLength))); if voiced.count > 400 { voiced.removeFirst(100) } }
+            if let last = voiced.last, last.end >= seconds - 1e-6 { voiced[voiced.count - 1].end = seconds + dur }
+            else { voiced.append((seconds, seconds + dur)); if voiced.count > 400 { voiced.removeFirst(100) } }
         }
-        samples += Int64(out.frameLength)
+        seconds += dur
         lock.unlock()
-        continuation.yield(AnalyzerInput(buffer: out, bufferStartTime: start))
+        let out = gain.apply(buffer)
+        for e in engines { e.feed(out, voiced: hasVoice) }
+    }
+
+    let gain = InputGain()
+}
+
+/// Brings a quiet voice up toward -26 dBFS (only up, at most +24 dB, never clipping). Off unless
+/// `POINKY_STT_GAIN=1`: on the bench it changed nothing (soft voice at -60 dBFS: 18.2 % → 17.8 % word errors,
+/// soft voice with a fan: 14.5 % → 16.0 %). Apple's engine copes with level; what hurts is the room's noise.
+final class InputGain: @unchecked Sendable {
+    private let lock = NSLock()
+    private var gainDB: Float = 0
+    private var voiceDB: Float?
+    private var floorDB: Float = -70
+    private let enabled = ProcessInfo.processInfo.environment["POINKY_STT_GAIN"] == "1"
+    static let target: Float = -26
+
+    var currentDB: Float { lock.lock(); defer { lock.unlock() }; return gainDB }
+
+    func apply(_ b: AVAudioPCMBuffer) -> AVAudioPCMBuffer {
+        guard enabled, let data = b.floatChannelData, b.frameLength > 0,
+              let out = AVAudioPCMBuffer(pcmFormat: b.format, frameCapacity: b.frameLength) else { return b }
+        out.frameLength = b.frameLength
+        let n = Int(b.frameLength), channels = Int(b.format.channelCount)
+        let window = max(1, Int(b.format.sampleRate * 0.02))
+        let src = data[0]
+        lock.lock()
+        var i = 0
+        while i < n {
+            let end = min(n, i + window)
+            var sum: Float = 0
+            for j in i..<end { sum += src[j] * src[j] }
+            let db = AudioLevels.db((sum / Float(end - i)).squareRoot())
+            if db < floorDB { floorDB = floorDB * 0.7 + db * 0.3 } else { floorDB += 0.01 }
+            if db > floorDB + 10, db > -66 {
+                // The voice's level: quick to rise, slow to fall.
+                voiceDB = voiceDB.map { db > $0 ? $0 * 0.7 + db * 0.3 : $0 * 0.995 + db * 0.005 } ?? db
+            }
+            if let v = voiceDB {
+                // Don't lift the room above -60 dBFS either (that's just louder hiss).
+                let want = max(0, min(24, InputGain.target - v, -60 - floorDB))
+                gainDB += max(-1.5, min(0.25, want - gainDB))   // up slowly (12 dB/s), down fast
+            }
+            let g = powf(10, gainDB / 20)
+            for c in 0..<channels {
+                let s = data[c], d = out.floatChannelData![c]
+                for j in i..<end {
+                    var y = s[j] * g
+                    let a = abs(y)
+                    if a > 0.7 { y = (y < 0 ? -1 : 1) * (0.7 + 0.3 * tanhf((a - 0.7) / 0.3)) }
+                    d[j] = y
+                }
+            }
+            i = end
+        }
+        lock.unlock()
+        return out
+    }
+}
+
+/// Which recognizer's words to send.
+enum SpeechPick {
+    struct Result {
+        var text: String
+        var engine: String
+        var apple: String? = nil
+        var language: String? = nil
+        var appleMs: Double? = nil
+        var engineMs: Double? = nil
+    }
+
+    /// With several languages, the track whose words are most likely what you said: written in its own script
+    /// (Hebrew heard by the English recognizer comes out as English-looking nonsense, and the reverse), then the
+    /// higher word confidence. One language: track 0.
+    static func best(tracks: [SpeechListener.Track], languages: [String]) -> Int {
+        guard tracks.count > 1 else { return 0 }
+        var bestIndex = 0, bestScore = -Double.infinity
+        for (i, t) in tracks.enumerated() {
+            let text = t.text
+            guard !text.isEmpty else { continue }
+            let lang = languages.indices.contains(i) ? languages[i] : "en"
+            let conf = t.confidences.isEmpty ? 0.5 : t.confidences.reduce(0, +) / Double(t.confidences.count)
+            let script = SpeechScript.share(of: SpeechScript.of(lang), in: text)
+            let score = conf + (script > 0.5 ? 0.5 : 0) - (i == 0 ? 0 : 0.05)
+            if score > bestScore { bestScore = score; bestIndex = i }
+        }
+        return bestIndex
+    }
+}
+
+enum SpeechScript: Equatable {
+    case latin, hebrew, arabic, cyrillic, cjk, other
+
+    static func of(_ language: String) -> SpeechScript {
+        switch String(language.prefix(2)).lowercased() {
+        case "he", "iw", "yi": return .hebrew
+        case "ar", "fa", "ur": return .arabic
+        case "ru", "uk", "bg", "sr": return .cyrillic
+        case "zh", "ja", "ko", "yu": return .cjk
+        case "th", "hi", "bn", "ta", "te", "gu", "kn", "ml", "mr", "pa", "or", "ne": return .other
+        default: return .latin
+        }
+    }
+
+    static func of(scalar u: Unicode.Scalar) -> SpeechScript? {
+        switch u.value {
+        case 0x41...0x5A, 0x61...0x7A, 0xC0...0x24F: return .latin
+        case 0x0590...0x05FF, 0xFB1D...0xFB4F: return .hebrew
+        case 0x0600...0x06FF, 0x0750...0x077F: return .arabic
+        case 0x0400...0x04FF: return .cyrillic
+        case 0x3040...0x30FF, 0x4E00...0x9FFF, 0xAC00...0xD7AF: return .cjk
+        default: return CharacterSet.letters.contains(u) ? .other : nil
+        }
+    }
+
+    /// The share of letters in `text` written in `script`.
+    static func share(of script: SpeechScript, in text: String) -> Double {
+        var n = 0, hit = 0
+        for u in text.unicodeScalars { if let s = of(scalar: u) { n += 1; if s == script { hit += 1 } } }
+        return n == 0 ? 0 : Double(hit) / Double(n)
     }
 }
