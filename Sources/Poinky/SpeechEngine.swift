@@ -380,6 +380,9 @@ final class AppleSpeechEngine: SpeechEngine {
         Self.end(gen)
     }
 
+    /// The question went with another engine's words: what the settling analyzer still says is dropped.
+    func abandonSettling() { settling = nil }
+
     /// The listener has taken the last question's words: results about the new one may come now.
     func nextQuestion() {
         let pending = held

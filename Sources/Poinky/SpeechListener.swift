@@ -202,13 +202,27 @@ final class SpeechListener {
         // The local model starts on the audio right away, while Apple's engine settles.
         var localTask: Task<String?, Never>?
         if let local, voiced { localTask = Task { await local.finish() } } else { local?.discard() }
+        // Holding the keys with one language: the model's words go as soon as they come (~55 ms after you let
+        // go), without waiting for Apple's engine to settle (~200 ms); its late words are dropped.
+        if !autoEnd, languages.count == 1, let localTask, let local, LocalModels.speaks(local, languages.first) {
+            let appleTask = Task { _ = await apple?.finish() }
+            if let text = (await SpeechDeadline.value(seconds: LocalModels.deadline, localTask) ?? nil).map(Self.trimmed), !text.isEmpty {
+                apple?.abandonSettling()
+                let ms = (ProcessInfo.processInfo.systemUptime - started) * 1000
+                let r = SpeechPick.Result(text: text, engine: local.name, apple: questionText, language: languages.first, engineMs: ms)
+                Timeline.log("stt.final", ["engine": r.engine, "ms": Int(ms), "lang": r.language ?? "", "early": true])
+                MicDebug.shared.end(text: text)
+                lastPick = r
+                return r
+            }
+            Timeline.log("stt.local.timeout", ["engine": local.name, "ms": Int((ProcessInfo.processInfo.systemUptime - started) * 1000)])
+            localTask.cancel()
+            await appleTask.value
+            return finishWithApple(started: started)
+        }
         _ = await apple?.finish()
-        let appleText = questionText
-        let appleMs = (ProcessInfo.processInfo.systemUptime - started) * 1000
-        let pickedTrack = best
-        var result = SpeechPick.Result(text: appleText, engine: "apple", apple: appleText,
-                                       language: languages.indices.contains(pickedTrack) ? languages[pickedTrack] : nil,
-                                       appleMs: appleMs)
+        var result = finishWithApple(started: started, log: false)
+        let appleText = result.text, appleMs = result.appleMs ?? 0
         if let localTask, let local, LocalModels.speaks(local, result.language) {
             // Never wait without a way out: past the deadline, Apple's text goes.
             let deadline = max(0.25, LocalModels.deadline - (ProcessInfo.processInfo.systemUptime - started))
@@ -221,7 +235,6 @@ final class SpeechListener {
             if let text = text.map(Self.trimmed), !text.isEmpty, !tooLong {
                 result.text = text
                 result.engine = local.name
-                if let lang = LocalModels.lastLanguage(local) { result.language = lang }
             } else if text == nil {
                 Timeline.log("stt.local.timeout", ["engine": local.name, "ms": Int(ms)])
             }
@@ -230,6 +243,22 @@ final class SpeechListener {
                                    "lang": result.language ?? "", "same": result.text == appleText])
         MicDebug.shared.end(text: result.text)
         lastPick = result
+        return result
+    }
+
+    /// Apple's words for the question (after its engine has settled).
+    private func finishWithApple(started: TimeInterval, log: Bool = true) -> SpeechPick.Result {
+        let appleText = questionText
+        let appleMs = (ProcessInfo.processInfo.systemUptime - started) * 1000
+        let pickedTrack = best
+        let result = SpeechPick.Result(text: appleText, engine: "apple", apple: appleText,
+                                       language: languages.indices.contains(pickedTrack) ? languages[pickedTrack] : nil,
+                                       appleMs: appleMs)
+        if log {
+            Timeline.log("stt.final", ["engine": "apple", "ms": Int(appleMs), "lang": result.language ?? ""])
+            MicDebug.shared.end(text: result.text)
+            lastPick = result
+        }
         return result
     }
 
