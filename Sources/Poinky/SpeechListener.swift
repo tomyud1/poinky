@@ -216,8 +216,10 @@ final class SpeechListener {
     }
 
     /// Finalize everything received so far ("through: nil"; with a time it could hang), with a time limit,
-    /// then wait until the final words have come (nothing new for a moment).
-    private static func settle(_ analyzer: SpeechAnalyzer?, lastResult: @MainActor () -> TimeInterval) async {
+    /// then wait until the final words have come (nothing new for a moment). `final`: the words are already
+    /// final when finalize returns (they come just before it, measured): no need to wait for more.
+    private static func settle(_ analyzer: SpeechAnalyzer?, lastResult: @MainActor () -> TimeInterval,
+                               final: @MainActor () -> Bool = { false }) async {
         final class Flag: @unchecked Sendable { var done = false }
         let flag = Flag()
         if let analyzer {
@@ -227,6 +229,7 @@ final class SpeechListener {
         while !flag.done, ProcessInfo.processInfo.systemUptime - start < 1.2 {
             try? await Task.sleep(nanoseconds: 40_000_000)
         }
+        if flag.done, analyzer != nil, final() { return }
         let settleStart = ProcessInfo.processInfo.systemUptime
         while ProcessInfo.processInfo.systemUptime - settleStart < 0.5,
               ProcessInfo.processInfo.systemUptime - lastResult() < 0.12 {
@@ -234,10 +237,18 @@ final class SpeechListener {
         }
     }
 
+    /// `POINKY_SETTLE_EARLY=0`: always wait for 0.12 s of quiet after finalizing (as before 2026-11-18).
+    static let settleEarly = ProcessInfo.processInfo.environment["POINKY_SETTLE_EARLY"] != "0"
+
     /// You let go of the talk keys: get the final words of what you said, then start fresh.
     func finishUtterance() async -> String {
         guard running, analyzer != nil || Self.fake else { return "" }
-        await Self.settle(analyzer, lastResult: { [weak self] in self?.lastResultAt ?? 0 })
+        // (Finalize hands back the last words just before it returns: then nothing more is coming for them,
+        // and the 0.12 s wait for quiet only made you wait. With words still unsettled it waits as before.
+        // Holds only: hands-free, the wait also swallows a stray "you." about the silence after the question,
+        // which then started the next one; a straggler after a hold is cleared when the keys go down again.)
+        await Self.settle(analyzer, lastResult: { [weak self] in self?.lastResultAt ?? 0 },
+                          final: { [weak self] in Self.settleEarly && self?.volatile.isEmpty == true && self?.currentText.isEmpty == false })
         let text = questionText
         clearText()
         return text

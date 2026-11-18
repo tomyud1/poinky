@@ -794,7 +794,7 @@ final class CallController: NSObject, NSMenuDelegate {
         let here = screenWithMouse()
         if here != overlay.screen, overlay.occupiedRects.isEmpty { overlay.show(on: here) }
         pushCommitted = true
-        Timeline.log("keys.down", ["state": "\(state)"])
+        Timeline.log("keys.down", ["state": "\(state)", "pollGapMs": Int(ptt.downPollGap * 1000)])
         captionFade?.cancel()
         if buddyHidden { setBuddyHidden(false) }
         playSound(.open)

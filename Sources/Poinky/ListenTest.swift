@@ -57,13 +57,15 @@ enum ListenTest {
         guard let steps = (json as? [[String: Any]]) ?? ((json as? [String: Any])?["steps"] as? [[String: Any]]) else {
             write("error: can't read \(script)"); NSApp.terminate(nil); return
         }
+        let started = ProcessInfo.processInfo.systemUptime
         for step in steps {
             let at = (step["at"] as? NSNumber)?.doubleValue ?? 0
             DispatchQueue.main.asyncAfter(deadline: .now() + at) {
                 MainActor.assumeIsolated {
                     if let k = step["keys"] as? String {
                         c.testKeys(down: k == "down")
-                        write(String(format: "%.2f keys %@ (state %@)", at, k, c.testState))
+                        write(String(format: "%.2f keys %@ (state %@, %.2f s late)", at, k, c.testState,
+                                     ProcessInfo.processInfo.systemUptime - started - at))
                     }
                     if let w = step["words"] as? String {
                         c.testWords(w, final: step["final"] as? Bool ?? false, live: step["live"] as? Bool ?? false)
