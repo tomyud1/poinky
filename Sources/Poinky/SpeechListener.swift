@@ -145,7 +145,7 @@ final class SpeechListener {
             resultsTask = Task { [weak self] in
                 do {
                     for try await r in t.results {
-                        self?.handle(text: String(r.text.characters), isFinal: r.isFinal)
+                        self?.handle(text: String(r.text.characters), isFinal: r.isFinal, range: r.range)
                     }
                 } catch { NSLog("Poinky: speech engine stopped: \(error.localizedDescription)") }
                 self?.died(myAnalyzer)
@@ -154,7 +154,7 @@ final class SpeechListener {
             resultsTask = Task { [weak self] in
                 do {
                     for try await r in d.results {
-                        self?.handle(text: String(r.text.characters), isFinal: r.isFinal)
+                        self?.handle(text: String(r.text.characters), isFinal: r.isFinal, range: r.range)
                     }
                 } catch { NSLog("Poinky: speech engine stopped: \(error.localizedDescription)") }
                 self?.died(myAnalyzer)
@@ -164,7 +164,7 @@ final class SpeechListener {
             liveTask = Task { [weak self] in
                 do {
                     for try await r in live.results {
-                        self?.handle(text: String(r.text.characters), isFinal: r.isFinal, live: true)
+                        self?.handle(text: String(r.text.characters), isFinal: r.isFinal, live: true, range: r.range)
                     }
                 } catch { NSLog("Poinky: live captions stopped: \(error.localizedDescription)") }
             }
@@ -255,12 +255,12 @@ final class SpeechListener {
         clearedAt = ProcessInfo.processInfo.systemUptime
     }
 
-    private func handle(text: String, isFinal: Bool, live: Bool = false) {
+    private func handle(text: String, isFinal: Bool, live: Bool = false, range: CMTimeRange? = nil) {
         guard running else { return }
         if live, autoEnd { return }   // live captions are for holding the keys
-        // Hands-free, a long quiet stretch sometimes comes back as a word ("you", "I"): words need a voice.
-        // (Results come at most ~1 s after the audio they're about.)
-        if autoEnd, !Self.fake, let quiet = feeder?.voice.secondsSinceVoice, quiet > 2.5 { return }
+        // Hands-free, a long quiet stretch sometimes comes back as a word ("you.", "to.", "I"), often just as
+        // you start the next question: a result about audio where the mic heard no voice is dropped.
+        if autoEnd, let range, let feeder, !feeder.hadVoice(in: range) { return }
         // The last question's segment is being closed: what comes now still belongs to it.
         if closing > 0 { return }
         // Silence sometimes comes back as just "..." or "?": not words.
@@ -367,6 +367,8 @@ final class MicFeeder: @unchecked Sendable {
     private let lock = NSLock()
 
     let voice = VoiceActivity()
+    /// Where the mic heard a voice (the engine's sample time), the last few hundred stretches.
+    private var voiced: [(start: Int64, end: Int64)] = []
 
     init(target: AVAudioFormat, continuation: AsyncStream<AnalyzerInput>.Continuation) {
         self.target = target
@@ -378,8 +380,16 @@ final class MicFeeder: @unchecked Sendable {
         return CMTime(value: samples, timescale: CMTimeScale(target.sampleRate))
     }
 
+    /// Did any of this stretch of audio (± a quarter second) have a voice in it?
+    func hadVoice(in range: CMTimeRange) -> Bool {
+        let rate = target.sampleRate, margin = Int64(rate * 0.25)
+        let a = Int64(range.start.seconds * rate) - margin, b = Int64(range.end.seconds * rate) + margin
+        lock.lock(); defer { lock.unlock() }
+        return voiced.contains { $0.start < b && $0.end > a }
+    }
+
     func feed(_ buffer: AVAudioPCMBuffer) {
-        voice.process(buffer)
+        let hasVoice = voice.process(buffer)
         if converter == nil || converter?.inputFormat != buffer.format {
             converter = AVAudioConverter(from: buffer.format, to: target)
             // With voice processing the mic delivers several channels; channel 0 is the
@@ -401,6 +411,10 @@ final class MicFeeder: @unchecked Sendable {
         guard error == nil, out.frameLength > 0 else { return }
         lock.lock()
         let start = CMTime(value: samples, timescale: CMTimeScale(target.sampleRate))
+        if hasVoice {
+            if let last = voiced.last, last.end >= samples { voiced[voiced.count - 1].end = samples + Int64(out.frameLength) }
+            else { voiced.append((samples, samples + Int64(out.frameLength))); if voiced.count > 400 { voiced.removeFirst(100) } }
+        }
         samples += Int64(out.frameLength)
         lock.unlock()
         continuation.yield(AnalyzerInput(buffer: out, bufferStartTime: start))

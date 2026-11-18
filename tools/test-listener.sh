@@ -8,7 +8,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 out="${TMPDIR:-/tmp}/poinky-listener-test"
 mkdir -p "$out"
-say -o "$out/q1.wav" --data-format=LEF32@48000 "What is this button for"
+say -o "$out/q1.wav" --data-format=LEF32@48000 "Where is the save button"
 say -o "$out/q2.wav" --data-format=LEF32@48000 "And how do I turn it off"
 say -o "$out/yes.wav" --data-format=LEF32@48000 "Yes"
 swiftc -O -o "$out/listener-test" tools/listener-test/main.swift \

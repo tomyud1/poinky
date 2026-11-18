@@ -23,9 +23,10 @@ final class VoiceActivity: @unchecked Sendable {
         return ProcessInfo.processInfo.systemUptime - lastVoice
     }
 
-    /// Call with each mic buffer (channel 0 is used). Safe to call from the audio thread.
-    func process(_ buffer: AVAudioPCMBuffer, at time: TimeInterval = ProcessInfo.processInfo.systemUptime) {
-        guard let ch = buffer.floatChannelData?[0], buffer.frameLength > 0 else { return }
+    /// Call with each mic buffer (channel 0 is used). Safe to call from the audio thread. Returns whether it had a voice.
+    @discardableResult
+    func process(_ buffer: AVAudioPCMBuffer, at time: TimeInterval = ProcessInfo.processInfo.systemUptime) -> Bool {
+        guard let ch = buffer.floatChannelData?[0], buffer.frameLength > 0 else { return false }
         let n = Int(buffer.frameLength)
         let window = max(1, Int(buffer.format.sampleRate * 0.02))   // 20 ms
         var voiced = false
@@ -47,6 +48,7 @@ final class VoiceActivity: @unchecked Sendable {
         lastLevel = max(0, min(1, (peak - max(noiseFloor, -70)) / 35))
         if !measured { measured = true; if !voiced { lastVoice = time } }
         lock.unlock()
+        return voiced
     }
 
     func reset() {

@@ -78,8 +78,8 @@ final class Run {
             check(shownAt < 0.4, "hold “\(expect)”: a one-word answer shows as you let go (\(String(format: "%.2f", shownAt)) s)")
         } else {
             check(!before.isEmpty, "hold “\(expect)”: your words show while you hold the keys")
-            check(before.count >= 3, "hold “\(expect)”: the words keep up while you talk (\(before.count) updates)")
-            check((before.first?.t ?? 99) - speechAt < 0.9, "hold “\(expect)”: the first words show within 0.9 s (\(first))")
+            check(before.count >= 4, "hold “\(expect)”: the words keep up while you talk (\(before.count) updates)")
+            check((before.first?.t ?? 99) - speechAt < 1.0, "hold “\(expect)”: the first words show within a second (\(first))")
         }
         check(text.first?.isLetter == true && norm(text) == norm(expect), "hold “\(expect)”: the question sent is what was said (\"\(text)\")")
         try? await Task.sleep(nanoseconds: 1_200_000_000)   // between holds the mic is off
@@ -95,7 +95,7 @@ func main() async {
         r.listener.autoEnd = false
         do { try await r.listener.start(audio: r.audio, language: "en-US") } catch { print("FAIL couldn't start: \(error)"); exit(1) }
         print("— hold to talk")
-        await r.hold("q1", expect: "What is this button for?")
+        await r.hold("q1", expect: "Where is the save button?")
         await r.hold("yes", expect: "Yes")
         await r.hold("q2", expect: "And how do I turn it off?")
         r.listener.stop()
@@ -109,14 +109,15 @@ func main() async {
         print("— hands-free, \(gap) s between questions")
         await r.quiet(0.3)
         await r.play(q1)
+        let q1End = r.now
         await r.quiet(gap)
         let q2At = r.now
         await r.play(load("q2"))
         await r.quiet(2.5)
         let said = r.utterances.map { $0.text }
-        print("     questions: \(said)")
+        print("     questions: \(said); the first was sent \(r.utterances.first.map { String(format: "%.2f", $0.t - q1End) } ?? "-") s after it ended")
         check(said.count == 2, "hands-free (\(gap) s): two questions")
-        check(said.first.map(norm) == norm("What is this button for?"), "hands-free (\(gap) s): the first question")
+        check(said.first.map(norm) == norm("Where is the save button?"), "hands-free (\(gap) s): the first question")
         check(said.count > 1 && said[1].first?.isLetter == true && norm(said[1]) == norm("And how do I turn it off?"), "hands-free (\(gap) s): the second question is heard too")
         let live = r.partials.filter { $0.t > q2At && $0.t < (r.utterances.dropFirst().first?.t ?? 99) && norm($0.text).contains("how") }
         check(!live.isEmpty, "hands-free (\(gap) s): the second question's words show while you talk")
