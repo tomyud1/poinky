@@ -88,5 +88,11 @@ check(HelperStream.firstSentence("**Good.** Two tests fail. More") == "Good.", "
 check(HelperStream.firstSentence("My plan:\n1. Fix it") == "My plan", "first sentence stops at a colon")
 check(HelperStream.describe(tool: "mcp__github__create_issue", input: [:]) == "Using create_issue (github)", "mcp tool")
 check(HelperStream.describe(tool: "WebFetch", input: ["url": "https://docs.swift.org/x"]) == "Reading docs.swift.org", "web fetch")
+// A long summary is cut at its end, keeping what it did first (it used to keep the end: "…the chart shows…").
+let longSummary = "I saved the bar chart as a PNG and an HTML page. " + String(repeating: "Each lab has its latest figure and its target. ", count: 30) + "Check the conversion I used."
+let cutSummary = HelperStream.spokenSummary(longSummary)
+check(cutSummary.hasPrefix("I saved the bar chart") && cutSummary.hasSuffix("target.") && cutSummary.count <= 900, "a long summary keeps its start and ends on a whole sentence")
+check(HelperStream.spokenSummary("Short and sweet.") == "Short and sweet.", "a short summary is kept as it is")
+check(HelperStream.spokenSummary(String(repeating: "word ", count: 300)).hasSuffix("word…"), "no sentence ends: cut at a word")
 print(failures == 0 ? "ALL PASSED" : "\(failures) FAILED")
 exit(failures == 0 ? 0 : 1)

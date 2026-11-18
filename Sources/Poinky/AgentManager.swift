@@ -24,7 +24,9 @@ final class AgentManager {
         let title: String
         let task: String
         let dir: URL
-        let started: Date
+        /// When it started working (for one that waited in line, when its turn came), so its time on screen
+        /// and in its window counts work, not waiting.
+        var started: Date
         var finished: Date?
         var status: Status = .running
         var summary = ""
@@ -777,10 +779,11 @@ final class AgentManager {
         agents[i].finished = Date()
         var s = (turn?.summary ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         if s.isEmpty { s = agents[i].latest.isEmpty ? "It stopped without saying why." : "It stopped while: \(agents[i].latest)" }
+        // Short enough to be read aloud: its start (what it did; the card shows its first sentence). Its window keeps all of it.
+        var spoken = HelperStream.spokenSummary(s)
         // Its own copy of the repo: its changes come back into your folder (or onto a branch).
-        if let w = worktrees.removeValue(forKey: id), let note = finishWorktree(i, w, ok: ok) { s += " " + note }
-        // Keep the summary short enough to be read aloud.
-        agents[i].summary = s.count > 900 ? "…" + s.suffix(900) : s
+        if let w = worktrees.removeValue(forKey: id), let note = finishWorktree(i, w, ok: ok) { s += " " + note; spoken += " " + note }
+        agents[i].summary = spoken
         appendLog(agents[i], "\n## Result (\(agents[i].status.rawValue))\n\n\(agents[i].summary)\n")
         record(id, HelperEntry(k: "end", text: s, kind: ok ? "done" : "failed", cost: agents[i].cost,
                                seconds: agents[i].finished!.timeIntervalSince(agents[i].started)))
@@ -858,6 +861,7 @@ final class AgentManager {
             let next = waiting.removeFirst()
             guard let i = agents.firstIndex(where: { $0.id == next.id }), agents[i].status == .queued else { continue }
             agents[i].status = .running
+            agents[i].started = Date()
             if let exe = Self.executable(config: next.config), launch(id: next.id, req: next.req, config: next.config, exe: exe) {
                 onChange?()
                 onStarted?(agents[i])

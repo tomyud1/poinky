@@ -25,6 +25,7 @@ enum HelperTest {
         func counts() -> String { "running \(m.running.count), waiting \(m.queued.count)" }
         m.onHands = { id in log("mouse and keyboard: \(id.map { "#\($0)" } ?? "free")") }
         m.onEvent = { a, e in log("#\(a.id) \(a.name) event \(e)") }
+        m.onStarted = { a in log("#\(a.id) \(a.name) started, its time: \(Int(Date().timeIntervalSince(a.started)))s") }
         m.onChange = {
             log("change: " + counts())
             notifier?.stillOpen(m.agents.flatMap { h in h.asks.map { (h.id, $0) } })   // like the app: answered ones go away

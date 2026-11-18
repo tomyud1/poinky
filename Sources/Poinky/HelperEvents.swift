@@ -289,6 +289,23 @@ struct HelperStream {
             .split(separator: " ").joined(separator: " ")
     }
 
+    /// A summary short enough to be read aloud: its start (what it did), cut after the last whole sentence
+    /// that fits in `max` characters (else at a word, with "…").
+    static func spokenSummary(_ s: String, max: Int = 900) -> String {
+        let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard t.count > max else { return t }
+        let head = String(t.prefix(max))
+        var cut: String.Index?
+        var from = head.startIndex
+        while let r = head.range(of: #"[.!?…](\s|$)"#, options: .regularExpression, range: from..<head.endIndex) {
+            cut = head.index(after: r.lowerBound); from = r.upperBound
+            if from >= head.endIndex { break }
+        }
+        if let cut, head.distance(from: head.startIndex, to: cut) >= max / 3 { return String(head[..<cut]) }
+        let word = head.range(of: " ", options: .backwards).map { String(head[..<$0.lowerBound]) } ?? head
+        return word.trimmingCharacters(in: .whitespaces) + "…"
+    }
+
     static func clip(_ s: String, _ n: Int = 70) -> String {
         let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
         return t.count <= n ? t : String(t.prefix(n - 1)).trimmingCharacters(in: .whitespaces) + "…"

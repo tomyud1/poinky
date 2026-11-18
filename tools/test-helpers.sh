@@ -51,6 +51,7 @@ expect "$TMP/A.txt" "Also handled: Also add a test for 4 people" "the follow-up 
 expect "$TMP/A.txt" "#2 Coral FINISHED done .*checklist=4 blocked=5" "to-do list and refusals are tracked"
 expect "$TMP/A.txt" "#2 Coral FINISHED done .*tokens=[1-9][0-9]*/[1-9][0-9]*:" "tokens are counted while it works (written / its conversation)"
 expect "$TMP/A.txt" "#4 Amber FINISHED done" "the waiting helper runs after a slot frees up"
+expect "$TMP/A.txt" "#4 Amber started, its time: 0s" "its time counts from when it starts working, not from when it got in line"
 expect "$TMP/A.txt" "ALL DONE" "everything finishes"
 
 echo "4. Stop, and a follow-up right after a helper finished"
