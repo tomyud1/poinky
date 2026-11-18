@@ -33,6 +33,12 @@ final class Overlay: NSObject, WKNavigationDelegate {
     var onHelperAsking: ((Int) -> Void)?
     /// The helper the mouse is on (holding the talk keys there talks to it), or nil.
     private(set) var pointedHelper: Int?
+    /// The bubble's Copy button: the text to put on the clipboard.
+    var onCopy: ((String) -> Void)?
+    /// The caption bubble when it takes clicks (reading an answer, Copy, ✕), in points; nil while it follows the buddy.
+    private var bubbleRect: CGRect?
+    private var bubbleClickMonitor: Any?
+    private var reading: Bool?
 
     private var panel: OverlayPanel?
     private var web: WKWebView!
@@ -107,6 +113,8 @@ final class Overlay: NSObject, WKNavigationDelegate {
     func homeEnd() { js("SB.homeEnd()") }
 
     func hide() {
+        bubbleRect = nil
+        if let m = bubbleClickMonitor { NSEvent.removeMonitor(m); bubbleClickMonitor = nil }
         setMarking(false)
         clearAll()
         setCaption(you: nil, claude: nil)
@@ -261,6 +269,7 @@ final class Overlay: NSObject, WKNavigationDelegate {
         let p = CGPoint(x: loc.x - screen.frame.minX, y: screen.frame.maxY - loc.y)
         let over = (!contentHidden && cardRects.contains { $0.insetBy(dx: -2, dy: -2).contains(p) })
             || helperRects.contains { $0.insetBy(dx: -2, dy: -2).contains(p) }
+            || bubbleRect?.insetBy(dx: -2, dy: -2).contains(p) == true
         if over != isHoveringCard {
             isHoveringCard = over
             updateMouse()
@@ -374,6 +383,19 @@ final class Overlay: NSObject, WKNavigationDelegate {
         setClaudeCaption(claude)
     }
     func setClaudeCaption(_ text: String?) { js("SB.caption('claude', \(jsString(text)))") }
+    /// Quiet mode or a typed answer: the bubble shows the whole answer and stays where it opened (reading),
+    /// instead of the sentence being said next to the buddy.
+    func setReading(_ on: Bool) {
+        guard on != reading else { return }
+        reading = on
+        js("SB.captionMode(\(jsString(on ? "read" : "speech")))")
+    }
+    /// The answer is complete. `copy`: what its Copy button copies. `keep`: (reading) it stays until the next
+    /// question, ✕ or a click elsewhere; otherwise (said out loud, with something to paste) it shows that with
+    /// Copy for a while.
+    func captionDone(copy: String, keep: Bool) {
+        js("SB.captionDone(\(jsString(copy)), \(keep))")
+    }
     func setYouCaption(_ text: String?) { js("SB.caption('you', \(jsString(text)))") }
     /// You held the keys but nothing was heard: a quiet note in your bubble (it goes away by itself).
     func youMissed(_ text: String) { js("SB.youMissed && SB.youMissed(\(jsString(text)))") }
@@ -436,6 +458,8 @@ final class Overlay: NSObject, WKNavigationDelegate {
         Timeline.log("overlay.reload")
         loaded = false
         lastTick = ""
+        reading = nil
+        bubbleRect = nil
         pendingJS = [lastBuddy, lastShown, lastSounds, lastPhase].compactMap { $0 } + pendingJS
         scene = []
         cardRects = []
@@ -444,6 +468,8 @@ final class Overlay: NSObject, WKNavigationDelegate {
             webView.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
         }
     }
+    /// Tests (`--listen-test` {"pointHelper": true}): as if the mouse rested on this helper.
+    func testPointHelper(_ id: Int?) { pointedHelper = id }
     /// Tests (`--listen-test` {"killPage": true}): end the page's process the way macOS would.
     func testKillPage() {
         guard let pid = (web?.value(forKey: "_webProcessIdentifier") as? NSNumber)?.int32Value, pid > 0 else { return }
@@ -487,6 +513,22 @@ final class Overlay: NSObject, WKNavigationDelegate {
             pointedHelper = (msg["id"] as? String).flatMap { Int($0) } ?? (msg["id"] as? NSNumber)?.intValue
         case "helperAsking":
             if let id = Int("\(msg["id"] ?? "")") { onHelperAsking?(id) }
+        case "bubble":
+            // The bubble takes clicks (rect) or follows the buddy again (none). A click anywhere else puts it away.
+            if let r = msg["rect"] as? [NSNumber], r.count == 4 {
+                bubbleRect = CGRect(x: r[0].doubleValue, y: r[1].doubleValue, width: r[2].doubleValue, height: r[3].doubleValue)
+                if bubbleClickMonitor == nil {
+                    bubbleClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
+                        MainActor.assumeIsolated { self?.js("SB.bubbleAway && SB.bubbleAway()") }
+                    }
+                }
+            } else {
+                bubbleRect = nil
+                if let m = bubbleClickMonitor { NSEvent.removeMonitor(m); bubbleClickMonitor = nil }
+            }
+            trackMouse()
+        case "copy":
+            if let t = msg["text"] as? String { onCopy?(t) }
         case "helperAction":
             if let id = Int("\(msg["id"] ?? "")"), let action = msg["action"] as? String { onHelperAction?(id, action) }
         case "studyPDF":

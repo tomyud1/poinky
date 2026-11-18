@@ -1,0 +1,16 @@
+{"about": "\"Start fresh\" said while pointing at a helper: the next session's first question goes to the talker, not to that helper (its listening state ended with the session).",
+ "env": {"POINKY_HELPER_CMD": "{root}/tools/fake-helper.py", "POINKY_FAKE_SPEED": "0.2"},
+ "steps": [
+  {"at": 1.0, "helper": "fixture:fix-bug"},
+  {"at": 2.0, "pointHelper": true},
+  {"at": 2.2, "keys": "down"},
+  {"at": 2.9, "words": "start fresh", "final": true},
+  {"at": 3.2, "keys": "up"},
+  {"at": 4.6, "probe": "reset", "expect": {"state": "idle"}},
+  {"at": 5.0, "pointHelper": false},
+  {"at": 5.2, "keys": "down"},
+  {"at": 6.2, "words": "What is this button for?", "final": true},
+  {"at": 6.5, "keys": "up"},
+  {"at": 9.0, "probe": "answered by Poinky, not passed to the helper", "expect": {"kind": "claude", "contains": "Fake answer"}},
+  {"at": 10.5, "quit": true}
+ ]}

@@ -1,0 +1,13 @@
+{"about": "A paper whose window is covered (drawings hidden) when the session ends: it must not show again over that window before the overlay is cleared (it flashed for 0.35 s).",
+ "env": {"FAKE_CLAUDE_REPLY": "<say>Sure, let me show you.</say>"},
+ "steps": [
+  {"at": 1.5, "keys": "down"},
+  {"at": 2.2, "words": "explain how the heart works", "final": true},
+  {"at": 2.4, "keys": "up"},
+  {"at": 6.0, "js": "document.getElementById('cards').children.length > 0 ? 'paper' : 'none'", "expectJS": "paper", "label": "the teacher drew a paper"},
+  {"at": 6.2, "contentVisible": false},
+  {"at": 6.6, "endSession": true},
+  {"at": 6.7, "js": "(document.getElementById('cards').classList.contains('hidden-content') || document.getElementById('cards').children.length === 0) ? 'unseen' : 'shown'", "expectJS": "unseen", "label": "the covered paper isn't shown as the session ends"},
+  {"at": 6.85, "js": "(document.getElementById('cards').classList.contains('hidden-content') || document.getElementById('cards').children.length === 0) ? 'unseen' : 'shown'", "expectJS": "unseen", "label": "…nor a moment later"},
+  {"at": 7.5, "quit": true}
+ ]}

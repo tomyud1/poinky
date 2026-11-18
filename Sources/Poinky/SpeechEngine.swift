@@ -115,6 +115,7 @@ final class AppleSpeechEngine: SpeechEngine {
         var tasks: [Task<Void, Never>] = []
         var base = 0.0                 // session seconds where its audio starts
         var lastResultAt: TimeInterval = 0
+        var unsettled: [Int: Bool] = [:]   // per language track (not the live caption): its last words aren't final yet
         init(id: Int, analyzer: SpeechAnalyzer, continuation: AsyncStream<AnalyzerInput>.Continuation) {
             self.id = id; self.analyzer = analyzer; self.continuation = continuation
         }
@@ -313,7 +314,8 @@ final class AppleSpeechEngine: SpeechEngine {
         }
         if plain.unicodeScalars.contains(where: { CharacterSet.alphanumerics.contains($0) }) {
             gen.lastResultAt = ProcessInfo.processInfo.systemUptime
-        }
+            if !live { gen.unsettled[track] = !isFinal }
+        } else if !live, isFinal, gen.unsettled[track] == true { gen.unsettled[track] = false }
         let shifted = CMTimeRange(start: range.start + CMTime(seconds: gen.base, preferredTimescale: 16_000), duration: range.duration)
         let r = SpeechEngineResult(text: plain, isFinal: isFinal, live: live, range: shifted, track: track,
                                    confidence: confidences.isEmpty ? nil : confidences.reduce(0, +) / Double(confidences.count))
@@ -359,7 +361,12 @@ final class AppleSpeechEngine: SpeechEngine {
             return nil
         }
         settling = old
-        await Self.settle(old.analyzer, lastResult: { old.lastResultAt })
+        // Holding the keys: finalize hands back the last words just before it returns, and then nothing more is
+        // coming for them, so the 0.12 s wait for quiet after them only made you wait (measured: the final arrives
+        // with finalize's return). With words still unsettled, or in a call, it waits as before.
+        let early = settleEarly && Self.settleEarlyOn
+        await Self.settle(old.analyzer, lastResult: { old.lastResultAt },
+                          final: { early && !old.unsettled.isEmpty && !old.unsettled.values.contains(true) })
         if settling === old { settling = nil }
         Self.end(old)
         return nil
@@ -392,7 +399,12 @@ final class AppleSpeechEngine: SpeechEngine {
 
     /// Finalize everything received so far ("through: nil"; with a time it could hang), with a time limit,
     /// then wait until the final words have come (nothing new for a moment).
-    static func settle(_ analyzer: SpeechAnalyzer?, lastResult: @MainActor () -> TimeInterval) async {
+    /// The listener sets it while you hold the keys (see `finish`). `POINKY_SETTLE_EARLY=0`: always wait for quiet.
+    var settleEarly = false
+    static let settleEarlyOn = ProcessInfo.processInfo.environment["POINKY_SETTLE_EARLY"] != "0"
+
+    static func settle(_ analyzer: SpeechAnalyzer?, lastResult: @MainActor () -> TimeInterval,
+                       final: @MainActor () -> Bool = { false }) async {
         final class Flag: @unchecked Sendable { var done = false }
         let flag = Flag()
         if let analyzer {
@@ -402,6 +414,7 @@ final class AppleSpeechEngine: SpeechEngine {
         while !flag.done, ProcessInfo.processInfo.systemUptime - start < 1.2 {
             try? await Task.sleep(nanoseconds: 40_000_000)
         }
+        if flag.done, analyzer != nil, final() { return }
         let settleStart = ProcessInfo.processInfo.systemUptime
         while ProcessInfo.processInfo.systemUptime - settleStart < 0.5,
               ProcessInfo.processInfo.systemUptime - lastResult() < 0.12 {

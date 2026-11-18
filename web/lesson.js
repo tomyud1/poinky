@@ -341,7 +341,7 @@
     const name = c.querySelector('.bar span');
     name.textContent = title || '';
     // Hebrew, Arabic, CJK… in the bar's monospace font get spaced apart letter by letter: use the system font.
-    if (/[^\u0000-\u024F\u2000-\u206F]/.test(title || '')) { name.style.font = '500 13px -apple-system, system-ui'; name.dir = 'auto'; }
+    if (/[^\u0000-\u024F\u2000-\u206F]/.test(title || '')) { name.style.font = '500 13px -apple-system, system-ui'; name.dir = window.textDir ? window.textDir(title) : 'auto'; }
     // The title stays clear of the Save buttons (it's centered, so it gives up as much room on the left).
     const saves = c.querySelector('.saves');
     const fitTitle = () => { const room = c.clientWidth - 2 * (saves.offsetWidth + 48); name.style.maxWidth = Math.max(40, room) + 'px'; };
@@ -825,11 +825,16 @@
     let node;
     if (isMath) node = drawMath(g, o.text || o.tex || '', o.x, o.y, size, color, o.align, o.bold);
     else {
+      // Mostly Hebrew or Arabic: right to left (its period on the left), at the same place: in that direction
+      // "end" is the left edge, so the anchor swaps and x still means where the teacher put it.
+      const rtl = window.textDir && window.textDir(o.text || '') === 'rtl';
+      const anchor = o.align === 'center' ? 'middle' : (o.align === 'right') !== rtl ? 'end' : 'start';
       node = el('text', {
         x: o.x, y: o.y, 'font-size': size, fill: color,
-        'text-anchor': o.align === 'center' ? 'middle' : (o.align === 'right' ? 'end' : 'start'),
+        'text-anchor': anchor,
         'font-weight': o.bold ? 700 : 400,
       }, g);
+      if (rtl) node.setAttribute('direction', 'rtl');
       node.setAttributeNS('http://www.w3.org/XML/1998/namespace', 'xml:space', 'preserve');
       fillText(node, o.text || '', size);
       // Hebrew with symbols in it ("הלחץ ב-r_c"): the line reads right to left, the symbols stay as written.

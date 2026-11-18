@@ -10,6 +10,7 @@ import SwiftUI
 @MainActor
 final class NotchModel: ObservableObject {
     @Published var phase = "off"            // off · starting · ready · listening · thinking · speaking
+    @Published var lookingUp = false        // "thinking" is a web search or a look through earlier conversations
     @Published var guide = false
     @Published var level: Double = 0        // mic level while listening, 0…1
     @Published var expanded = false
@@ -95,6 +96,58 @@ final class NotchModel: ObservableObject {
     var onUpdate: () -> Void = {}
     var onQuit: () -> Void = {}
     var onReceipts: () -> Void = {}
+    var onQuiet: () -> Void = {}
+    var onCopy: (String) -> Void = { _ in }
+
+    /// Quiet mode (answers are written, nothing is played): a slashed speaker beside the idle notch, so it's never
+    /// a surprise that Poinky doesn't talk. `writing`: the answer being given now is written, not said.
+    @Published var quiet = false
+    @Published var writing = false
+    var quietGlyph: Bool { quiet && hasNotch }
+
+    /// The last few answers (this run), newest last: the hover panel shows the latest as one line, and opens it
+    /// in full with Copy (‹ › for the ones before). Nothing is lost when a caption fades.
+    struct Answer: Identifiable {
+        let id: Int            // the turn it answered
+        let question: String
+        var text: String
+        var copy: String?      // the part meant to be pasted (a rewrite, a command), if any
+        var at: Date
+    }
+    @Published private(set) var answers: [Answer] = []
+    @Published var answerOpen = false
+    @Published var answerBack = 0          // 0: the newest, 1: the one before…
+    @Published var copiedAt = Date.distantPast
+    func noteAnswer(turn: Int, question: String, text: String) {
+        if let i = answers.lastIndex(where: { $0.id == turn }) {
+            answers[i].text = text
+            answers[i].at = Date()
+        } else {
+            answers.append(Answer(id: turn, question: question, text: text, copy: nil, at: Date()))
+            if answers.count > 5 { answers.removeFirst(answers.count - 5) }
+            answerBack = 0
+        }
+    }
+    func finishAnswer(turn: Int, copy: String?) {
+        if let i = answers.lastIndex(where: { $0.id == turn }) { answers[i].copy = copy }
+    }
+    var shownAnswer: Answer? { answers.isEmpty ? nil : answers[max(0, answers.count - 1 - min(answerBack, answers.count - 1))] }
+    var showsAnswer: Bool { answers.last.map { Date().timeIntervalSince($0.at) < 12 * 3600 } ?? false }
+    func copyShown() {
+        guard let a = shownAnswer else { return }
+        onCopy(a.copy ?? a.text)
+        copiedAt = Date()
+    }
+    static let answerFont = NSFont.systemFont(ofSize: 12)
+    var expandedWidth: CGFloat { max(notchWidth + 2 * Self.wing, answerOpen && showsAnswer ? 440 : 300) }
+    /// The open answer's text, measured the way it's drawn (capped: longer ones scroll).
+    var answerTextHeight: CGFloat {
+        guard let a = shownAnswer else { return 0 }
+        let r = (a.text as NSString).boundingRect(with: NSSize(width: expandedWidth - 34, height: 10_000),
+                                                  options: [.usesLineFragmentOrigin, .usesFontLeading], attributes: [.font: Self.answerFont])
+        return min(210, ceil(r.height) + 4)
+    }
+    var answerBlockHeight: CGFloat { !showsAnswer ? 0 : answerOpen ? 18 + answerTextHeight + 32 + 6 : Self.lineRow }
 
     /// The last question's receipt, in a few words ("Screenshot + Preview: Lecture 5.pdf + your selection").
     /// Shown as one quiet line at the bottom of the hover panel; nothing until something was sent.
@@ -118,10 +171,11 @@ final class NotchModel: ObservableObject {
     static let lineRow: CGFloat = 22
     /// The next reminder within a day ("9:00 Email Professor Lee"), refreshed when the panel opens.
     @Published var nextReminder = ""
-    var showsLastLine: Bool { (!lastLine.isEmpty && Date().timeIntervalSince(lastLineAt) < 60) || agentsRunning > 0 || !nextReminder.isEmpty }
+    // (The last answer has its own row now: `AnswerRow`.)
+    var showsLastLine: Bool { agentsRunning > 0 || !nextReminder.isEmpty || (!showsAnswer && !lastLine.isEmpty && Date().timeIntervalSince(lastLineAt) < 60) }
     var infoLine: String {
         let agents = agentsRunning == 0 ? "" : (agentsRunning == 1 ? "1 agent working" : "\(agentsRunning) agents working")
-        let recent = !lastLine.isEmpty && Date().timeIntervalSince(lastLineAt) < 60 ? lastLine : ""
+        let recent = !showsAnswer && !lastLine.isEmpty && Date().timeIntervalSince(lastLineAt) < 60 ? lastLine : ""
         let reminder = nextReminder.isEmpty ? "" : "Reminder: " + nextReminder
         return [agents, reminder, recent].filter { !$0.isEmpty }.joined(separator: " · ")
     }
@@ -130,13 +184,14 @@ final class NotchModel: ObservableObject {
     var shapeSize: CGSize {
         let wide = notchWidth + 2 * Self.wing
         if expanded {
-            return CGSize(width: max(wide, 300), height: notchHeight + Self.buttonRow + (showsLastLine ? Self.lineRow : 0)
+            return CGSize(width: expandedWidth, height: notchHeight + Self.buttonRow + (showsLastLine ? Self.lineRow : 0)
+                          + answerBlockHeight
                           + CGFloat(recentReports.count) * Self.lineRow + (recentReports.isEmpty ? 0 : 4)
                           + (showsReceipt ? Self.receiptRow : 0) + 6)
         }
         if active { return CGSize(width: wide, height: notchHeight) }
         if beckon && hasNotch { return CGSize(width: max(notchWidth, 150) + 44, height: notchHeight + 6) }
-        if dotCount > 0 { return CGSize(width: notchWidth + 2 * (Self.dotWing + CGFloat(dotCount - 1) * 10), height: notchHeight) }
+        if dotCount > 0 || quietGlyph { return CGSize(width: notchWidth + 2 * (Self.dotWing + CGFloat(max(0, dotCount - 1)) * 10), height: notchHeight) }
         return CGSize(width: max(notchWidth, 1), height: notchHeight)
     }
     var visible: Bool { hasNotch || active || expanded || dotCount > 0 || (beckon && hasNotch) }
@@ -179,8 +234,8 @@ struct NotchView: View {
     private var label: String {
         switch m.phase {
         case "listening": return "Listening"
-        case "thinking": return "Thinking"
-        case "speaking": return "Speaking"
+        case "thinking": return m.lookingUp ? "Looking it up" : "Thinking"
+        case "speaking": return m.writing ? "Writing" : "Speaking"
         case "starting": return "Waking up"
         default: return m.guide && m.sessionOn ? "Your turn" : "Buddy"
         }
@@ -204,6 +259,7 @@ struct NotchView: View {
                             }
                             .padding(.top, 4)
                         }
+                        if m.showsAnswer { AnswerRow(m: m) }
                         if m.showsLastLine {
                             Text(m.infoLine)
                                 .font(.system(size: 11.5)).foregroundStyle(.white.opacity(0.62))
@@ -237,6 +293,8 @@ struct NotchView: View {
         .opacity(m.visible ? 1 : 0)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .animation(.spring(response: 0.36, dampingFraction: 0.78), value: m.expanded)
+        .animation(.spring(response: 0.36, dampingFraction: 0.78), value: m.answerOpen)
+        .animation(.spring(response: 0.36, dampingFraction: 0.78), value: m.quiet)
         .animation(.spring(response: 0.4, dampingFraction: 0.72), value: m.active)
         .animation(.spring(response: 0.4, dampingFraction: 0.72), value: m.beckon)
         .animation(.easeOut(duration: 0.25), value: m.phase)
@@ -246,8 +304,16 @@ struct NotchView: View {
 
     /// The two sides of the notch. Active: status and a visualizer. Hovered while idle: the two shortcuts.
     @ViewBuilder private var wings: some View {
-        if !m.active && !m.expanded && m.dotCount > 0 {
+        if !m.active && !m.expanded && (m.dotCount > 0 || m.quietGlyph) {
             HStack(spacing: 4) {
+                if m.quietGlyph {
+                    // Quiet mode, at a glance: a slashed speaker left of the notch.
+                    Image(systemName: "speaker.slash.fill").font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.6))
+                        .padding(.leading, 9)
+                        .transition(.scale.combined(with: .opacity))
+                        .accessibilityLabel("Quiet mode is on")
+                }
                 Spacer()
                 // Helpers that finished and are waiting to tell you, in their colors.
                 ForEach(m.waitingReports.suffix(3)) { r in
@@ -280,8 +346,14 @@ struct NotchView: View {
                 .notchTip(m, "left", leftTip)
                 Spacer(minLength: m.notchWidth)
                 ZStack {
-                    Visualizer(phase: m.guide && m.phase == "ready" ? "guide" : m.phase, level: m.level, color: glow)
-                        .opacity(m.active ? 1 : 0)
+                    if m.writing && m.phase == "speaking" {
+                        // Answering in writing: no voice bars, a slashed speaker (the second cue besides the label).
+                        Image(systemName: "speaker.slash.fill").font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(glow).shadow(color: glow.opacity(0.7), radius: 3)
+                    } else {
+                        Visualizer(phase: m.guide && m.phase == "ready" ? "guide" : m.phase, level: m.level, color: glow)
+                            .opacity(m.active ? 1 : 0)
+                    }
                     if !m.active {
                         Text(m.inCall ? "in a call" : "\(m.callKeys.replacingOccurrences(of: "Space", with: "␣")) call")
                             .font(.system(size: 12, weight: .semibold)).foregroundStyle(.white.opacity(0.55)).lineLimit(1)
@@ -303,8 +375,8 @@ struct NotchView: View {
         if m.guide && m.phase == "ready" { return "Guide mode: do the step I circled, I'll watch for your click. Hold \(h) to ask or say stop." }
         switch m.phase {
         case "listening": return "Listening. Let go of \(h) to send, or keep talking."
-        case "thinking": return "Thinking about your question. Tap \(h) to cancel."
-        case "speaking": return "Speaking. Hold \(h) to cut in with a new question, or tap it to stop."
+        case "thinking": return m.lookingUp ? "Looking it up for you. Tap \(h) to cancel." : "Thinking about your question. Tap \(h) to cancel."
+        case "speaking": return m.writing ? "Writing the answer (quiet: nothing is said). Hold \(h) to cut in, or tap it to stop." : "Speaking. Hold \(h) to cut in with a new question, or tap it to stop."
         case "starting": return "Waking up the Claude sessions…"
         default: return "Hold \(h) and talk, let go to send. Drag while holding to mark things. A quick tap stops me."
         }
@@ -314,7 +386,7 @@ struct NotchView: View {
         if m.inCall { return "In a hands-free call: the mic is on. \(m.callKeys) or say bye to end it." }
         switch m.phase {
         case "listening": return "Your voice level"
-        case "speaking": return "My voice"
+        case "speaking": return m.writing ? "Quiet: written, not said" : "My voice"
         case "thinking", "starting": return "Working on it"
         default: return "\(m.callKeys) starts a hands-free call: the mic stays on and a pause ends each question."
         }
@@ -324,7 +396,7 @@ struct NotchView: View {
         var parts: [String] = []
         if m.agentsRunning > 0 { parts.append("Background agents are working on your projects. I'll tell you when they finish.") }
         if !m.nextReminder.isEmpty { parts.append("Your next reminder (see them all in Settings → General).") }
-        if !m.lastLine.isEmpty { parts.append("The last thing I said.") }
+        if !m.showsAnswer, !m.lastLine.isEmpty { parts.append("The last thing I said.") }
         return parts.joined(separator: " ")
     }
 
@@ -338,6 +410,10 @@ struct NotchView: View {
             NotchIcon(m: m, id: "buddy", icon: m.buddyHidden ? "eye.slash" : "eye",
                       tip: m.buddyHidden ? "Show the buddy (⌃⌥B)" : "Hide the buddy until you ask something (⌃⌥B)",
                       dim: m.buddyHidden, action: m.onBuddy)
+            NotchIcon(m: m, id: "quiet", icon: m.quiet ? "speaker.slash.fill" : "speaker.wave.2",
+                      tip: m.quiet ? "Quiet mode is on: I write my answers and play no sounds. Click to talk out loud again (⌃⌥Q)."
+                                   : "Quiet mode: write answers instead of saying them, for a library, a lecture or a call (⌃⌥Q)",
+                      tint: m.quiet ? sbOrange : nil, action: m.onQuiet)
             NotchIcon(m: m, id: "teacher", icon: "pencil.and.scribble", tip: m.teacherOn ? "Teacher on: explanations get a hand-drawn sketch or a 3D model. Click to turn off." : "Teacher off: voice and quick marks only. Click to turn on.",
                       tint: m.teacherOn ? sbBlue : nil, dim: !m.teacherOn, action: m.onTeacher)
             if m.sessionOn && !m.inCall {
@@ -394,6 +470,113 @@ struct ReportRow: View {
     }
 }
 
+/// The last answer: one line (click to read all of it), with Copy right there. Open, it shows the whole answer
+/// (scrolling when long), what it answered, Copy, and ‹ › for the few before it.
+struct AnswerRow: View {
+    @ObservedObject var m: NotchModel
+
+    private static func rtl(_ s: String) -> Bool {
+        for u in s.unicodeScalars {
+            if (0x0590...0x08FF).contains(u.value) { return true }
+            if CharacterSet.letters.contains(u) { return false }
+        }
+        return false
+    }
+
+    var body: some View {
+        if let a = m.shownAnswer {
+            let copied = Date().timeIntervalSince(m.copiedAt) < 1.5
+            if m.answerOpen {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 5) {
+                        Text(a.question.isEmpty ? "Poinky said" : "You: \u{2068}" + a.question.replacingOccurrences(of: "\n", with: " ") + "\u{2069}")
+                            .font(.system(size: 10.5)).foregroundStyle(.white.opacity(0.45)).lineLimit(1).truncationMode(.tail)
+                        Spacer(minLength: 4)
+                        Text(ReportRow.ago(a.at)).font(.system(size: 10)).foregroundStyle(.white.opacity(0.38)).monospacedDigit()
+                    }
+                    .frame(height: 14)
+                    ScrollView(.vertical) {
+                        Text(a.text)
+                            .font(Font(NotchModel.answerFont)).foregroundStyle(.white.opacity(0.9))
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .environment(\.layoutDirection, Self.rtl(a.text) ? .rightToLeft : .leftToRight)
+                    }
+                    .scrollIndicators(.automatic)
+                    .frame(height: m.answerTextHeight)
+                    HStack(spacing: 6) {
+                        if m.answers.count > 1 {
+                            NotchSmallButton(m: m, id: "ansPrev", icon: "chevron.left", tip: "The answer before", disabled: m.answerBack >= m.answers.count - 1) { m.answerBack += 1 }
+                            Text("\(m.answers.count - m.answerBack) of \(m.answers.count)").font(.system(size: 10)).foregroundStyle(.white.opacity(0.4)).monospacedDigit()
+                            NotchSmallButton(m: m, id: "ansNext", icon: "chevron.right", tip: "The next answer", disabled: m.answerBack == 0) { m.answerBack -= 1 }
+                        }
+                        Spacer()
+                        NotchSmallButton(m: m, id: "ansClose", icon: "chevron.up", tip: "Show less") { m.answerOpen = false }
+                        Button { m.copyShown() } label: {
+                            Text(copied ? "Copied ✓" : (a.copy != nil ? "Copy text" : "Copy"))
+                                .font(.system(size: 11.5, weight: .semibold)).foregroundStyle(.white)
+                                .padding(.horizontal, 11).frame(height: 24)
+                                .background(Capsule().fill(sbBlue.opacity(m.hoverButton == "ansCopy" ? 1 : 0.8)))
+                                .overlay(Capsule().stroke(Color.white.opacity(m.hoverButton == "ansCopy" ? 0.4 : 0), lineWidth: 1))
+                                .contentShape(Capsule())
+                        }
+                        .buttonStyle(NotchPress())
+                        .pointerStyle(.link)
+                        .notchTip(m, "ansCopy", a.copy != nil ? "Copy just the text to use: \(Recall.clip(a.copy ?? "", 90))" : "Copy the whole answer")
+                    }
+                    .frame(height: 26)
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 4)
+                .padding(.bottom, 2)
+                .frame(height: m.answerBlockHeight)
+            } else {
+                HStack(spacing: 6) {
+                    Image(systemName: "text.bubble").font(.system(size: 10, weight: .semibold)).foregroundStyle(.white.opacity(0.5))
+                    Text(a.text.replacingOccurrences(of: "\n", with: " "))
+                        .font(.system(size: 11.5)).foregroundStyle(.white.opacity(m.hoverButton == "answer" ? 0.85 : 0.62))
+                        .lineLimit(1).truncationMode(.tail)
+                    Spacer(minLength: 4)
+                    NotchSmallButton(m: m, id: "ansCopyRow", icon: copied ? "checkmark" : "doc.on.doc",
+                                     tip: a.copy != nil ? "Copy the text to use" : "Copy the last answer") { m.copyShown() }
+                }
+                .padding(.horizontal, 10)
+                .frame(height: NotchModel.lineRow)
+                .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(Color.white.opacity(m.hoverButton == "answer" ? 0.09 : 0)))
+                .padding(.horizontal, 6)
+                .contentShape(Rectangle())
+                .onTapGesture { m.answerOpen = true }
+                .pointerStyle(.link)
+                .notchTip(m, "answer", "My last answer. Click to read all of it.")
+            }
+        }
+    }
+}
+
+/// A small icon button in the hover panel (‹ › and Copy beside the answer).
+struct NotchSmallButton: View {
+    @ObservedObject var m: NotchModel
+    let id: String
+    let icon: String
+    let tip: String
+    var disabled = false
+    let action: () -> Void
+    var body: some View {
+        let hot = m.hoverButton == id && !disabled
+        Button(action: action) {
+            Image(systemName: icon).font(.system(size: 10.5, weight: .semibold))
+                .foregroundStyle(.white.opacity(disabled ? 0.2 : hot ? 0.95 : 0.6))
+                .frame(width: 24, height: 20)
+                .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Color.white.opacity(hot ? 0.12 : 0)))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(NotchPress())
+        .pointerStyle(.link)
+        .disabled(disabled)
+        .notchTip(m, id, tip)
+    }
+}
+
 /// "What I saw": the last question's receipt in one quiet line. Click for the full receipt.
 struct ReceiptLine: View {
     @ObservedObject var m: NotchModel
@@ -442,8 +625,19 @@ struct NotchIcon: View {
                 .scaleEffect(hot ? 1.06 : 1)
                 .contentShape(Capsule())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(NotchPress())
+        .pointerStyle(.link)
         .notchTip(m, id, tip)
+    }
+}
+
+/// Pressed: a touch smaller and dimmer, so a click is felt (hover is `hoverButton`, from `.onHover`).
+struct NotchPress: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.93 : 1)
+            .opacity(configuration.isPressed ? 0.7 : 1)
+            .animation(.spring(response: 0.2, dampingFraction: 0.7), value: configuration.isPressed)
     }
 }
 
@@ -555,7 +749,7 @@ final class NotchHome {
     private var hoverSince: TimeInterval?
     private var awaySince: TimeInterval?
     private weak var screen: NSScreen?
-    private static let panelSize = CGSize(width: 680, height: 240)
+    private static let panelSize = CGSize(width: 680, height: 520)   // room for an opened answer (it's click-through outside the shape)
 
     /// The built-in display with a camera notch, if any.
     static var notchScreen: NSScreen? { NSScreen.screens.first { $0.safeAreaInsets.top > 0 } }
@@ -647,7 +841,7 @@ final class NotchHome {
         guard model.expanded != on else { return }
         if on { model.nextReminder = Reminders.nextLine() ?? "" }
         model.expanded = on
-        if !on { model.clearTip() }
+        if !on { model.clearTip(); model.answerOpen = false; model.answerBack = 0 }
         panel?.ignoresMouseEvents = !on
     }
 
@@ -660,8 +854,25 @@ final class NotchHome {
         else if ProcessInfo.processInfo.environment["POINKY_SHOT_RECEIPT"] != "0" {
             m.receiptLine = "Preview: Lecture 5.pdf + selection"; m.receiptAt = Date().addingTimeInterval(-120)
         }
-        let host = NSHostingView(rootView: NotchView(m: m).frame(width: 420, height: 140).background(Color.gray.opacity(0.35)))
-        let w = NSWindow(contentRect: CGRect(x: -3000, y: 0, width: 420, height: 140), styleMask: [.borderless], backing: .buffered, defer: false)
+        // POINKY_SHOT_ANSWER=row|open|long|hebrew (the last answer), POINKY_SHOT_QUIET=1 (quiet mode), POINKY_SHOT_IDLE=1 (closed).
+        let env = ProcessInfo.processInfo.environment
+        m.quiet = env["POINKY_SHOT_QUIET"] == "1"
+        if env["POINKY_SHOT_IDLE"] == "1" { m.expanded = false }
+        if let kind = env["POINKY_SHOT_ANSWER"] {
+            m.noteAnswer(turn: 1, question: "what does mitochondria mean", text: "Mitochondria are the parts of a cell that turn food into energy the cell can use.")
+            let text: String
+            switch kind {
+            case "long": text = (1...14).map { "Step \($0): this part of the answer explains one more thing in a full sentence, so it runs long." }.joined(separator: " ")
+            case "hebrew": text = "המיטוכונדריה היא החלק בתא שהופך מזון לאנרגיה. בלעדיה התא לא יכול לעבוד."
+            default: text = "Here's a punchier version: We ship Friday, tested and ready. Want me to swap it in?"
+            }
+            m.noteAnswer(turn: 2, question: kind == "hebrew" ? "מה זה מיטוכונדריה?" : "make this paragraph punchier", text: text)
+            if kind == "open" { m.finishAnswer(turn: 2, copy: "We ship Friday, tested and ready.") }
+            m.answerOpen = kind != "row"
+        }
+        let size = CGSize(width: max(420, m.shapeSize.width + 40), height: max(140, m.shapeSize.height + 20))
+        let host = NSHostingView(rootView: NotchView(m: m).frame(width: size.width, height: size.height).background(Color.gray.opacity(0.35)))
+        let w = NSWindow(contentRect: CGRect(x: -3000, y: 0, width: size.width, height: size.height), styleMask: [.borderless], backing: .buffered, defer: false)
         w.contentView = host
         w.orderFrontRegardless()
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {

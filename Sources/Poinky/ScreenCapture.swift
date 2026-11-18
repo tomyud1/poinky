@@ -17,6 +17,16 @@ struct Snapshot {
     let notes: [String]     // cursor + marks, in image pixels
     let text: TextIndex     // where each word is (filled in the background)
     var focus: FocusCrop? = nil   // a sharp close-up of what you marked
+
+    /// No picture (the display is asleep or off, or capturing failed): the question goes without one, and Claude
+    /// is told so, so it answers what it can or says plainly that it can't see the screen right now.
+    static func blind(screen size: CGSize, why: String) -> Snapshot {
+        let scale = ScreenCapture.imageScale(for: size)
+        return Snapshot(jpegBase64: "", width: Int((size.width * scale).rounded()), height: Int((size.height * scale).rounded()), scale: scale,
+                        notes: ["(No screenshot with this question: the screen couldn't be captured (\(why)); the display may be asleep or off. Answer from what was said if you can, and don't mark anything. If the question needs the screen, say plainly in one short sentence that you can't see the screen right now.)"],
+                        text: TextIndex())
+    }
+    var isBlind: Bool { jpegBase64.isEmpty }
 }
 
 /// A close-up of the area you marked, plus the text your Mac read inside it.
@@ -120,7 +130,11 @@ enum ScreenCapture {
                          rectPoints: r)
     }
 
+    /// Tests: `POINKY_TEST_CAPTURE_FAIL=1`, every screenshot fails as with the display asleep.
+    static let testFail = ProcessInfo.processInfo.environment["POINKY_TEST_CAPTURE_FAIL"] == "1"
+
     static func capture(screen: NSScreen, marks: [Mark], cursor: CGPoint?, focus: FocusCrop? = nil) async throws -> Snapshot {
+        if testFail { throw CaptureError.noDisplay }
         let filter = try await filter(for: screen)
         let size = screen.frame.size
         let scale = imageScale(for: size)

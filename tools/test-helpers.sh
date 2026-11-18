@@ -61,6 +61,28 @@ expect "$TMP/B.txt" "#1 Mint FINISHED done turns=2 .*: two" "a follow-up just af
 expect "$TMP/B.txt" "Coral \"Test 2\": stopped by the user" "stop works"
 expect "$TMP/B.txt" "#3 Violet FINISHED failed .*I hit an error" "an error result counts as failed"
 
+echo "4a. What a helper starts ends with it: on Stop, when it finishes, and when Poinky is force-quit"
+alive() { local n=0; for p in $(cat "$1" 2>/dev/null); do kill -0 "$p" 2>/dev/null && n=$((n+1)); done; echo $n; }
+cleanup_pids() { for p in $(cat "$1" 2>/dev/null); do kill -9 "$p" 2>/dev/null; done; }
+run G POINKY_FAKE_SPEED=1 POINKY_TEST_MAX=2 POINKY_TEST_STOP=1 POINKY_FAKE_CHILD_PIDS="$TMP/G.pids" "$BIN" --helper-test "$TMP/G.txt" "$TMP/proj" \
+  "fixture:two-turns spawn-child" "fixture:fix-bug spawn-child"
+sleep 1
+[ -s "$TMP/G.pids" ] && [ "$(alive "$TMP/G.pids")" = 0 ] && pass "a stopped helper's and a finished helper's children are gone" \
+  || { bad "children left running: $(alive "$TMP/G.pids") of $(wc -l < "$TMP/G.pids")"; cleanup_pids "$TMP/G.pids"; }
+env POINKY_AGENT_LOG_DIR="$TMP/logs-H" POINKY_HELPER_CMD="$ROOT/tools/fake-helper.py" POINKY_FAKE_SPEED=0.2 POINKY_FAKE_CHILD_PIDS="$TMP/H.pids" \
+  "$BIN" --helper-test "$TMP/H.txt" "$TMP/proj" "fixture:fix-bug spawn-child" &
+HPID=$!   # (env execs Poinky: this is its pid)
+for _ in $(seq 1 40); do [ -s "$TMP/H.pids" ] && break; sleep 0.25; done
+kill -9 "$HPID" 2>/dev/null; wait "$HPID" 2>/dev/null
+sleep 4
+[ -s "$TMP/H.pids" ] && [ "$(alive "$TMP/H.pids")" = 0 ] && pass "Poinky force-quit: the helper and its child end too" \
+  || { bad "after a force-quit: $(alive "$TMP/H.pids") of the helper's processes still running"; cleanup_pids "$TMP/H.pids"; }
+
+echo "4a2. A folder that isn't there: refused in plain words (it used to run in the home folder), the closest one offered"
+run M "$BIN" --helper-test "$TMP/M.txt" "$TMP/proj/gone/deeper" fixture:quiet 2>/dev/null &
+MPID=$!; for _ in $(seq 1 20); do grep -q "start 1" "$TMP/M.txt" 2>/dev/null && break; sleep 0.25; done; kill "$MPID" 2>/dev/null; wait "$MPID" 2>/dev/null
+expect "$TMP/M.txt" "start 1: FAILED TO START: The helper would work in .*/gone/deeper, but that folder isn't there anymore\. \(offer: .*/proj\)" "a gone folder is refused, its closest parent offered"
+
 echo "4b. Raising a hand: yes, no, a question, and one nobody answers"
 run C POINKY_TEST_TELL=1 POINKY_TEST_ANSWERS="1=yes;2=No, write a small pad helper instead;3=ignore;4=The database" "$BIN" --helper-test "$TMP/C.txt" "$TMP/proj" \
   fixture:ask-install fixture:ask-install fixture:ask-install fixture:ask-question

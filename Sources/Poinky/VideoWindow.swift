@@ -38,7 +38,8 @@ final class VideoWindow: NSObject, WKNavigationDelegate {
         let f = from.map { "{x:\(Int($0.minX)),y:\(Int($0.minY)),w:\(Int($0.width)),h:\(Int($0.height))}" } ?? "null"
         let reduced = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         let manifest = job.manifestJSON.isEmpty ? "{\"scenes\":[]}" : job.manifestJSON
-        js("V.open({dir: \(Self.jsString(job.dir.lastPathComponent)), manifest: \(manifest), from: \(f), color: \(Self.jsString(color)), x: \(pan), reduced: \(reduced), sound: {on: \(sound.on), volume: \(sound.volume)}})")
+        // Quiet mode: the narration plays muted with subtitles (the video's timing is its audio's clock).
+        js("V.open({dir: \(Self.jsString(job.dir.lastPathComponent)), manifest: \(manifest), from: \(f), color: \(Self.jsString(color)), x: \(pan), reduced: \(reduced), sound: {on: \(sound.on), volume: \(sound.volume)}, quiet: \(quiet)})")
         panel?.orderFrontRegardless()
         panel?.makeKey()
     }
@@ -50,6 +51,12 @@ final class VideoWindow: NSObject, WKNavigationDelegate {
     }
 
     func pause() { if isOpen { isPlaying = false; js("V.pause()") } }
+    /// Quiet mode, for the next video and the one playing: muted narration, subtitles, no sounds.
+    var quiet = false
+    func setQuiet(_ on: Bool) {
+        quiet = on
+        if isOpen { js("V.quiet && V.quiet(\(on))") }
+    }
     func resume() { if isOpen { js("V.resume()") } }
 
     /// Folds back into the buddy (`to`, screen points on the same screen), then goes away.

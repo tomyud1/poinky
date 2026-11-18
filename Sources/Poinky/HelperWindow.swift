@@ -236,7 +236,7 @@ final class HelperWindows: NSObject, NSWindowDelegate, WKNavigationDelegate {
         var isDir: ObjCBool = false
         guard FileManager.default.fileExists(atPath: path, isDirectory: &isDir), isDir.boolValue else { return "That folder doesn’t exist." }
         let req = AgentRequest(title: Self.title(for: task), dir: path, task: task, model: AgentRequest.modelName(model), planFirst: plan)
-        guard let a = onNew?(req) else { return "It couldn’t start: is Claude Code installed?" }
+        guard let a = onNew?(req) else { return agents?.refusal ?? "It couldn’t start: is Claude Code installed?" }
         select("a\(a.id)")
         return nil
     }
@@ -279,7 +279,7 @@ final class HelperWindows: NSObject, NSWindowDelegate, WKNavigationDelegate {
             guard let a, a.status == .running || a.status == .queued else {
                 // Finished (this run or earlier): it picks up where it left off.
                 if let p = a.map({ agents.past($0) }) ?? pastHelper(key), let started = onResume?(p, text) { select("a\(started.id)") }
-                else { hint("It couldn’t continue: is Claude Code installed?", warn: true) }
+                else { hint(agents.refusal ?? "It couldn’t continue: is Claude Code installed?", warn: true) }
                 return
             }
             let id = a.id

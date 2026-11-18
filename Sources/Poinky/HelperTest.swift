@@ -160,7 +160,8 @@ enum HelperTest {
         for (n, task) in tasks.enumerated() {
             // POINKY_TEST_PLAN=1: each makes a plan first and waits for the go-ahead.
             let a = m.start(AgentRequest(title: "Test \(n + 1)", dir: dir, task: task, planFirst: env["POINKY_TEST_PLAN"] == "1"), config: config)
-            log("start \(n + 1): " + (a.map { "#\($0.id) \($0.name) \($0.status.rawValue)" } ?? "FAILED TO START") + " | " + counts())
+            log("start \(n + 1): " + (a.map { "#\($0.id) \($0.name) \($0.status.rawValue) in \($0.dir.path)" } ?? "FAILED TO START" + (m.refusal.map { ": \($0)" } ?? ""))
+                + (m.refusalOffer?.dir.map { " (offer: \($0))" } ?? "") + " | " + counts())
         }
         if let f = env["POINKY_TEST_FOLLOWUP"], let bar = f.firstIndex(of: "|"), let secs = Double(f[..<bar]) {
             let text = String(f[f.index(after: bar)...])

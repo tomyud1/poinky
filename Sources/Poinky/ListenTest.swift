@@ -8,6 +8,13 @@ import AppKit
 ///   {"at": 2.4, "probe": "label"}          writes what the bubble shows (SB.bubbleState), the call state and how many
 ///                                          doer acts ran ("actsAtMost" / "actsAtLeast" in "expect")
 ///   {"at": 3.0, "killPage": true}         ends the overlay page's process (as memory pressure would)
+///   {"at": 1.0, "contentVisible": false}  the drawings' window is covered (WindowTracker hides them)
+///   {"at": 1.0, "endSession": true}       the session ends (as after 15 idle minutes)
+///   {"at": 1.0, "js": "expr", "expectJS": "value", "label": "…"}   evaluates in the overlay page and checks the result
+///   {"at": 1.0, "saved": true}            a page was saved ("save my notes"): Poinky says where
+///   {"at": 1.0, "helper": "fixture:fix-bug"}   starts a helper (POINKY_HELPER_CMD={root}/tools/fake-helper.py)
+///   {"at": 2.0, "pointHelper": true}      as if the mouse rested on the newest helper (false: on nothing)
+///   {"at": 1.0, "type": "question"}       a typed question (⌃⌥T)
 ///   {"at": 9.0, "quit": true}
 /// A probe's "expect" is checked here (ListenTest.check) and written as an ok / FAIL line. A script can be a list of
 /// steps or {"env": {…}, "steps": […]} (tools/test-listen.sh passes the env on).
@@ -44,6 +51,8 @@ enum ListenTest {
         AudioIO.fakeMic = true
     }
 
+    private static var timers: [DispatchSourceTimer] = []
+
     static func run(script: String, out: String, controller c: CallController) {
         c.testKeys(down: false)   // from now on the real ⌃⌥ is ignored (the owner's own Poinky may be running)
         FileManager.default.createFile(atPath: out, contents: nil)
@@ -56,13 +65,20 @@ enum ListenTest {
         guard let steps = (json as? [[String: Any]]) ?? ((json as? [String: Any])?["steps"] as? [[String: Any]]) else {
             write("error: can't read \(script)"); NSApp.terminate(nil); return
         }
+        let started = ProcessInfo.processInfo.systemUptime
         for step in steps {
             let at = (step["at"] as? NSNumber)?.doubleValue ?? 0
-            DispatchQueue.main.asyncAfter(deadline: .now() + at) {
+            // (A plain asyncAfter tens of seconds out runs up to ~1.5 s late: GCD's leeway grows with the delay.)
+            let timer = DispatchSource.makeTimerSource(flags: .strict, queue: .main)
+            timers.append(timer)
+            timer.schedule(deadline: .now() + at, leeway: .milliseconds(2))
+            defer { timer.resume() }
+            timer.setEventHandler {
                 MainActor.assumeIsolated {
                     if let k = step["keys"] as? String {
                         c.testKeys(down: k == "down")
-                        write(String(format: "%.2f keys %@ (state %@, hold %@)", at, k, c.testState, c.testHold))
+                        write(String(format: "%.2f keys %@ (state %@, hold %@, %.2f s late)", at, k, c.testState, c.testHold,
+                                     ProcessInfo.processInfo.systemUptime - started - at))
                     }
                     if let w = step["words"] as? String {
                         c.testWords(w, final: step["final"] as? Bool ?? false, live: step["live"] as? Bool ?? false)
@@ -82,6 +98,27 @@ enum ListenTest {
                             }
                         }
                     }
+                    if let on = step["contentVisible"] as? Bool { c.testCoverDrawings(!on); write(String(format: "%.2f drawings %@", at, on ? "shown" : "hidden (a window covers them)")) }
+                    if step["endSession"] as? Bool == true { c.testEndSession(); write(String(format: "%.2f session ended", at)) }
+                    if let js = step["js"] as? String {
+                        c.overlay.evaluateForTest(js) { r in
+                            MainActor.assumeIsolated {
+                                let got = r.map { "\($0)" } ?? "nil"
+                                write(String(format: "%.2f js %@ = %@", at, js, got))
+                                if let want = step["expectJS"] as? String { write((got == want ? "ok   " : "FAIL ") + (step["label"] as? String ?? js) + (got == want ? "" : " (got \(got), wanted \(want))")) }
+                            }
+                        }
+                    }
+                    if step["saved"] as? Bool == true { c.testLessonSaved(); write(String(format: "%.2f a page was saved (state %@)", at, c.testState)) }
+                    if let task = step["helper"] as? String {
+                        write(String(format: "%.2f helper %@", at, c.testStartHelper(task).map { "\($0)" } ?? "didn't start"))
+                    }
+                    if let p = step["pointHelper"] as? Bool {
+                        let id = p ? c.agents.agents.last?.id : nil
+                        c.overlay.testPointHelper(id)
+                        write(String(format: "%.2f pointing at helper %@", at, id.map { "\($0)" } ?? "none"))
+                    }
+                    if let t = step["type"] as? String { c.askTyped(t); write(String(format: "%.2f typed", at)) }
                     if step["killPage"] as? Bool == true { c.overlay.testKillPage(); write(String(format: "%.2f page killed", at)) }
                     if step["quit"] as? Bool == true { try? h?.synchronize(); NSApp.terminate(nil) }
                 }

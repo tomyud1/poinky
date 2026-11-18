@@ -198,6 +198,7 @@ final class SpeechListener {
     /// Settles Apple's engine and (if there is one) the local model on the same audio, and picks the text.
     private func settleQuestion() async -> SpeechPick.Result {
         let started = ProcessInfo.processInfo.systemUptime
+        apple?.settleEarly = !autoEnd   // holds only (see AppleSpeechEngine.finish)
         let voiced = voicedSinceClear
         // The local model starts on the audio right away, while Apple's engine settles.
         var localTask: Task<String?, Never>?

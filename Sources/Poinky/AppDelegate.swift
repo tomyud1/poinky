@@ -127,7 +127,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let (script, out) = listenTest { ListenTest.run(script: script, out: out, controller: c) }
         // `Poinky --mic-check`: opens the microphone check (also Settings → Voice).
         if args.contains("--mic-check") { DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { MicCheckWindow.shared.show() } }
-        let quiet = args.contains { ["--ask", "--video", "--play-video", "--listen-test", "--mic-check"].contains($0) }
+        let quiet = args.contains { ["--ask", "--type", "--video", "--play-video", "--listen-test", "--mic-check"].contains($0) }
         if let page = args.contains("--welcome") ? .hello : quiet ? nil : WelcomeModel.pageToResume(configExisted: configExisted) {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { WelcomeWindowController.shared.show(at: page) }
         }
@@ -172,6 +172,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1 + Double(n) * gap) { ask(q) }
             }
         }
+        // `--type "question"`: typed in the type box (it stays open with the answer; nothing is said).
+        for (n, q) in args.indices.filter({ args[$0] == "--type" && $0 + 1 < args.count }).map({ args[$0 + 1] }).enumerated() {
+            TypeBox.keepForTests = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1 + Double(n) * gap) { c.typeInBox(q) }
+        }
         if let i = args.firstIndex(of: "--end-after"), i + 1 < args.count, let secs = Double(args[i + 1]) {
             DispatchQueue.main.asyncAfter(deadline: .now() + secs) { c.endCall(quietly: true) }   // tests: the session ends (daily note)
         }
@@ -182,5 +187,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         controller?.shutdown()
+        Timeline.flush()   // "app.quit" must be on disk, or the next launch counts this run as unclean
     }
 }
