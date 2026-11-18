@@ -13,6 +13,8 @@ FAKE_CLAUDE_MODE:
   signedout  answers every message with Claude Code's "Not logged in" error; `auth status` says loggedIn false
   limited answers with a rejected rate_limit_event (resets in an hour) and Claude Code's usage-limit error
 FAKE_TOKENS_PER_TURN: talker results report usage growing by that many input tokens per message (size-based rotation).
+FAKE_ARTIST_PIECES / FAKE_ARTIST_PIECE_SECS: the teacher streams in that many pieces, that far apart (a slow lesson).
+FAKE_ARTIST_REPLIES: a JSON list of teacher replies, used in order (the last one repeats).
 FAKE_ARTIST_REPLY: what the teacher session answers instead (after FAKE_ARTIST_DELAY seconds, default 0), e.g. a
           <lesson> whose lines start while you're holding the keys again (tools/listen-test/).
 Breaking it on purpose (tools/test-call-loop.py):
@@ -86,9 +88,10 @@ def interrupted(secs):
 
 def stream(reply, first_wait=0.0):
     if interrupted(first_wait): return False
-    n = max(1, int(os.environ.get("FAKE_PIECES", "2")))
+    slow = role == "artist" and os.environ.get("FAKE_ARTIST_PIECES")   # a teacher that writes slowly (mid-lesson tests)
+    n = max(1, int(os.environ.get("FAKE_ARTIST_PIECES" if slow else "FAKE_PIECES", "2")))
     size = max(1, -(-len(reply) // n))
-    gap = float(os.environ.get("FAKE_PIECE_SECS", "0.05"))
+    gap = float(os.environ.get("FAKE_ARTIST_PIECE_SECS" if slow else "FAKE_PIECE_SECS", "0.05"))
     for k in range(0, max(len(reply), 1), size):
         out({"type": "stream_event", "event": {"type": "content_block_delta", "delta": {"type": "text_delta", "text": reply[k:k + size]}}})
         if interrupted(gap): return False
@@ -144,7 +147,11 @@ while True:
         if amode == "fail":
             out({"type": "result", "subtype": "success", "is_error": True, "result": "API Error: 500 internal"}); continue
         time.sleep(float(os.environ.get("FAKE_ARTIST_DELAY", "0")))
-        reply = os.environ.get("FAKE_ARTIST_REPLY", '<lesson title="Fake"><say>Here is the sketch.</say><step>[{"op":"text","x":40,"y":40,"text":"hi"}]</step></lesson>')
+        if os.environ.get("FAKE_ARTIST_REPLIES"):
+            replies = json.loads(os.environ["FAKE_ARTIST_REPLIES"])
+            reply = replies[min(turns, len(replies) - 1)]
+        else:
+            reply = os.environ.get("FAKE_ARTIST_REPLY", '<lesson title="Fake"><say>Here is the sketch.</say><step>[{"op":"text","x":40,"y":40,"text":"hi"}]</step></lesson>')
     elif role == "guide" and os.environ.get("FAKE_GUIDE_REPLIES"):
         replies = json.loads(os.environ["FAKE_GUIDE_REPLIES"])
         reply = replies[min(turns, len(replies) - 1)]

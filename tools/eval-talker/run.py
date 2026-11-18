@@ -48,7 +48,9 @@ def identity_section():
 
 def memory_section(facts):
     s = "\n\n## What you know about the user (from earlier conversations)\n"
-    s += "- Their Mac account name is Alex Rivera; call them Alex unless they say otherwise.\n"
+    src = open(os.path.join(ROOT, "Sources/Poinky/Memory.swift"), encoding="utf-8").read()
+    m = re.search(r's \+= "(- Their Mac account name is (?:[^"\\]|\\.)*)"', src)
+    s += swift_literal(m.group(1)).replace("\\(NSFullUserName())", "Alex Rivera").replace("\\(first)", "Alex")
     s += ("\n".join(facts) + "\n") if facts else "- Nothing else yet: this may be one of your first conversations.\n"
     return s
 
@@ -56,7 +58,6 @@ def memory_section(facts):
 def system_prompt(facts=(), prompt_dir=None):
     pd = prompt_dir or os.path.join(ROOT, "prompts")
     p = open(os.path.join(pd, "talker-prompt.md"), encoding="utf-8").read()
-    p += "\n\n" + open(os.path.join(pd, "poinky-manual.md"), encoding="utf-8").read()
     p += identity_section()
     p += memory_section(list(facts))
     p += lookup_section()
@@ -69,59 +70,37 @@ def _controller():
     return open(os.path.join(ROOT, "Sources/Poinky/CallController.swift"), encoding="utf-8").read()
 
 
-def wants_sketch(q, marked=False):
-    """CallController.wantsSketch, with its word lists read from the source (so edits to it count)."""
+ROUTE_SRC = [os.path.join(ROOT, "Sources/Poinky/TalkerRoute.swift"), os.path.join(ROOT, "tools/tests/talker-route/main.swift")]
+_routes = {}
+
+
+def route(q, marked=False, work=""):
+    """TalkerRoute.classify, the app's own code (built once into build/eval-talker/talker-route)."""
+    key = (q, marked, work)
+    if key in _routes:
+        return _routes[key]
+    exe = os.path.join(ROOT, "build", "eval-talker", "talker-route")
+    if not os.path.exists(exe) or os.path.getmtime(exe) < max(os.path.getmtime(f) for f in ROUTE_SRC):
+        os.makedirs(os.path.dirname(exe), exist_ok=True)
+        subprocess.run(["swiftc", "-O", "-o", exe] + ROUTE_SRC, check=True)
+    out = subprocess.run([exe, "--json"], input=json.dumps([{"q": q, "marked": marked, "work": work}]).encode(),
+                         capture_output=True, check=True).stdout
+    _routes[key] = json.loads(out)[0]
+    return _routes[key]
+
+
+def extra(name):
+    """A part of the instructions sent only with some questions (TalkerExtras)."""
+    return open(os.path.join(ROOT, "prompts", name + ".md"), encoding="utf-8").read().strip()
+
+
+def teacher_line(kind, like):
+    """CallController.teacherLine, read from the source."""
     src = _controller()
-    body = src[src.index("static func wantsSketch"):]
-    body = body[:body.index("\n    }\n")]
-
-    def words(name):
-        seg = body[body.index("let %s = " % name):]
-        seg = seg[:seg.index("\n        if ") if "\n        if " in seg else len(seg)]
-        seg = re.sub(r"//[^\n]*", "", seg)
-        return [swift_literal(w) for w in re.findall(r'"((?:[^"\\]|\\.)*)"', seg)]
-    s = q.lower()
-    if any(w in s for w in words("howTo")):
-        return False
-    if any(w in s for w in words("long")):
-        return False
-    if any(w in s for w in words("strong")):
-        return True
-    return marked and any(w in s for w in words("soft")) and len(s.split()) >= 3
-
-
-def wants_work_checked(q, work):
-    """CallController.wantsWorkChecked, read from the source."""
-    src = _controller()
-    if "static func wantsWorkChecked" not in src:
-        return False
-    body = src[src.index("static func wantsWorkChecked"):]
-    body = body[:body.index("\n    }\n")]
-    seg = body[body.index("let asks = "):body.index("guard asks")]
-    asks = [swift_literal(w) for w in re.findall(r'"((?:[^"\\]|\\.)*)"', seg)]
-    pat = re.search(r'range\(of: #"(.*?)"#', body).group(1)
-    s = q.lower()
-    return any(w in s for w in asks) and re.search(pat, work) is not None
-
-
-def answer_shape_hint(q):
-    """CallController.answerShapeHint, read from the source."""
-    src = _controller()
-    if "static func answerShapeHint" not in src:
-        return None
-    body = src[src.index("static func answerShapeHint"):]
-    body = body[:body.index("\n    }\n")]
-    s = q.lower()
-    for block in re.findall(r'if \[([\s\S]*?)\]\.contains[\s\S]*?return "((?:[^"\\]|\\.)*)"', body):
-        words = [swift_literal(w) for w in re.findall(r'"((?:[^"\\]|\\.)*)"', block[0])]
-        if any(w in s for w in words):
-            return swift_literal(block[1])
-    return None
-
-
-def teacher_line():
-    m = re.search(r'lines\.append\("(\(The teacher is ALREADY(?:[^"\\]|\\.)*)"\)', _controller())
-    return swift_literal(m.group(1))
+    body = src[src.index("static func teacherLine"):]
+    lits = re.findall(r'"(\(The teacher is ALREADY(?:[^"\\]|\\.)*)"', body[:body.index("\n    }\n")])
+    line = swift_literal(lits[0] if kind == "check" else lits[1])
+    return line.replace("\\(like)", like)
 
 
 def message_text(sc):
@@ -132,9 +111,9 @@ def message_text(sc):
         x, y = sc["cursor"]
         lines.append(f'Mouse cursor is at ({x}, {y}) (just where the mouse is: a hint for "this"/"here", not necessarily the topic).')
     lines.append("Nothing is drawn on screen right now.")
-    ql = q.lower()
-    if any(k in ql for k in ["poinky", "setting", "voice", "speed", "faster", "slower", "buddy", "shortcut", "sound",
-                             "teacher", "notch", "memory", "remember", "forget", "hotkey", "keyboard"]):
+    selection = "".join(re.findall(r"«([\s\S]*)»", "\n".join(sc.get("ctx", []))))
+    rt = route(q, False, selection)
+    if "app" in rt["flags"]:
         lines.append("Current Poinky settings: voice Easton at speed 1.00 (engine phonon); buddy on; sounds on at 70% volume; "
                      "teacher on; hold to talk ⌃⌥; hands-free call ⌃⌥Space; language en-US; memory on")
     if sc.get("agents"):
@@ -145,16 +124,22 @@ def message_text(sc):
         lines.append(f"If you start an agent now, it will be called {free[0]} (several: {', '.join(free[:3])}, in that order).")
     else:
         lines.append(f"If you start an agent now, it will be called {free[0]}.")
-    selection = "".join(re.findall(r"«([\s\S]*)»", "\n".join(sc.get("ctx", []))))
-    if wants_sketch(q) or wants_work_checked(q, selection):
-        lines.append(teacher_line())
-    hint = answer_shape_hint(q)
-    if hint:
-        lines.append(hint)
+    if rt["teacher"] != "none":
+        lines.append(teacher_line(rt["teacher"], rt["handOver"]))
+    if rt.get("hint"):
+        lines.append(rt["hint"])
     m = re.search(r'static let formatReminder = "((?:[^"\\]|\\.)*)"', _controller())
     if m:
         lines.append(swift_literal(m.group(1)))
-    return "\n".join(lines)
+    # TalkerExtras: first in the message, only when the question can use them.
+    extras = []
+    if "app" in rt["flags"]:
+        extras.append(extra("poinky-manual"))
+    if sc.get("agents") or "helpers" in rt["flags"]:
+        extras.append(extra("talker-helpers"))
+    if "video" in rt["flags"]:
+        extras.append(extra("talker-video"))
+    return "\n".join(extras + lines)
 
 
 # ---------- screenshots ----------
@@ -292,6 +277,9 @@ def generic_checks(r):
             ok = False
         out.append(("<draw> is valid JSON", ok))
     out.append(("math said for the ear (no ² = ( ) symbols)", not re.search(r"[²³√=×÷^]|\(\s*x|x\s*[−+-]\s*\d\s*\)", r["say"])))
+    out.append(("no praise opener (\"good question\")", not re.search(r"\b(good|great|excellent|nice) question\b", r["say"], re.I)))
+    if r["tags"].get("visual"):
+        out.append(("hands over in one short line (the sketch explains)", len(r["say"].split()) <= 20))
     out.append(("nothing outside the tags", not re.sub(r"<(\w[\w-]*)(\s[^>]*)?>[\s\S]*?</\1>|<[\w-]+(\s[^>]*)?/>", "", r["raw"]).strip()))
     return out
 
@@ -503,6 +491,7 @@ def main():
     text = json.dumps(results, indent=1, ensure_ascii=False).replace(home + "/", "~/").replace(home, "~")
     # The model may also invent a home folder from the account's name: keep only the scenarios' own names.
     text = re.sub(r"/Users/(?!alex/|you/|x/)[^/\"\\\s]+/", "/Users/alex/", text)
+    text = re.sub(r"/private/var/folders/[^/\"\\\s]+/[^/\"\\\s]+/T/poinky-eval-\w+", "/tmp/poinky-eval", text)
     open(path, "w", encoding="utf-8").write(text)
     n = sum(r["passed"] for r in results)
     fs = sorted(r.get("first_sentence") or 99 for r in results)

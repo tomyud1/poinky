@@ -28,9 +28,11 @@ import wave
 from concurrent.futures import ThreadPoolExecutor
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-PHONON = os.path.expanduser('~/Library/Application Support/Poinky/phonon')
+# Poinky's support folder (the app passes its own, which tests point at a scratch folder).
+SUPPORT = os.environ.get('POINKY_SUPPORT_DIR') or os.path.expanduser('~/Library/Application Support/Poinky')
+PHONON = os.path.join(SUPPORT, 'phonon')
 PHONON_SERVER = os.path.join(HERE, '..', 'phonon', 'phonon_server.py')
-CONFIG = os.path.expanduser('~/Library/Application Support/Poinky/config.json')
+CONFIG = os.path.join(SUPPORT, 'config.json')
 GAP = 0.32        # silence between sentences (s)
 LEAD = 0.45       # silence before the first sentence (s)
 TAIL = 0.9        # the picture holds this long after the last word
