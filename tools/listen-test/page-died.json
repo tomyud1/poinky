@@ -1,0 +1,12 @@
+{"about": "The overlay page's process ends mid-session (macOS does this under memory pressure): the page loads again, and the next hold shows the buddy and your words.",
+ "steps": [
+  {"at": 1.5, "keys": "down"},
+  {"at": 2.2, "words": "what is this", "final": true},
+  {"at": 2.4, "keys": "up"},
+  {"at": 4.0, "killPage": true},
+  {"at": 5.5, "keys": "down"},
+  {"at": 6.0, "words": "are you still there", "live": true},
+  {"at": 6.6, "probe": "words show after the page came back", "expect": {"state": "listening", "kind": "you", "text": "are you still there", "near": true}},
+  {"at": 6.8, "keys": "up"},
+  {"at": 7.5, "quit": true}
+ ]}

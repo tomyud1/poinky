@@ -6,6 +6,7 @@ import AppKit
 ///   {"at": 1.0, "keys": "down"}            the talk keys go down (or "up"); PushToTalk's own timing applies
 ///   {"at": 1.6, "words": "what is", "final": false, "live": true}   a result (main transcriber unless "live")
 ///   {"at": 2.4, "probe": "label"}          writes what the bubble shows (SB.bubbleState) and the call state
+///   {"at": 3.0, "killPage": true}         ends the overlay page's process (as memory pressure would)
 ///   {"at": 9.0, "quit": true}
 /// A probe's "expect" is checked here (ListenTest.check) and written as an ok / FAIL line. A script can be a list of
 /// steps or {"env": {…}, "steps": […]} (tools/test-listen.sh passes the env on).
@@ -78,6 +79,7 @@ enum ListenTest {
                             }
                         }
                     }
+                    if step["killPage"] as? Bool == true { c.overlay.testKillPage(); write(String(format: "%.2f page killed", at)) }
                     if step["quit"] as? Bool == true { try? h?.synchronize(); NSApp.terminate(nil) }
                 }
             }
