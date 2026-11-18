@@ -12,5 +12,6 @@ say -o "$out/q1.wav" --data-format=LEF32@48000 "Where is the save button"
 say -o "$out/q2.wav" --data-format=LEF32@48000 "And how do I turn it off"
 say -o "$out/yes.wav" --data-format=LEF32@48000 "Yes"
 swiftc -O -o "$out/listener-test" tools/listener-test/main.swift \
-  Sources/Poinky/SpeechListener.swift Sources/Poinky/VoiceActivity.swift Sources/Poinky/AudioIO.swift 2>&1 | grep -E "error" || true
+  Sources/Poinky/SpeechListener.swift Sources/Poinky/SpeechEngine.swift Sources/Poinky/LocalSpeech.swift \
+  Sources/Poinky/MicDebug.swift Sources/Poinky/VoiceActivity.swift Sources/Poinky/AudioIO.swift 2>&1 | grep -E "error" || true
 "$out/listener-test" "$out"
