@@ -248,6 +248,7 @@ final class Overlay: NSObject, WKNavigationDelegate {
     func setMarking(_ on: Bool) {
         guard on != isMarking else { return }
         isMarking = on
+        Timeline.log("marking", ["on": on])
         markView?.isMarking = on
         updateMouse()
         js("SB.marking(\(on ? "true" : "false"))")
@@ -266,8 +267,13 @@ final class Overlay: NSObject, WKNavigationDelegate {
         }
     }
 
+    /// Poinky is clicking for you: every click goes through to the app, whatever is under it.
+    var handsOff = false {
+        didSet { if handsOff != oldValue { updateMouse() } }
+    }
+
     private func updateMouse() {
-        panel?.ignoresMouseEvents = !(isMarking || isHoveringCard)
+        panel?.ignoresMouseEvents = handsOff || !(isMarking || isHoveringCard)
     }
 
     /// `json` is already-validated JSON; `scale` is screenshot pixels per screen point.
@@ -399,7 +405,10 @@ final class Overlay: NSObject, WKNavigationDelegate {
 
         let mv = MarkView()
         mv.autoresizingMask = [.width, .height]
-        mv.onMarkAdded = { [weak self] in self?.onMarkAdded?() }
+        mv.onMarkAdded = { [weak self, weak mv] in
+            Timeline.log("mark", ["kind": mv?.marks.last.map { $0.kind == .pin ? "pin" : "stroke" } ?? ""])
+            self?.onMarkAdded?()
+        }
         markView = mv
 
         container.addSubview(w)
@@ -563,11 +572,13 @@ final class MarkView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
+        if let e = event.cgEvent, Computer.isOurs(e) { current = []; return }   // Poinky's own click is never a mark
         current = [convert(event.locationInWindow, from: nil)]
         needsDisplay = true
     }
 
     override func mouseDragged(with event: NSEvent) {
+        guard !current.isEmpty else { return }
         current.append(convert(event.locationInWindow, from: nil))
         needsDisplay = true
     }
