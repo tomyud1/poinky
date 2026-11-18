@@ -1,0 +1,966 @@
+[
+ {
+  "id": "tour-solve",
+  "who": "student",
+  "said": "How do I solve this?",
+  "checks": [
+   [
+    "the teacher sketches it (routing): no <guide>/<do>",
+    true
+   ],
+   [
+    "one short hand-over line, no <visual> (the teacher already started)",
+    false
+   ],
+   [
+    "doesn't give the answer away",
+    true
+   ]
+  ],
+  "generic": [
+   [
+    "has <say>",
+    true
+   ],
+   [
+    "spoken style (no markdown/URL/emoji)",
+    true
+   ],
+   [
+    "<draw> is valid JSON",
+    true
+   ],
+   [
+    "math said for the ear (no ² = ( ) symbols)",
+    true
+   ],
+   [
+    "no praise opener (\"good question\")",
+    true
+   ],
+   [
+    "hands over in one short line (the sketch explains)",
+    true
+   ],
+   [
+    "nothing outside the tags",
+    true
+   ]
+  ],
+  "passed": false,
+  "say": "Sure, I'll walk you through it. Subtract three from both sides, then divide by two. Let me sketch it out.",
+  "tags": [
+   "draw",
+   "say",
+   "visual"
+  ],
+  "raw": "<say>Sure, I'll walk you through it. Subtract three from both sides, then divide by two. Let me sketch it out.</say>\n<visual>Lesson. Main idea: \"Isolate x by undoing operations in reverse order.\" Cover: start with 2x plus 3 equals 11; subtract 3 from both sides to get 2x equals 8; divide both sides by 2 to get x equals 4; check by putting 4 back in: 2 times 4 plus 3 equals 11. Relates to the homework equation on screen, around 460,360.</visual>\n<draw>{\"items\":[{\"type\":\"circle\",\"id\":\"eq\",\"x\":460,\"y\":360,\"r\":90,\"label\":\"solve for x\"}]}</draw>",
+  "first_token": 0.779465913772583,
+  "first_sentence": 0.9012320041656494,
+  "total": 1.7609410285949707,
+  "input_tokens": 14869,
+  "run": 0
+ },
+ {
+  "id": "tour-solve",
+  "who": "student",
+  "said": "How do I solve this?",
+  "checks": [
+   [
+    "the teacher sketches it (routing): no <guide>/<do>",
+    true
+   ],
+   [
+    "one short hand-over line, no <visual> (the teacher already started)",
+    false
+   ],
+   [
+    "doesn't give the answer away",
+    false
+   ]
+  ],
+  "generic": [
+   [
+    "has <say>",
+    true
+   ],
+   [
+    "spoken style (no markdown/URL/emoji)",
+    true
+   ],
+   [
+    "<draw> is valid JSON",
+    true
+   ],
+   [
+    "math said for the ear (no ² = ( ) symbols)",
+    true
+   ],
+   [
+    "no praise opener (\"good question\")",
+    true
+   ],
+   [
+    "nothing outside the tags",
+    true
+   ]
+  ],
+  "passed": false,
+  "say": "Hold on, let's do this one together. Start by moving the 11 over to the other side: subtract 3 from both sides, so you get 2x equals 8. Then divide both sides by 2, and x is 4.",
+  "tags": [
+   "draw",
+   "say"
+  ],
+  "raw": "<say>Hold on, let's do this one together. Start by moving the 11 over to the other side: subtract 3 from both sides, so you get 2x equals 8. Then divide both sides by 2, and x is 4.</say>\n<draw>{\"items\":[{\"type\":\"underline\",\"id\":\"step1\",\"x\":420,\"y\":350,\"w\":200,\"find\":\"2x + 3 = 11\",\"label\":\"subtract 3\"}]}</draw>",
+  "first_token": 0.9141829013824463,
+  "first_sentence": 1.0441930294036865,
+  "total": 1.5400309562683105,
+  "input_tokens": 14866,
+  "run": 1
+ },
+ {
+  "id": "say-french",
+  "who": "curious",
+  "said": "how do you say nice to meet you in French",
+  "checks": [
+   [
+    "says the French",
+    true
+   ],
+   [
+    "no paper for it",
+    true
+   ],
+   [
+    "brief",
+    true
+   ],
+   [
+    "doesn't act",
+    true
+   ]
+  ],
+  "generic": [
+   [
+    "has <say>",
+    true
+   ],
+   [
+    "spoken style (no markdown/URL/emoji)",
+    true
+   ],
+   [
+    "<draw> is valid JSON",
+    true
+   ],
+   [
+    "math said for the ear (no ² = ( ) symbols)",
+    true
+   ],
+   [
+    "no praise opener (\"good question\")",
+    true
+   ],
+   [
+    "nothing outside the tags",
+    true
+   ]
+  ],
+  "passed": true,
+  "say": "Sure, let me show you. \"Nice to meet you\" in French is \"Enchanté\" if you're a man or \"Enchantée\" if you're a woman, and it's pronounced roughly \"on-shon-TAY\".",
+  "tags": [
+   "draw",
+   "say"
+  ],
+  "raw": "<say>Sure, let me show you. \"Nice to meet you\" in French is \"Enchanté\" if you're a man or \"Enchantée\" if you're a woman, and it's pronounced roughly \"on-shon-TAY\".</say>\n<draw>{\"items\":[{\"type\":\"underline\",\"id\":\"phrasebook\",\"x\":320,\"y\":208,\"w\":75,\"h\":16,\"find\":\"phrasebook\",\"label\":\"useful for this\"}]}</draw>",
+  "first_token": 0.6630797386169434,
+  "first_sentence": 0.801062822341919,
+  "total": 1.2679617404937744,
+  "input_tokens": 14962,
+  "run": 0
+ },
+ {
+  "id": "say-french",
+  "who": "curious",
+  "said": "how do you say nice to meet you in French",
+  "checks": [
+   [
+    "says the French",
+    true
+   ],
+   [
+    "no paper for it",
+    true
+   ],
+   [
+    "brief",
+    true
+   ],
+   [
+    "doesn't act",
+    true
+   ]
+  ],
+  "generic": [
+   [
+    "has <say>",
+    true
+   ],
+   [
+    "spoken style (no markdown/URL/emoji)",
+    true
+   ],
+   [
+    "math said for the ear (no ² = ( ) symbols)",
+    true
+   ],
+   [
+    "no praise opener (\"good question\")",
+    true
+   ],
+   [
+    "nothing outside the tags",
+    true
+   ]
+  ],
+  "passed": true,
+  "say": "Sure, let me show you. It's \"enchanté\", which you say as \"on-shan-TAY\".",
+  "tags": [
+   "say"
+  ],
+  "raw": "<say>Sure, let me show you. It's \"enchanté\", which you say as \"on-shan-TAY\".</say>",
+  "first_token": 0.708859920501709,
+  "first_sentence": 1.0273809432983398,
+  "total": 1.049914836883545,
+  "input_tokens": 14963,
+  "run": 1
+ },
+ {
+  "id": "explain-briefly",
+  "who": "student",
+  "said": "explain briefly what Rubisco does",
+  "checks": [
+   [
+    "answers it (carbon fixation / CO2)",
+    false
+   ],
+   [
+    "no paper: they asked for brief",
+    true
+   ],
+   [
+    "brief",
+    true
+   ]
+  ],
+  "generic": [
+   [
+    "has <say>",
+    true
+   ],
+   [
+    "spoken style (no markdown/URL/emoji)",
+    true
+   ],
+   [
+    "<draw> is valid JSON",
+    true
+   ],
+   [
+    "math said for the ear (no ² = ( ) symbols)",
+    true
+   ],
+   [
+    "no praise opener (\"good question\")",
+    true
+   ],
+   [
+    "nothing outside the tags",
+    true
+   ]
+  ],
+  "passed": false,
+  "say": "Sure, let me show you.",
+  "tags": [
+   "draw",
+   "say"
+  ],
+  "raw": "<say>Sure, let me show you.</say>\n<draw>{\"items\":[{\"type\":\"underline\",\"id\":\"rubisco\",\"x\":590,\"y\":229,\"w\":150,\"find\":\"Rubisco is the enzyme that catalyzes the first\",\"label\":\"Rubisco\"}]}</draw>",
+  "first_token": 0.6910247802734375,
+  "first_sentence": 0.8228530883789062,
+  "total": 1.0454740524291992,
+  "input_tokens": 15027,
+  "run": 0
+ },
+ {
+  "id": "explain-briefly",
+  "who": "student",
+  "said": "explain briefly what Rubisco does",
+  "checks": [
+   [
+    "answers it (carbon fixation / CO2)",
+    false
+   ],
+   [
+    "no paper: they asked for brief",
+    true
+   ],
+   [
+    "brief",
+    true
+   ]
+  ],
+  "generic": [
+   [
+    "has <say>",
+    true
+   ],
+   [
+    "spoken style (no markdown/URL/emoji)",
+    true
+   ],
+   [
+    "<draw> is valid JSON",
+    true
+   ],
+   [
+    "math said for the ear (no ² = ( ) symbols)",
+    true
+   ],
+   [
+    "no praise opener (\"good question\")",
+    true
+   ],
+   [
+    "nothing outside the tags",
+    true
+   ]
+  ],
+  "passed": false,
+  "say": "Sure, let me show you.",
+  "tags": [
+   "draw",
+   "say"
+  ],
+  "raw": "<say>Sure, let me show you.</say>\n<draw>{\"items\":[{\"type\":\"underline\",\"id\":\"rubisco\",\"x\":700,\"y\":229,\"w\":60,\"find\":\"Rubisco is the enzyme\",\"label\":\"enzyme\"}]}</draw>",
+  "first_token": 0.6547431945800781,
+  "first_sentence": 0.6547532081604004,
+  "total": 1.0945031642913818,
+  "input_tokens": 15026,
+  "run": 1
+ },
+ {
+  "id": "check-noselect",
+  "who": "student",
+  "said": "did I get number 2 right?",
+  "checks": [
+   [
+    "the teacher checks it: short hand-over, no <visual>",
+    false
+   ],
+   [
+    "no verdict guessed before the check",
+    false
+   ],
+   [
+    "marks number 2 (or nothing)",
+    true
+   ],
+   [
+    "no agent",
+    true
+   ]
+  ],
+  "generic": [
+   [
+    "has <say>",
+    true
+   ],
+   [
+    "spoken style (no markdown/URL/emoji)",
+    true
+   ],
+   [
+    "<draw> is valid JSON",
+    true
+   ],
+   [
+    "math said for the ear (no ² = ( ) symbols)",
+    true
+   ],
+   [
+    "no praise opener (\"good question\")",
+    true
+   ],
+   [
+    "nothing outside the tags",
+    true
+   ]
+  ],
+  "passed": false,
+  "say": "Almost, Dana. Your setup is right, a equals 2, b equals 3, c equals negative 2, and the plug-in is right too. The slip is in the square root: nine plus sixteen is twenty-five, not what the square root should be, so you'd get negative three plus or minus five over four. Check that and the two answers should come out as one half and negative two.",
+  "tags": [
+   "draw",
+   "say"
+  ],
+  "raw": "<say>Almost, Dana. Your setup is right, a equals 2, b equals 3, c equals negative 2, and the plug-in is right too. The slip is in the square root: nine plus sixteen is twenty-five, not what the square root should be, so you'd get negative three plus or minus five over four. Check that and the two answers should come out as one half and negative two.</say>\n<draw>{\"items\":[{\"type\":\"bracket\",\"id\":\"q2\",\"x\":140,\"y\":222,\"h\":70,\"find\":\"2. Solve with the quadratic formula\",\"to\":\"x = 1/2 or x = −2\"},{\"type\":\"underline\",\"id\":\"sqrt\",\"x\":262,\"y\":264,\"w\":130,\"find\":\"√(9 + 16)\"}]}</draw>",
+  "first_token": 0.6248769760131836,
+  "first_sentence": 0.6522948741912842,
+  "total": 1.739103078842163,
+  "input_tokens": 14905,
+  "run": 0
+ },
+ {
+  "id": "check-noselect",
+  "who": "student",
+  "said": "did I get number 2 right?",
+  "checks": [
+   [
+    "the teacher checks it: short hand-over, no <visual>",
+    false
+   ],
+   [
+    "no verdict guessed before the check",
+    false
+   ],
+   [
+    "marks number 2 (or nothing)",
+    true
+   ],
+   [
+    "no agent",
+    true
+   ]
+  ],
+  "generic": [
+   [
+    "has <say>",
+    true
+   ],
+   [
+    "spoken style (no markdown/URL/emoji)",
+    true
+   ],
+   [
+    "<draw> is valid JSON",
+    true
+   ],
+   [
+    "math said for the ear (no ² = ( ) symbols)",
+    true
+   ],
+   [
+    "no praise opener (\"good question\")",
+    true
+   ],
+   [
+    "nothing outside the tags",
+    true
+   ]
+  ],
+  "passed": false,
+  "say": "Let's check number two. You've got a equals 2, b equals 3, c equals negative 2, which is right. The formula step is right too, and the square root of 25 is 5, so the answer is one half or negative 2. Looks correct to me, Dana.",
+  "tags": [
+   "draw",
+   "say"
+  ],
+  "raw": "<say>Let's check number two. You've got a equals 2, b equals 3, c equals negative 2, which is right. The formula step is right too, and the square root of 25 is 5, so the answer is one half or negative 2. Looks correct to me, Dana.</say>\n<draw>{\"items\":[{\"type\":\"bracket\",\"id\":\"q2\",\"x\":140,\"y\":220,\"h\":80,\"find\":\"2. Solve with the quadratic formula\",\"to\":\"x = 1/2 or x = –2\"}]}</draw>",
+  "first_token": 0.7599492073059082,
+  "first_sentence": 0.8809881210327148,
+  "total": 1.6053109169006348,
+  "input_tokens": 14897,
+  "run": 1
+ },
+ {
+  "id": "physics-why",
+  "who": "student",
+  "said": "why is it 6 newtons and not 14",
+  "checks": [
+   [
+    "says it once: a short answer alone, or one hand-over line with <visual>",
+    true
+   ],
+   [
+    "the answer: opposite directions / subtract",
+    true
+   ],
+   [
+    "no agent",
+    true
+   ]
+  ],
+  "generic": [
+   [
+    "has <say>",
+    true
+   ],
+   [
+    "spoken style (no markdown/URL/emoji)",
+    true
+   ],
+   [
+    "<draw> is valid JSON",
+    true
+   ],
+   [
+    "math said for the ear (no ² = ( ) symbols)",
+    true
+   ],
+   [
+    "no praise opener (\"good question\")",
+    true
+   ],
+   [
+    "nothing outside the tags",
+    true
+   ]
+  ],
+  "passed": true,
+  "say": "Because the friction is pulling the cart the other way with 4 newtons. The net force is what's left after you subtract it: 10 minus 4 is 6 newtons, and that's the force that actually accelerates the cart.",
+  "tags": [
+   "draw",
+   "say"
+  ],
+  "raw": "<say>Because the friction is pulling the cart the other way with 4 newtons. The net force is what's left after you subtract it: 10 minus 4 is 6 newtons, and that's the force that actually accelerates the cart.</say>\n<draw>{\"items\":[{\"type\":\"underline\",\"id\":\"friction\",\"x\":203,\"y\":240,\"w\":122,\"find\":\"friction 4 N\",\"label\":\"opposes motion\"},{\"type\":\"underline\",\"id\":\"net\",\"x\":144,\"y\":330,\"w\":306,\"find\":\"Net force: F = 10 N\",\"label\":\"subtract\"}]}</draw>",
+  "first_token": 0.8321032524108887,
+  "first_sentence": 1.0830252170562744,
+  "total": 1.6993300914764404,
+  "input_tokens": 14928,
+  "run": 0
+ },
+ {
+  "id": "physics-why",
+  "who": "student",
+  "said": "why is it 6 newtons and not 14",
+  "checks": [
+   [
+    "says it once: a short answer alone, or one hand-over line with <visual>",
+    false
+   ],
+   [
+    "the answer: opposite directions / subtract",
+    true
+   ],
+   [
+    "no agent",
+    true
+   ]
+  ],
+  "generic": [
+   [
+    "has <say>",
+    true
+   ],
+   [
+    "spoken style (no markdown/URL/emoji)",
+    true
+   ],
+   [
+    "<draw> is valid JSON",
+    true
+   ],
+   [
+    "math said for the ear (no ² = ( ) symbols)",
+    true
+   ],
+   [
+    "no praise opener (\"good question\")",
+    true
+   ],
+   [
+    "hands over in one short line (the sketch explains)",
+    false
+   ],
+   [
+    "nothing outside the tags",
+    true
+   ]
+  ],
+  "passed": false,
+  "say": "Because the friction pulls the cart back with 4 newtons, only part of your 10 newtons is left over to speed it up. You subtract the 4 from the 10 to get the net force, which is 6. Adding the two forces, 14, would mean friction is pushing the same way as the pull, which it isn't.",
+  "tags": [
+   "draw",
+   "say",
+   "visual"
+  ],
+  "raw": "<say>Because the friction pulls the cart back with 4 newtons, only part of your 10 newtons is left over to speed it up. You subtract the 4 from the 10 to get the net force, which is 6. Adding the two forces, 14, would mean friction is pushing the same way as the pull, which it isn't.</say>\n<visual>Lesson. Main idea: net force is the vector sum of forces, so opposing forces subtract. Cover: the pull of 10 newtons points right; friction of 4 newtons points left; the cart feels both; net force is 10 minus 4, which is 6 newtons to the right; then F equals ma gives a equal to 3 meters per second squared. Relates to the cart on screen around 425,250 with the labeled arrows.</visual>\n<draw>{\"clear\":true,\"items\":[{\"type\":\"arrow\",\"id\":\"pull\",\"x1\":525,\"y1\":250,\"x2\":620,\"y2\":250,\"label\":\"10 N right\"},{\"type\":\"arrow\",\"id\":\"fric\",\"x1\":325,\"y1\":250,\"x2\":225,\"y2\":250,\"label\":\"4 N left\"}]}</draw>",
+  "first_token": 0.8898789882659912,
+  "first_sentence": 1.0501329898834229,
+  "total": 2.6019480228424072,
+  "input_tokens": 14928,
+  "run": 1
+ },
+ {
+  "id": "chart-say",
+  "who": "office",
+  "said": "what does this chart say",
+  "checks": [
+   [
+    "says it once: a short answer alone, or one hand-over line with <visual>",
+    false
+   ],
+   [
+    "names the top team",
+    true
+   ],
+   [
+    "doesn't act",
+    true
+   ]
+  ],
+  "generic": [
+   [
+    "has <say>",
+    true
+   ],
+   [
+    "spoken style (no markdown/URL/emoji)",
+    true
+   ],
+   [
+    "<draw> is valid JSON",
+    true
+   ],
+   [
+    "math said for the ear (no ² = ( ) symbols)",
+    true
+   ],
+   [
+    "no praise opener (\"good question\")",
+    true
+   ],
+   [
+    "hands over in one short line (the sketch explains)",
+    false
+   ],
+   [
+    "nothing outside the tags",
+    true
+   ]
+  ],
+  "passed": false,
+  "say": "The chart shows tickets closed per team from July to September. Billing closed the most, at 668, followed by Onboarding at 590 and Accounts at 412. Security closed the fewest, at 148.",
+  "tags": [
+   "draw",
+   "say",
+   "visual"
+  ],
+  "raw": "<say>The chart shows tickets closed per team from July to September. Billing closed the most, at 668, followed by Onboarding at 590 and Accounts at 412. Security closed the fewest, at 148.</say>\n<visual>Lesson. Main idea: \"Billing closed the most tickets in Q3\". Cover: a bar chart of tickets closed per team, July to September. Billing 668, Onboarding 590, Accounts 412, Web 325, Mobile 236, Security 148. Bars run tallest to shortest. Relates to the bar chart on screen, around 500,400.</visual>\n<draw>{\"items\":[{\"type\":\"bracket\",\"id\":\"billing\",\"x\":236,\"y\":260,\"h\":360,\"find\":\"Billing\",\"label\":\"most\"}]}</draw>",
+  "first_token": 0.8386449813842773,
+  "first_sentence": 0.9525330066680908,
+  "total": 1.8586900234222412,
+  "input_tokens": 14883,
+  "run": 0
+ },
+ {
+  "id": "chart-say",
+  "who": "office",
+  "said": "what does this chart say",
+  "checks": [
+   [
+    "says it once: a short answer alone, or one hand-over line with <visual>",
+    true
+   ],
+   [
+    "names the top team",
+    true
+   ],
+   [
+    "doesn't act",
+    true
+   ]
+  ],
+  "generic": [
+   [
+    "has <say>",
+    true
+   ],
+   [
+    "spoken style (no markdown/URL/emoji)",
+    true
+   ],
+   [
+    "<draw> is valid JSON",
+    true
+   ],
+   [
+    "math said for the ear (no ² = ( ) symbols)",
+    true
+   ],
+   [
+    "no praise opener (\"good question\")",
+    true
+   ],
+   [
+    "nothing outside the tags",
+    true
+   ]
+  ],
+  "passed": true,
+  "say": "This is a bar chart of support tickets closed per team from July to September. Billing is highest at 668, then Onboarding at 590, Accounts at 412, Web at 325, Mobile at 236, and Security lowest at 148.",
+  "tags": [
+   "draw",
+   "say"
+  ],
+  "raw": "<say>This is a bar chart of support tickets closed per team from July to September. Billing is highest at 668, then Onboarding at 590, Accounts at 412, Web at 325, Mobile at 236, and Security lowest at 148.</say>\n<draw>{\"items\":[{\"type\":\"bracket\",\"id\":\"billing\",\"x\":236,\"y\":260,\"h\":360,\"find\":\"Billing\",\"label\":\"668 tickets\"}]}</draw>",
+  "first_token": 0.7857940196990967,
+  "first_sentence": 0.9323420524597168,
+  "total": 1.5320420265197754,
+  "input_tokens": 14882,
+  "run": 1
+ },
+ {
+  "id": "chart-line",
+  "who": "office",
+  "said": "show this as a line",
+  "checks": [
+   [
+    "asks the teacher (<visual>)",
+    true
+   ],
+   [
+    "the brief has the data",
+    true
+   ],
+   [
+    "the brief says where the chart is",
+    true
+   ],
+   [
+    "one short hand-over line",
+    true
+   ],
+   [
+    "doesn't act",
+    true
+   ]
+  ],
+  "generic": [
+   [
+    "has <say>",
+    true
+   ],
+   [
+    "spoken style (no markdown/URL/emoji)",
+    true
+   ],
+   [
+    "<draw> is valid JSON",
+    true
+   ],
+   [
+    "math said for the ear (no ² = ( ) symbols)",
+    true
+   ],
+   [
+    "no praise opener (\"good question\")",
+    true
+   ],
+   [
+    "hands over in one short line (the sketch explains)",
+    true
+   ],
+   [
+    "nothing outside the tags",
+    true
+   ]
+  ],
+  "passed": true,
+  "say": "Sure, here's the same data as a line.",
+  "tags": [
+   "draw",
+   "say",
+   "visual"
+  ],
+  "raw": "<say>Sure, here's the same data as a line.</say>\n<visual>Line chart. Main idea: tickets closed per team, July to September, shown as a line instead of bars. Plot the six teams in order: Billing 668, Onboarding 590, Accounts 412, Web 325, Mobile 236, Security 148. Label each point with its value. The line falls steadily from left to right, so the drop-off is easy to see. Relates to the bar chart on screen around 600,400.</visual>\n<draw>{\"clear\":true,\"items\":[]}</draw>",
+  "first_token": 0.7364010810852051,
+  "first_sentence": 0.9082522392272949,
+  "total": 1.509079933166504,
+  "input_tokens": 14884,
+  "run": 0
+ },
+ {
+  "id": "chart-line",
+  "who": "office",
+  "said": "show this as a line",
+  "checks": [
+   [
+    "asks the teacher (<visual>)",
+    true
+   ],
+   [
+    "the brief has the data",
+    true
+   ],
+   [
+    "the brief says where the chart is",
+    true
+   ],
+   [
+    "one short hand-over line",
+    true
+   ],
+   [
+    "doesn't act",
+    true
+   ]
+  ],
+  "generic": [
+   [
+    "has <say>",
+    true
+   ],
+   [
+    "spoken style (no markdown/URL/emoji)",
+    true
+   ],
+   [
+    "<draw> is valid JSON",
+    true
+   ],
+   [
+    "math said for the ear (no ² = ( ) symbols)",
+    true
+   ],
+   [
+    "no praise opener (\"good question\")",
+    true
+   ],
+   [
+    "hands over in one short line (the sketch explains)",
+    true
+   ],
+   [
+    "nothing outside the tags",
+    true
+   ]
+  ],
+  "passed": true,
+  "say": "Sure, I'll switch it to a line chart.",
+  "tags": [
+   "draw",
+   "say",
+   "visual"
+  ],
+  "raw": "<say>Sure, I'll switch it to a line chart.</say>\n<visual>Lesson. Main idea: the same Q3 ticket numbers, now drawn as a line instead of bars. Cover: x-axis lists the six teams in order (Billing, Onboarding, Accounts, Web, Mobile, Security); y-axis is tickets closed from 0 to 700; plot the points 668, 590, 412, 325, 236, 148 and connect them with a line, labeling each point with its value. Point out the steep drop from Billing to Accounts and the flatter tail after Web. Relates to the chart on screen, which is centered around 580,400.</visual>\n<draw>{\"clear\":true,\"items\":[{\"type\":\"box\",\"id\":\"chart\",\"x\":200,\"y\":190,\"w\":770,\"h\":440,\"label\":\"Tickets closed, Q3\"}]}</draw>",
+  "first_token": 0.9912810325622559,
+  "first_sentence": 1.1109371185302734,
+  "total": 2.2232840061187744,
+  "input_tokens": 14883,
+  "run": 1
+ },
+ {
+  "id": "textedit-bigger",
+  "who": "writer",
+  "said": "how do I make the title bigger",
+  "checks": [
+   [
+    "walks them through it (<guide>) or does it (<do>)",
+    false
+   ],
+   [
+    "no spoken how-to (one short line)",
+    false
+   ],
+   [
+    "no paper",
+    true
+   ]
+  ],
+  "generic": [
+   [
+    "has <say>",
+    true
+   ],
+   [
+    "spoken style (no markdown/URL/emoji)",
+    true
+   ],
+   [
+    "<draw> is valid JSON",
+    true
+   ],
+   [
+    "math said for the ear (no ² = ( ) symbols)",
+    true
+   ],
+   [
+    "no praise opener (\"good question\")",
+    true
+   ],
+   [
+    "nothing outside the tags",
+    true
+   ]
+  ],
+  "passed": false,
+  "say": "In TextEdit, click the title line \"My summer job\" to place your cursor there, then select it by dragging across it or triple-clicking. Then use the Format menu and choose Font, then Show Fonts, and pick a bigger size. Or just press Command plus Shift plus Plus to make the selected text bigger.",
+  "tags": [
+   "draw",
+   "say"
+  ],
+  "raw": "<say>In TextEdit, click the title line \"My summer job\" to place your cursor there, then select it by dragging across it or triple-clicking. Then use the Format menu and choose Font, then Show Fonts, and pick a bigger size. Or just press Command plus Shift plus Plus to make the selected text bigger.</say>\n<draw>{\"items\":[{\"type\":\"underline\",\"id\":\"title\",\"x\":144,\"y\":137,\"w\":102,\"find\":\"My summer job\",\"label\":\"select this\"}]}</draw>",
+  "first_token": 0.8630099296569824,
+  "first_sentence": 1.0002639293670654,
+  "total": 1.6744859218597412,
+  "input_tokens": 14883,
+  "run": 0
+ },
+ {
+  "id": "textedit-bigger",
+  "who": "writer",
+  "said": "how do I make the title bigger",
+  "checks": [
+   [
+    "walks them through it (<guide>) or does it (<do>)",
+    false
+   ],
+   [
+    "no spoken how-to (one short line)",
+    false
+   ],
+   [
+    "no paper",
+    true
+   ]
+  ],
+  "generic": [
+   [
+    "has <say>",
+    true
+   ],
+   [
+    "spoken style (no markdown/URL/emoji)",
+    true
+   ],
+   [
+    "<draw> is valid JSON",
+    true
+   ],
+   [
+    "math said for the ear (no ² = ( ) symbols)",
+    true
+   ],
+   [
+    "no praise opener (\"good question\")",
+    true
+   ],
+   [
+    "nothing outside the tags",
+    true
+   ]
+  ],
+  "passed": false,
+  "say": "Click the title line, then use the Format menu, choose Font, and pick a bigger size. Or select just the title and press Command plus Shift plus Plus a few times.",
+  "tags": [
+   "draw",
+   "say"
+  ],
+  "raw": "<say>Click the title line, then use the Format menu, choose Font, and pick a bigger size. Or select just the title and press Command plus Shift plus Plus a few times.</say>\n<draw>{\"items\":[{\"type\":\"underline\",\"id\":\"title\",\"x\":144,\"y\":128,\"w\":104,\"find\":\"My summer job\",\"label\":\"select this line\"}]}</draw>",
+  "first_token": 0.710252046585083,
+  "first_sentence": 0.8335542678833008,
+  "total": 1.3398010730743408,
+  "input_tokens": 14884,
+  "run": 1
+ }
+]
