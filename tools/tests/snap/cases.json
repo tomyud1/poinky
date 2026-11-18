@@ -15,7 +15,8 @@
     {"item": {"type": "box", "id": "line2", "x": 345, "y": 356, "w": 160, "h": 22, "find": "x = (-3 ± 5) / 4"}, "phrase": "x = (−3 ± 5) / 4", "note": "handwriting: OCR's box is smaller than the ink"},
     {"item": {"type": "underline", "id": "line1", "x": 341, "y": 346, "w": 250, "find": "x = (-3 ± √(9 + 16)) / 4"}, "phrase": "x = (−3 ± √(9 + 16)) / 4", "note": "the next line starts right below"},
     {"item": {"type": "bracket", "id": "q2", "x": 330, "y": 285, "h": 24, "find": "Use the quadratic formula to solve"}, "phrase": "2. Use the quadratic formula to solve", "note": "the bracket goes left of the \"2.\", not on it"},
-    {"item": {"type": "arrow", "id": "slope", "x1": 400, "y1": 522, "x2": 430, "y2": 526, "find": "m = (10 - 4) / (3 - 1) = 6 / 2 = 3"}, "phrase": "m = (10 − 4) / (3 − 1) = 6 / 2 = 3", "note": "the model put the tail inside the target"}
+    {"item": {"type": "arrow", "id": "slope", "x1": 400, "y1": 522, "x2": 430, "y2": 526, "find": "m = (10 - 4) / (3 - 1) = 6 / 2 = 3"}, "phrase": "m = (10 − 4) / (3 − 1) = 6 / 2 = 3", "note": "the model put the tail inside the target"},
+    {"item": {"type": "label", "id": "note", "x": 350, "y": 520, "text": "sign flips here"}, "phrase": "m = (10 − 4) / (3 − 1) = 6 / 2 = 3", "note": "a note the model put on the line it's about"}
   ]},
   {"page": "tools/e2e/pages/lecture.html", "screen": [1512, 982], "marks": [
     {"item": {"type": "underline", "id": "net", "x": 100, "y": 240, "w": 300, "find": "Net force: 10 N − 4 N = 6 N", "label": "subtract"}, "phrase": "Net force: 10 N − 4 N = 6 N"},

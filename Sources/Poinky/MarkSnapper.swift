@@ -453,6 +453,7 @@ enum MarkSnapper {
             if type == "underline", let text { it = clearOfLetters(it, text: text) }
         }
         let text_ = text
+        if type == "label" { placeNote(&it, lines: lines, size: size, scale: scale, ink: text?.inkMap) }
         if let text = (it["label"] as? String), !text.isEmpty, let mark = bounds(it, scale: scale) {
             placeLabel(&it, text: text, mark: mark, lines: lines, size: size, scale: scale, ink: text_?.inkMap)
         }
@@ -892,6 +893,39 @@ enum MarkSnapper {
         default:
             return nil
         }
+    }
+
+    /// A handwritten note (`"type":"label"`) at the model's x,y would often sit on text: it moves to the
+    /// nearest spot (within ~80 pt) that covers the least text and picture and stays on the screen.
+    /// The overlay draws its tag with the top-left at (x, y − 24 pt).
+    static func placeNote(_ it: inout [String: Any], lines: [OCRLine], size: CGSize, scale: CGFloat, ink: InkMap?) {
+        guard let x = num(it["x"]), let y = num(it["y"]) else { return }
+        let k = max(scale, 0.1), text = (it["text"] as? String) ?? (it["label"] as? String) ?? ""
+        let w = (CGFloat(text.count) * 10.5 + 22) * k, h = 34 * k
+        let words = lines.flatMap { $0.words.map { $0.rect.insetBy(dx: -2, dy: -2) } }
+        let screen = CGRect(origin: .zero, size: size).insetBy(dx: 8 * k, dy: 8 * k)
+        let bg = ink?.background(CGRect(x: x - 220 * k, y: y - 160 * k, width: 440 * k, height: 320 * k))
+        func cost(_ r: CGRect) -> CGFloat {
+            var c: CGFloat = screen.contains(r) ? 0 : 50
+            c += words.reduce(0) { acc, wr in let i = wr.intersection(r); return acc + (i.isNull ? 0 : i.width * i.height) } / (w * h) * 10
+            if let ink, let bg {
+                var hit = 0, all = 0
+                for yy in stride(from: Int(r.minY), to: Int(r.maxY), by: 3) { for xx in stride(from: Int(r.minX), to: Int(r.maxX), by: 3) {
+                    all += 1; if ink.isInk(xx, yy, bg, 60) { hit += 1 }
+                } }
+                if all > 0 { c += CGFloat(hit) / CGFloat(all) * 6 }
+            }
+            return c
+        }
+        var best = (CGPoint(x: x, y: y), cost(CGRect(x: x, y: y - 24 * k, width: w, height: h)))
+        guard best.1 > 0.05 else { return }
+        for dy in stride(from: -80.0, through: 80.0, by: 10.0) { for dx in stride(from: -80.0, through: 80.0, by: 10.0) {
+            let p = CGPoint(x: x + CGFloat(dx) * k, y: y + CGFloat(dy) * k)
+            // Small moves first: distance costs a little.
+            let c = cost(CGRect(x: p.x, y: p.y - 24 * k, width: w, height: h)) + CGFloat(abs(dx) + abs(dy)) / 400
+            if c < best.1 { best = (p, c) }
+        } }
+        it["x"] = best.0.x; it["y"] = best.0.y
     }
 
     /// Picks the spot next to the mark where the label covers the least text and stays on screen.

@@ -97,6 +97,11 @@ func shape(_ it: [String: Any], k: CGFloat, size: CGSize) -> Shape {
         let a = atan2(y2 - y1, x2 - x1), hs = 18 * k
         s.strokes = [[CGPoint(x: x1, y: y1), CGPoint(x: x2, y: y2)],
                      [CGPoint(x: x2 - hs * cos(a - 0.5), y: y2 - hs * sin(a - 0.5)), CGPoint(x: x2, y: y2), CGPoint(x: x2 - hs * cos(a + 0.5), y: y2 - hs * sin(a + 0.5))]]
+    case "label":
+        // A note: the tag's top-left at (x, y − 24 pt).
+        let text = (it["text"] as? String) ?? ""
+        s.label = CGRect(x: x, y: y - 24 * k, width: (CGFloat(text.count) * 10.5 + 20) * k, height: 34 * k)
+        return s
     default: break
     }
     if let text = it["label"] as? String, !text.isEmpty, let lx = n(it["lx"]), let ly = n(it["ly"]) {
