@@ -126,6 +126,22 @@
     let under = 0;
     for (let k = 0; k <= 40; k++) { const q = shaft.getPointAtLength(SL * k / 40); if (q.x > cl.x - 2 && q.x < cl.x + cl.width + 2 && q.y > cl.y - 2 && q.y < cl.y + cl.height + 2) under++; }
     check(under === 0, `a curved arrow's label doesn't sit on its curve (${under} curve points under it)`);
+
+    // A circle mark round a wide box goes round its corners, not through them.
+    SB.lessonStep({ ops: [
+      { op: 'box', id: 'wb', x: 40, y: 400, w: 600, h: 70, color: 'green', text: 'Pick Plus: $40, 25 GB' },
+      { op: 'mark', id: 'wm', target: 'wb', style: 'circle' },
+      { op: 'box', id: 'sb', x: 300, y: 520, w: 140, h: 70, color: 'blue', text: '42' },
+      { op: 'mark', id: 'sm', target: 'sb', style: 'circle' },
+    ] }, 1);
+    await done();
+    for (const [b, m] of [['wb', 'wm'], ['sb', 'sm']]) {
+      const r = item(b).querySelector('rect').getBBox(), loop = item(m).querySelector('path');
+      const inside = (x, y) => W.SVGGeometryElement && loop.isPointInFill(Object.assign(loop.ownerSVGElement.createSVGPoint(), { x, y }));
+      const corners = [[r.x, r.y], [r.x + r.width, r.y], [r.x, r.y + r.height], [r.x + r.width, r.y + r.height]];
+      const out = corners.filter(([x, y]) => !inside(x, y)).length;
+      check(out === 0, `a circle mark round "${b}" keeps all four corners inside (${out} outside)`);
+    }
   } catch (e) { check(false, 'threw: ' + e.message + ' ' + (e.stack || '').split('\n')[1]); }
   window.testResults = { pass: !fail.length, lines: results };
 })();

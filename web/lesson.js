@@ -536,6 +536,8 @@
     left: '', right: '', displaystyle: '', '{': '{', '}': '}', '%': '%', '$': '$', '#': '#', '_': '_', '&': '&',
   };
   const OPNAMES = new Set(['sin', 'cos', 'tan', 'ln', 'log', 'exp', 'lim', 'max', 'min']);
+  const BINOPS = new Set(['cdot', 'times', 'div', 'pm', 'mp', 'to', 'rightarrow', 'Rightarrow', 'implies', 'leftarrow', 'leftrightarrow',
+    'iff', 'le', 'leq', 'ge', 'geq', 'ne', 'neq', 'approx', 'equiv', 'propto']);
   /** Mathy text: a hint to draw it as math even without "math": true. */
   const looksMath = s => /\\(frac|sqrt|cdot|times|pi|theta|alpha|Delta|int|sum|le|ge|to)\b|\^[{(\d]|_\{/.test(s);
   // Chemical formulas in plain text (H2O, CO2, C6H12O6) get their numbers written small and low.
@@ -589,7 +591,11 @@
           if (base.t !== 'script') base = { t: 'script', base, sup: null, sub: null };
           base[c === '^' ? 'sup' : 'sub'] = arg;
           out.push(base);
-        } else out.push(atom());
+        } else {
+          const a = atom(), last = out[out.length - 1];
+          if (a.bin && last && last.t === 'text') last.s = last.s.replace(/ +$/, '');
+          out.push(a);
+        }
       }
       if (stop && s[i] === stop) i++;
       return out;
@@ -616,8 +622,10 @@
       if (c === '\\') {
         i++;
         let name = '';
-        if (/[a-zA-Z]/.test(s[i] || '')) while (/[a-zA-Z]/.test(s[i] || '')) name += s[i++];
-        else name = s[i++] || '';
+        if (/[a-zA-Z]/.test(s[i] || '')) {
+          while (/[a-zA-Z]/.test(s[i] || '')) name += s[i++];
+          while (s[i] === ' ') i++;   // as in TeX, a space after a command only ends it
+        } else name = s[i++] || '';
         if (name === 'frac' || name === 'dfrac' || name === 'tfrac') { const num = argument(), den = argument(); return { t: 'frac', num, den }; }
         if (name === 'sqrt') { let idx = null; if (s[i] === '[') { const e = s.indexOf(']', i); idx = s.slice(i + 1, e); i = e + 1; } return { t: 'sqrt', body: argument(), idx }; }
         if (name === 'text' || name === 'mathrm' || name === 'textbf' || name === 'mathbf' || name === 'operatorname') {
@@ -626,6 +634,7 @@
         }
         if (name === 'overline' || name === 'bar' || name === 'vec' || name === 'hat') return { t: 'over', body: argument(), kind: name };
         if (OPNAMES.has(name)) return { t: 'text', s: '\u2009' + name + '\u2009' };
+        if (BINOPS.has(name)) return { t: 'text', s: ' ' + SYM[name] + ' ', bin: true };   // the same room on both sides
         return { t: 'text', s: name in SYM ? SYM[name] : name };
       }
       // A run of plain characters (a script attaches after it, which looks the same as after its last letter).
@@ -1272,9 +1281,16 @@
     let d;
     if (o.style === 'underline') d = `M${bb.x - 4},${bb.y + bb.height + 6} Q${bb.x + bb.width / 2},${bb.y + bb.height + 8} ${bb.x + bb.width + 4},${bb.y + bb.height + 5}`;
     else {
-      const cx = bb.x + bb.width / 2, cy = bb.y + bb.height / 2, rx = bb.width / 2 + 14, ry = bb.height / 2 + 12;
-      const a0 = Math.random() * 6.28; d = '';
-      for (let i = 0; i <= 50; i++) { const a = a0 + Math.PI * 2 * 1.06 * i / 50; d += (i ? 'L' : 'M') + (cx + Math.cos(a) * rx).toFixed(1) + ',' + (cy + Math.sin(a) * ry).toFixed(1); }
+      // A loop around it that clears its corners: an ellipse for squarish things, squarer for wide ones
+      // (a plain ellipse round a wide box cut through all four corners).
+      const cx = bb.x + bb.width / 2, cy = bb.y + bb.height / 2, hw = bb.width / 2, hh = bb.height / 2;
+      const aspect = hw / Math.max(1, hh), p = aspect < 1.6 ? 2 : aspect < 4 ? 4 : 6;
+      let rx = hw + 14, ry = hh + 12;
+      const k = Math.pow(Math.pow(hw / rx, p) + Math.pow(hh / ry, p), 1 / p);
+      if (k > .97) { rx *= k / .97; ry *= k / .97; }
+      const a0 = Math.random() * 6.28, e = 2 / p, sp = v => Math.sign(v) * Math.pow(Math.abs(v), e);
+      d = '';
+      for (let i = 0; i <= 60; i++) { const a = a0 + Math.PI * 2 * 1.06 * i / 60; d += (i ? 'L' : 'M') + (cx + sp(Math.cos(a)) * rx).toFixed(1) + ',' + (cy + sp(Math.sin(a)) * ry).toFixed(1); }
     }
     const p = el('path', { d, fill: 'none', stroke: look.pen, 'stroke-width': 3, 'stroke-linecap': 'round', opacity: .9 }, g);
     await drawPath(p, onScreen, 800);
