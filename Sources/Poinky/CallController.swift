@@ -110,7 +110,10 @@ final class CallController: NSObject, NSMenuDelegate {
     /// recap after a swap, and the daily note, are built from it plus the last exchanges.
     private lazy var summary = SessionSummary { [weak self] in self.flatMap { Self.makeSummarizer($0.config) } }
 
-    private struct ArtistJob { let text: String; let snapshot: Snapshot; var aside: String? = nil }
+    private struct ArtistJob { let text: String; let snapshot: Snapshot; var aside: String? = nil; var quiet = false }
+    /// The teacher started alongside the talker: what it writes waits here until the talker's hand-over line
+    /// is in the voice queue (a quick teacher was heard before "Sure, let me show you."). Nil: not holding.
+    private var heldTeacher: [() -> Void]?
     // A question about a part you clicked on a 3D model: the teacher's steps on that model are an aside
     // (the model goes back to the lesson's view once they've been heard). See PartQuestion.
     private var partTurn = -1                // the talker only names the part this turn
@@ -596,6 +599,7 @@ final class CallController: NSObject, NSMenuDelegate {
         sentOnce.removeAll()
         artistBusy = false
         artistWaiting = nil
+        heldTeacher = nil
         artistRetries.removeAll()
         artistAside = nil
         asideToEnd = nil
@@ -1245,6 +1249,7 @@ final class CallController: NSObject, NSMenuDelegate {
 
     /// You talked over a lesson: stop drawing (what's drawn stays) and free the artist for your next question.
     private func stopLesson() {
+        heldTeacher = nil
         guard lessonOpen || narrationOpen || !pendingSteps.isEmpty || artistBusy else { return }
         lessonToken += 1
         lessonOpen = false
@@ -1285,6 +1290,7 @@ final class CallController: NSObject, NSMenuDelegate {
     private func ask(_ question: String, proactive: Bool = false) {
         swapTalkerIfReady()
         guard let talker, let screen = overlay.screen else { return }
+        releaseTeacher()   // an older teacher's lines aren't waiting for this talker
         releaseReports()   // a new question cut a report short
         pendingOffer = nil   // its reply may make a new one
         talker.cancelCurrent()   // an older reply still being written is dropped anyway; don't queue behind it
@@ -1348,6 +1354,7 @@ final class CallController: NSObject, NSMenuDelegate {
                 // talker answers without a thinking step and can get a check wrong).
                 let checkNow = !sketchNow && partQ == nil && !proactive && self.artist != nil
                     && Self.wantsWorkChecked(question, work: self.frontContext.selection + "\n" + (snap.focus?.text ?? ""))
+                if partQ != nil || sketchNow || checkNow { self.heldTeacher = [] }
                 if let p = partQ {
                     self.teacherStartedTurn = myTurn
                     self.partTurn = myTurn
@@ -1367,6 +1374,7 @@ final class CallController: NSObject, NSMenuDelegate {
                 guard myTurn == self.turn else { return }
                 let ev = self.parser.finish()
                 self.handle(ev)
+                self.releaseTeacher()
                 var said = self.parser.sayPreview
                 var note = Self.logNote(ev)
                 // `<recall>` / `<search>`: look it up, then the talker answers from what was found.
@@ -1396,6 +1404,7 @@ final class CallController: NSObject, NSMenuDelegate {
                 }
             } catch {
                 guard myTurn == self.turn, !(error is CancellationError) else { return }
+                self.releaseTeacher()
                 Timeline.log("error", ["what": error.localizedDescription, "turn": myTurn])
                 self.askedAt = nil   // an error line isn't an answer: keep it out of the wait times
                 self.overlay.setClaudeCaption("⚠️ \(error.localizedDescription)")
@@ -1889,24 +1898,28 @@ final class CallController: NSObject, NSMenuDelegate {
         artistAside = job.aside
         if job.aside != nil { asideGen += 1; asideNoted = false }
         let myCall = callID, myGen = artistGen, myLesson = lessonToken
-        final class Box { var stream = ArtistStream() }
+        final class Box { var stream = ArtistStream(); var said = false }
         let box = Box()
         Task { @MainActor in
             do {
                 _ = try await artist.ask(BrainQuestion(text: job.text, snapshot: job.snapshot)) { delta in
                     guard myCall == self.callID, myGen == self.artistGen, myLesson == self.lessonToken else { return }
-                    for ev in box.stream.feed(delta) { self.handleArtist(ev, snapshot: job.snapshot) }
+                    for ev in box.stream.feed(delta) { if case .say = ev { box.said = true }; self.teacherDo { self.handleArtist(ev, snapshot: job.snapshot) } }
                 }
                 if myCall == self.callID, myGen == self.artistGen, myLesson == self.lessonToken {
-                    for ev in box.stream.finish() { self.handleArtist(ev, snapshot: job.snapshot) }
+                    for ev in box.stream.finish() { if case .say = ev { box.said = true }; self.teacherDo { self.handleArtist(ev, snapshot: job.snapshot) } }
                 }
             } catch {
                 if myCall == self.callID, myGen == self.artistGen, !(error is CancellationError) {
                     self.overlay.setClaudeCaption("⚠️ Artist: \(error.localizedDescription)")
+                    // The talker said "let me show you": don't leave that hanging in silence.
+                    if !box.said, !job.quiet, myLesson == self.lessonToken {
+                        self.teacherDo { self.says("Sorry, I couldn't make the drawing this time.") }
+                    }
                 }
             }
             guard myCall == self.callID, myGen == self.artistGen else { return }
-            self.finishTeacherOutput()   // closes the paper/narration even if it forgot to
+            self.teacherDo { self.finishTeacherOutput() }   // closes the paper/narration even if it forgot to
             self.artistBusy = false
             self.artistAside = nil
             self.maybeEndAside()
@@ -1917,6 +1930,17 @@ final class CallController: NSObject, NSMenuDelegate {
                 self.overlay.setArtistBusy(false)
             }
         }
+    }
+
+    /// Runs what the teacher sent now, or after the talker's hand-over line (see `heldTeacher`).
+    private func teacherDo(_ f: @escaping () -> Void) {
+        if heldTeacher != nil { heldTeacher!.append(f) } else { f() }
+    }
+
+    private func releaseTeacher() {
+        guard let held = heldTeacher else { return }
+        heldTeacher = nil
+        held.forEach { $0() }
     }
 
     private func handleArtist(_ ev: ArtistEvent, snapshot: Snapshot) {
@@ -2529,7 +2553,7 @@ final class CallController: NSObject, NSMenuDelegate {
         let text = type == "scene3d"
             ? "Part of your 3D model id=\"\(id)\" failed: \(message)\nThe rest of the model is on screen. Reply with only a <step3d id=\"\(id)\"> that does that part correctly (no <say>)."
             : "Your <\(type)> with id=\"\(id)\" failed with this error: \(message)\nReply with a corrected block that uses the same id."
-        runArtist(ArtistJob(text: text, snapshot: snap))
+        runArtist(ArtistJob(text: text, snapshot: snap, quiet: true))
     }
 
     // MARK: - Mouse: ⌥ marking, hovering cards, scrolling

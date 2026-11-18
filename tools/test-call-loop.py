@@ -101,10 +101,31 @@ def c_hang(r):
     return f
 
 
+def c_teacher_order(r):
+    # The teacher starts alongside the talker ("explain…"); a quick teacher must not be heard before the
+    # talker's hand-over line.
+    want = ["Sure, let me show you.", "Here is the sketch."]
+    return [] if r["speech"] == want else [f"said {r['speech']}, want {want}"]
+
+
+def c_teacher_fail(r):
+    # The talker said "let me show you" and the teacher failed: a short line, not silence.
+    f = []
+    if len(r["speech"]) != 2 or r["speech"][0] != "Sure, let me show you." or "drawing" not in r["speech"][1]:
+        f.append(f"said {r['speech']}")
+    if states(r)[-2:] != ["ready", "idle"]: f.append(f"ended with {states(r)[-2:]}")
+    return f
+
+
+HANDOVER = {"FAKE_CLAUDE_REPLY": "<say>Sure, let me show you.</say>"}
+
 SCENARIOS = {
     "answer": (["what is this"], 10, {}, c_answer),
     "stuffed": (["what is this", "again"], 26, {"FAKE_CLAUDE_MODE": "stuffed", "POINKY_STALL_SECS": "8",
                                                 "POINKY_STUCK_SECS": "60", "POINKY_ASK_GAP": "16"}, c_stuffed),
+    "teacher-order": (["explain how the heart works"], 10, HANDOVER, c_teacher_order),
+    "teacher-fail": (["explain how the heart works"], 10, {**HANDOVER, "FAKE_ARTIST_MODE": "fail"}, c_teacher_fail),
+    "teacher-crash": (["explain how the heart works"], 10, {**HANDOVER, "FAKE_ARTIST_MODE": "crash"}, c_teacher_fail),
     "hang": (["what is this"], 22, {"FAKE_CLAUDE_MODE": "hang", "POINKY_STALL_SECS": "8", "POINKY_STUCK_SECS": "12"}, c_hang),
 }
 
