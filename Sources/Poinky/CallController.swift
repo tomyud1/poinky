@@ -92,6 +92,7 @@ final class CallController: NSObject, NSMenuDelegate {
     private var receiptTurn = -1
     private var guideReceiptID: String?
     private var reminderTimer: Timer?
+    private var stuckTimer: Timer?   // the stuck detector, also while a session is still starting (no watchers yet)
     private var dueLines: [String] = []          // reminders that came due, waiting for a moment you're free
     private var reminderCheckPending = false
     private var reminderActivity: NSObjectProtocol?   // keeps macOS from napping Poinky when one is minutes away
@@ -167,6 +168,8 @@ final class CallController: NSObject, NSMenuDelegate {
         var handover = false          // it just took over from showing you: resend what you asked about
     }
     private var handsWatch: Timer?
+    /// Doing it for you and not waiting for an answer: its acts run, then it looks again.
+    private var doerWorking: Bool { guide?.acting == true && guide?.waiting == false }
     private var guide: Guide?
     private var guideBrain: Brain?
     private var doerBrain: Brain?
@@ -193,6 +196,8 @@ final class CallController: NSObject, NSMenuDelegate {
     private var firstTokenTurn = -1
     /// Longer than this in one state means Poinky is stuck (nothing legitimate takes this long:
     /// replies have their own 75 s watchdog, captures 6 s, web searches 30 s).
+    /// Tests: the session takes this long to start (a speech engine that doesn't come up).
+    static let testStallStart = ProcessInfo.processInfo.environment["POINKY_TEST_STALL_START"].flatMap(Double.init)
     static let stuckAfter: [State: TimeInterval] = {
         if let s = ProcessInfo.processInfo.environment["POINKY_STUCK_SECS"].flatMap(Double.init) { return [.thinking: s, .starting: s] }   // tests
         return [.thinking: 150, .starting: 300]
@@ -210,8 +215,14 @@ final class CallController: NSObject, NSMenuDelegate {
     // MARK: - Setup
 
     func setup() {
+        // A session with no "session.end" before the next "app.start" (and no "app.quit") means Poinky was
+        // killed, crashed, froze or lost power: the timeline couldn't tell those from a hang before.
+        Timeline.log("app.start", ["commit": String(Updater.running.commit.prefix(7))])
         reminderTimer = Timer.scheduledTimer(withTimeInterval: Self.reminderTick, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.checkReminders() }
+        }
+        stuckTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.checkStuck() }
         }
         NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.checkReminders() }
@@ -447,6 +458,7 @@ final class CallController: NSObject, NSMenuDelegate {
 
     /// Quitting: stop background agents too (nothing would hear their results).
     func shutdown() {
+        Timeline.log("app.quit", ["inSession": state != .idle])
         quitting = true
         agents.stopAll()
         endCall(quietly: true)
@@ -467,17 +479,22 @@ final class CallController: NSObject, NSMenuDelegate {
         Task { @MainActor in
             // Missing permissions open the permissions page (one at a time, with Allow / Open Settings
             // and a Restart button for Screen Recording) instead of an alert.
+            // (After each wait: a session reset meanwhile (stuck, Start Fresh) must not be set up by this one.)
             guard await SpeechListener.requestPermissions() else {
+                guard myCall == callID else { return }
                 state = .idle
                 WelcomeWindowController.shared.offerFix(.permissions)
                 return
             }
+            guard myCall == callID else { return }
             guard await ScreenCapture.hasPermission() else {
+                guard myCall == callID else { return }
                 state = .idle
                 ScreenCapture.requestPermission()
                 WelcomeWindowController.shared.offerFix(.permissions, askedScreen: true)
                 return
             }
+            guard myCall == callID else { return }
 
             config = AppConfig.load()
             goodVoice = speaker.configure(language: config.language, voiceName: config.voice, rate: config.speechRate)
@@ -514,8 +531,10 @@ final class CallController: NSObject, NSMenuDelegate {
             listener.autoEnd = startedWithMic
             do {
                 try audio.start(mic: startedWithMic)
+                if let s = Self.testStallStart { try? await Task.sleep(nanoseconds: UInt64(s * 1e9)) }
                 try await listener.start(audio: audio, language: config.language)
             } catch {
+                guard myCall == callID else { return }
                 endCall()
                 showAlert("Couldn't start listening.", info: error.localizedDescription)
                 return
@@ -1663,7 +1682,9 @@ final class CallController: NSObject, NSMenuDelegate {
         guard myTurn == turn, state != .idle else { return }
         if firstTokenTurn != myTurn {
             firstTokenTurn = myTurn
-            Timeline.log("firstToken", ["turn": myTurn, "after": askedAt.map { ((ProcessInfo.processInfo.systemUptime - $0) * 1000).rounded() / 1000 } ?? -1])
+            // (No "after" when nobody asked: a helper's report or a reminder Poinky started itself.)
+            Timeline.log("firstToken", askedAt.map { ["turn": myTurn, "after": ((ProcessInfo.processInfo.systemUptime - $0) * 1000).rounded() / 1000] }
+                                       ?? ["turn": myTurn, "unasked": true])
         }
         handle(parser.feed(delta))
         speaker.prepareVoices(for: delta)   // another script is coming: load its voice now
@@ -1832,6 +1853,9 @@ final class CallController: NSObject, NSMenuDelegate {
         maybeEndAside()
         releaseReports()   // the helpers that were reported merge into the buddy
         guard state == .speaking || state == .thinking else { return }
+        // A walkthrough's next step is still being prepared: that's thinking, not "ready" (it flipped
+        // ready → speaking between steps, and a report or reminder could start in that gap).
+        if guide != nil, guideBusy || doerWorking { state = .thinking; return }
         state = restingState
         if endAfterSpeaking {
             endAfterSpeaking = false
@@ -2282,7 +2306,9 @@ final class CallController: NSObject, NSMenuDelegate {
         guideBusy = true
         guideLine = ""
         let myCall = callID
-        state = .thinking
+        // Still saying the last step: it stays "speaking" (finishedSpeaking turns it to "thinking" if this
+        // step isn't ready by then), so the notch doesn't flip to thinking mid-sentence.
+        if !speaker.isSpeaking { state = .thinking }
         Task { @MainActor in
             do {
                 let snap = try await ScreenCapture.capture(screen: screen, marks: [], cursor: self.localCursor(on: screen))
@@ -2321,7 +2347,8 @@ final class CallController: NSObject, NSMenuDelegate {
                 self.speaker.endTurn()
             }
             self.guideBusy = false
-            if self.state == .thinking { self.state = self.restingState }
+            // (Poinky is about to click and type for this step: still working, not "ready".)
+            if self.state == .thinking, !(self.doerWorking && myCall == self.callID) { self.state = self.restingState }
             if let next = self.guideRerun, self.guide != nil {
                 self.guideRerun = nil
                 self.guideStep(action: next)
@@ -2581,7 +2608,7 @@ final class CallController: NSObject, NSMenuDelegate {
                 }
                 self.anchorTick += 1
                 if self.anchorTick % 6 == 0 { self.followAnchor() }
-                if self.anchorTick % 60 == 0 { self.checkIdle(); self.checkStuck() }
+                if self.anchorTick % 60 == 0 { self.checkIdle() }
                 // Auto-hide: idle time counts from when Poinky finished (not from your question),
                 // and never while it's listening, talking, guiding you or acting for you.
                 if self.state != self.restingState || self.guide != nil || self.speaker.isSpeaking {

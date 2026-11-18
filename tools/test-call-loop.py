@@ -117,6 +117,36 @@ def c_teacher_fail(r):
     return f
 
 
+def c_doer(r):
+    # A walkthrough (here Poinky doing it, four steps with a 1.2 s look each): it never says "ready" until
+    # it's done, and every step's line is said once, in order.
+    f = []
+    want = ["Okay, doing it.", "Step one is here.", "Step two is here.", "Step four.", "All done."]
+    if r["speech"] != want: f.append(f"said {r['speech']}")
+    seq = states(r)
+    try: last = len(seq) - 1 - seq[::-1].index("speaking")
+    except ValueError: last = 0
+    first = seq.index("thinking") if "thinking" in seq else 0
+    if "ready" in seq[first:last]: f.append(f"went 'ready' between steps: {seq}")
+    return f
+
+
+def c_start_stall(r):
+    # The session never finishes starting (speech engine): the stuck detector must see it (it only ran once
+    # a session was up) and start over.
+    f = []
+    if not evs(r, "stuck", state="starting"): f.append("no stuck detection while starting")
+    if not evs(r, "reset"): f.append("no reset")
+    return f
+
+
+DOER = {"FAKE_CLAUDE_REPLY": "<say>Okay, doing it.</say><do>wait a moment</do>",
+        "FAKE_SLOW_ROLE": "guide", "FAKE_FIRST_TOKEN_SECS": "1.2",
+        "FAKE_GUIDE_REPLIES": json.dumps(['<say>Step one is here.</say><act>{"do":"wait","s":0.2}</act>',
+                                          '<say>Step two is here.</say><act>{"do":"wait","s":0.2}</act>',
+                                          '<act>{"do":"wait","s":0.2}</act>',
+                                          '<say>Step four.</say><act>{"do":"wait","s":0.2}</act>',
+                                          '<done>All done.</done>'])}
 HANDOVER = {"FAKE_CLAUDE_REPLY": "<say>Sure, let me show you.</say>"}
 
 SCENARIOS = {
@@ -126,6 +156,8 @@ SCENARIOS = {
     "teacher-order": (["explain how the heart works"], 10, HANDOVER, c_teacher_order),
     "teacher-fail": (["explain how the heart works"], 10, {**HANDOVER, "FAKE_ARTIST_MODE": "fail"}, c_teacher_fail),
     "teacher-crash": (["explain how the heart works"], 10, {**HANDOVER, "FAKE_ARTIST_MODE": "crash"}, c_teacher_fail),
+    "doer": (["do it for me"], 22, DOER, c_doer),
+    "start-stall": (["hi"], 14, {"POINKY_TEST_STALL_START": "60", "POINKY_STUCK_SECS": "6"}, c_start_stall),
     "hang": (["what is this"], 22, {"FAKE_CLAUDE_MODE": "hang", "POINKY_STALL_SECS": "8", "POINKY_STUCK_SECS": "12"}, c_hang),
 }
 

@@ -15,9 +15,11 @@ FAKE_CLAUDE_MODE:
 FAKE_TOKENS_PER_TURN: talker results report usage growing by that many input tokens per message (size-based rotation).
 Breaking it on purpose (tools/test-call-loop.py):
   FAKE_CLAUDE_REPLIES  a JSON list of talker replies, used in order (the last one repeats)
-  FAKE_FIRST_TOKEN_SECS  wait this long before the first word (an interrupt still ends the turn)
+  FAKE_FIRST_TOKEN_SECS  wait this long before the first word (an interrupt still ends the turn); the talker's,
+                       or FAKE_SLOW_ROLE's (talker, guide, artist)
   FAKE_PIECES / FAKE_PIECE_SECS  stream each reply in this many pieces (default 2), this far apart (0.05)
   FAKE_CRASH_AFTER=N   the talker exits after its Nth answer (Claude Code dying between questions)
+  FAKE_GUIDE_REPLIES   the walkthrough's / doer's replies, in order (a JSON list)
   FAKE_ARTIST_MODE     the teacher: answer (FAKE_ARTIST_REPLY) / crash / hang / fail
   FAKE_SEARCH_MODE / FAKE_SEARCH_SECS  the web searcher: answer after that many seconds (default 0.3) / hang
 `--version` and `auth status` answer like the real CLI (signed in, except in "signedout" mode).
@@ -140,10 +142,13 @@ while True:
         if amode == "fail":
             out({"type": "result", "subtype": "success", "is_error": True, "result": "API Error: 500 internal"}); continue
         reply = os.environ.get("FAKE_ARTIST_REPLY", '<lesson title="Fake"><say>Here is the sketch.</say><step>[{"op":"text","x":40,"y":40,"text":"hi"}]</step></lesson>')
+    elif role == "guide" and os.environ.get("FAKE_GUIDE_REPLIES"):
+        replies = json.loads(os.environ["FAKE_GUIDE_REPLIES"])
+        reply = replies[min(turns, len(replies) - 1)]
     else:
         replies = json.loads(os.environ["FAKE_CLAUDE_REPLIES"]) if os.environ.get("FAKE_CLAUDE_REPLIES") else [os.environ.get("FAKE_CLAUDE_REPLY", "<say>Fake answer.</say>")]
         reply = replies[min(turns, len(replies) - 1)]
-    first = float(os.environ.get("FAKE_FIRST_TOKEN_SECS", "0")) if role == "talker" else 0.0
+    first = float(os.environ.get("FAKE_FIRST_TOKEN_SECS", "0")) if role == os.environ.get("FAKE_SLOW_ROLE", "talker") else 0.0
     turns += 1
     if not stream(reply, first): continue
     per = int(os.environ.get("FAKE_TOKENS_PER_TURN", "0"))
