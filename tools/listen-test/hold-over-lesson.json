@@ -9,6 +9,7 @@
   {"at": 7.0, "probe": "your words stay while the lesson would start", "expect": {"state": "listening", "kind": "you", "text": "plants use light to make sugar"}},
   {"at": 7.4, "words": "plants use light to make sugar how", "final": true},
   {"at": 7.6, "keys": "up"},
-  {"at": 7.9, "probe": "your question is asked, not dropped as an echo", "expect": {"kind": "you", "contains": "plants use light to make sugar how"}},
+  {"at": 7.75, "probe": "your words as you let go", "expect": {"kind": "you", "contains": "plants use light to make sugar how"}},
+  {"at": 8.4, "probe": "your question is answered, not dropped as an echo of the lesson", "expect": {"kind": "claude", "text": "Fake answer."}},
   {"at": 9.0, "quit": true}
  ]}
