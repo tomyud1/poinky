@@ -1,0 +1,51 @@
+<!doctype html><html><head><meta charset="utf-8">
+<!-- Where the paper sits (web/lesson.js with the app's frames): it grows inside the band the app found free
+     (lo/hi) instead of sliding up onto what's being explained, the app can move an open paper off the next
+     question's subject (SB.lessonPlace), and a paper you dragged stays where you put it. -->
+<style>html,body{margin:0;height:100%;background:#fff}iframe{position:absolute;inset:0;width:1400px;height:900px;border:0}</style>
+</head><body>
+<iframe id="ov" src="../../web/overlay.html"></iframe>
+<script>
+(async () => {
+  const results = [], fail = [];
+  const check = (ok, what) => { results.push((ok ? 'ok   ' : 'FAIL ') + what); if (!ok) fail.push(what); };
+  const wait = ms => new Promise(r => setTimeout(r, ms));
+  try {
+    const W = document.getElementById('ov').contentWindow;
+    for (let i = 0; i < 100 && !(W.SB && W.SB.lessonBegin); i++) await wait(50);
+    const SB = W.SB;
+    const done = async () => { for (let i = 0; i < 400 && SB.lessonBusy(); i++) await wait(50); await wait(500); };
+    const paper = () => W.document.querySelector('.card.lpaper');
+    const rect = () => { const r = paper().getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height, b: r.bottom }; };
+    const tall = n => Array.from({ length: n }, (_, i) => ({ op: 'text', id: 't' + i, x: 40, y: 60 + i * 70, text: 'line ' + i, size: 30 }));
+
+    // The app found 420..860 free (a diagram sits above, at 100..400): a tall drawing must not slide up onto it.
+    SB.lessonBegin({ x: 700, y: 420, w: 560, h: 440, h0: 240, lo: 420, hi: 860 }, 'band');
+    SB.lessonStep({ ops: tall(14) }, 1);
+    await done();
+    let r = rect();
+    check(r.y >= 419 && r.b <= 870, `a tall paper stays inside the free band 420–860, within its border (top ${Math.round(r.y)}, bottom ${Math.round(r.b)})`);
+
+    // The next question is about what's under the paper: the app moves it (same width).
+    SB.lessonPlace({ x: 60, y: 120, lo: 120, hi: 860 });
+    await wait(700);
+    r = rect();
+    check(Math.abs(r.x - 60) < 2 && Math.abs(r.y - 120) < 2, `the app moves the open paper (now at ${Math.round(r.x)},${Math.round(r.y)})`);
+    check(Math.abs(r.w - 560) < 2, 'it keeps its width, so its drawing keeps its size');
+
+    // You drag it: it stays there, whatever the app asks next.
+    const bar = paper().querySelector('.bar');
+    bar.dispatchEvent(new W.MouseEvent('mousedown', { bubbles: true, clientX: 100, clientY: 130 }));
+    W.dispatchEvent(new W.MouseEvent('mousemove', { bubbles: true, clientX: 300, clientY: 230 }));
+    W.dispatchEvent(new W.MouseEvent('mouseup', { bubbles: true, clientX: 300, clientY: 230 }));
+    await wait(100);
+    const dragged = rect();
+    SB.lessonPlace({ x: 700, y: 420, lo: 420, hi: 860 });
+    await wait(700);
+    r = rect();
+    check(paper().dataset.moved === '1' && Math.abs(r.x - dragged.x) < 2 && Math.abs(r.y - dragged.y) < 2,
+      `a paper you dragged stays where you put it (${Math.round(r.x)},${Math.round(r.y)})`);
+  } catch (e) { check(false, 'threw: ' + e.message); }
+  window.testResults = { pass: fail.length === 0, lines: results };
+})();
+</script></body></html>

@@ -252,12 +252,12 @@ def c_teacher_interrupt(r):
     return f
 
 
-def seed_previous(mins=4, app="Cursor", you="can you make the first paragraph shorter",
+def seed_previous(mins=4, app="Notebook Test App", window="bugs.md", you="can you make the first paragraph shorter",
                   poinky="Sure. The first paragraph is the Mint timer and sketchboard bug list, so I'll shorten that one."):
     def make():
         at = time.time() - mins * 60
         day = time.strftime("%Y-%m-%d", time.localtime(at))
-        return {f"conversations/{day}.jsonl": json.dumps({"at": at, "you": you, "poinky": poinky, "app": app}) + "\n"}
+        return {f"conversations/{day}.jsonl": json.dumps({"at": at, "you": you, "poinky": poinky, "app": app, "window": window}) + "\n"}
     return make
 
 
@@ -271,7 +271,7 @@ def c_carry_kept(r):
     talk = asked(r, "talker")
     if not talk: return ["no question"]
     t = talk[0]
-    return [] if "Mint timer" in t and "NOT the screen now" in t and "Cursor" in t else ["the previous session isn't there, labeled: " + t[:700]]
+    return [] if "Mint timer" in t and "NOT the screen now" in t and "Notebook Test App" in t else ["the previous session isn't there, labeled: " + t[:700]]
 
 
 def seed_reminder(secs=7):

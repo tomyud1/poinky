@@ -1,0 +1,18 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Edges and small things</title>
+<!-- Targets right at the screen's edges (a window flush with them), tiny checkboxes and icons, and a dense
+     table: for tools/test-screen.sh. -->
+<style>body{margin:0;font-family:-apple-system,Helvetica,sans-serif;background:#fff;color:#222}
+.tl{position:absolute;left:2px;top:2px;font-size:15px}.tr{position:absolute;right:2px;top:2px;font-size:15px}
+.bl{position:absolute;left:2px;bottom:2px;font-size:15px}.br{position:absolute;right:2px;bottom:2px;font-size:15px}
+.mid{position:absolute;left:300px;top:200px;width:700px;font-size:16px;line-height:1.35}
+.opts{position:absolute;left:300px;top:420px;font-size:11px;line-height:1.5}
+.opts label{display:block}.opts input{width:10px;height:10px;margin:0 4px 0 0;vertical-align:-1px}
+.icons{position:absolute;left:300px;top:520px}.icons svg{margin-right:22px}
+table{position:absolute;left:300px;top:600px;border-collapse:collapse;font-size:13px}td{border:1px solid #bbb;padding:2px 8px}</style></head><body>
+<div class="tl">File menu</div><div class="tr">Wi-Fi off</div><div class="bl">Downloads</div><div class="br">Sync paused</div>
+<div class="mid">The refund window closes after fourteen days. Opened items can be returned only with the
+original packaging. Shipping costs are not refunded unless the item arrived damaged.</div>
+<div class="opts"><label><input id="cb1" type="checkbox">Email me about offers</label><label><input id="cb2" type="checkbox" checked>Share data with partners</label><label><input id="cb3" type="checkbox">Remember this device</label></div>
+<div class="icons"><svg id="gear" width="18" height="18" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4" fill="none" stroke="#333" stroke-width="2.5"/><path d="M12 1v4M12 19v4M1 12h4M19 12h4M4 4l3 3M17 17l3 3M4 20l3-3M17 7l3-3" stroke="#333" stroke-width="2.5"/></svg><svg id="trash" width="16" height="18" viewBox="0 0 16 18"><path d="M1 4h14M5 4V1h6v3M3 4l1 13h8l1-13" fill="none" stroke="#c22" stroke-width="2"/></svg></div>
+<table><tr><td>Plan</td><td>Monthly</td><td>Yearly</td></tr><tr><td>Basic</td><td>$9</td><td>$90</td></tr><tr><td>Pro</td><td>$19</td><td>$190</td></tr></table>
+</body></html>

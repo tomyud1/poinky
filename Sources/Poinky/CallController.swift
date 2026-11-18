@@ -111,6 +111,9 @@ final class CallController: NSObject, NSMenuDelegate {
     private var freshTalkerSince: TimeInterval = 0
     private var needsRecap = false
     private var swappedTalker = false   // this session's talker was swapped: the summary's key facts go with each question
+    private var sayGate: (turn: Int, passed: [String], held: [String], settled: Bool) = (-1, [], [], false)
+    private var handOverTurn = -1            // the turn `handOverSaid` belongs to
+    private var handOverSaid: [String] = []  // what the talker said so far while the teacher sketches the answer
     private var sentOnce: [String: String] = [:]   // context that rarely changes: sent again only when it does
     // Swap when the talker's conversation gets this big (Claude Code reports it with each answer), or after
     // this many questions (a fallback, and for the API brain, which doesn't report it and drops old screenshots).
@@ -155,6 +158,12 @@ final class CallController: NSObject, NSMenuDelegate {
     private var narrationOpen = false        // the teacher is adding spoken lines to the voice
     private var lessonScale: CGFloat = 1
     private var focusRegion: CGRect?          // what's being explained (screen points): the paper and captions avoid it
+    /// What this question is about, each on its own (screen points): your marks, the talker's marks, the
+    /// place its brief names, the teacher's screen marks. The paper never covers them when it can help it.
+    private var paperSubjects: [CGRect] = []
+    private var cursorBox: CGRect?           // around the cursor when you asked: avoided if there's room anyway
+    private var pendingPaper: (title: String, token: Int)?   // a new lesson's paper, opened with its first step
+    private var pendingPaperToken = 0
     private var pendingFocus: FocusCrop?      // close-up of what you marked, taken when you marked it
     private var focusTask: Task<Void, Never>?
     private var anchor: (id: CGWindowID, origin: CGPoint)?   // the window the drawings belong to
@@ -651,6 +660,9 @@ final class CallController: NSObject, NSMenuDelegate {
         anchor = nil
         pendingFocus = nil
         focusRegion = nil
+        paperSubjects = []
+        cursorBox = nil
+        pendingPaper = nil
         endGuide()
         guideBrain?.stop()
         guideBrain = nil
@@ -1202,9 +1214,13 @@ final class CallController: NSObject, NSMenuDelegate {
                 let lines = all.filter { $0.hasPrefix("- ") }
                 if !lines.isEmpty { note = lines.prefix(4).joined(separator: "\n") }
                 // Lasting facts about the user that came up: "About me" learns them over time.
+                // Only with the user's own words quoted, and found in what they said (`UserFacts.aboutLines`).
                 if config.memoryEnabled {
-                    for a in all.filter({ $0.hasPrefix("ABOUT:") }).prefix(2) {
-                        Identity.learn(String(a.dropFirst(6)).trimmingCharacters(in: .whitespaces), into: Identity.userURL)
+                    let userLines = exchanges.map(\.user) + UserFacts.pinned(in: summary)
+                    let known = Memory.facts()   // the talker's <remember> already kept it ("my sister's birthday…")
+                    for fact in UserFacts.aboutLines(all.joined(separator: "\n"), userLines: userLines)
+                    where !known.contains(where: { UserFacts.similar($0, fact) }) {
+                        Identity.learn(fact, into: Identity.userURL)
                     }
                 }
             }
@@ -1336,6 +1352,7 @@ final class CallController: NSObject, NSMenuDelegate {
     /// free the artist for your next question. The same teacher session goes on (its reply is interrupted, not
     /// its process): it still knows what's on the paper, and its next brief says where you stopped hearing it.
     private func stopLesson() {
+        pendingPaper = nil
         heldTeacher = nil
         lessons.interrupt()   // whatever it hadn't finished saying goes into the record as cut off, at the line you heard last
         guard lessonOpen || narrationOpen || !pendingSteps.isEmpty || artistBusy else { return }
@@ -1405,14 +1422,18 @@ final class CallController: NSObject, NSMenuDelegate {
         let focusCrop = pendingFocus
         pendingFocus = nil
         // What's being asked about: your marks, else what you marked before scrolling, else around the cursor.
+        cursorBox = cursor.map { CGRect(x: $0.x - 140, y: $0.y - 70, width: 280, height: 140) }
         if let r = ScreenCapture.focusRect(marks: marks, screen: screen.frame.size) {
             focusRegion = r
         } else if let f = focusCrop {
             focusRegion = f.rectPoints
-        } else if let c = cursor {
-            focusRegion = CGRect(x: c.x - 140, y: c.y - 70, width: 280, height: 140)
         } else {
-            focusRegion = nil
+            focusRegion = cursorBox
+        }
+        paperSubjects = []
+        if let r = ScreenCapture.focusRect(marks: marks, screen: screen.frame.size) ?? focusCrop?.rectPoints {
+            paperSubjects = [r]
+            movePaperOff()   // an open paper over what you just marked moves aside
         }
         anchorDrawings(to: focusRegion, on: screen)
         placeCaptions()
@@ -1421,7 +1442,7 @@ final class CallController: NSObject, NSMenuDelegate {
             PartQuestion.isAbout(question, part: $0.name.isEmpty ? $0.part : $0.name) ? $0 : nil
         }
         if partQ != nil { overlay.markPickAsked() }
-        let sketchNow = partQ == nil && !proactive && artist != nil && Self.wantsSketch(question, marked: !marks.isEmpty || focusCrop != nil)
+        let marked = !marks.isEmpty || focusCrop != nil
         talkTask = Task { @MainActor in
             do {
                 let capStart = ProcessInfo.processInfo.systemUptime
@@ -1436,11 +1457,16 @@ final class CallController: NSObject, NSMenuDelegate {
                 guard myTurn == self.turn else { return }
                 self.lastSnapshot = snap
                 self.replyScale = snap.scale
-                // Clearly a "explain / show me" question: start the teacher now, alongside the talker.
-                // "Is this right?" about selected or marked work with math in it: the teacher checks it (the fast
-                // talker answers without a thinking step and can get a check wrong).
-                let checkNow = !sketchNow && partQ == nil && !proactive && self.artist != nil
-                    && Self.wantsWorkChecked(question, work: self.frontContext.selection + "\n" + (snap.focus?.text ?? ""))
+                // What the question is (TalkerRoute): clearly "explain / show me" starts the teacher now, alongside
+                // the talker; their own work ("did I get number 2 right?", or "is this right?" about selected or
+                // marked math) gets the teacher's careful check (the fast talker answers without a thinking step
+                // and got checks wrong).
+                let route = TalkerRoute.classify(proactive ? "" : question, marked: marked,
+                                                 work: self.frontContext.selection + "\n" + (snap.focus?.text ?? ""))
+                let teacherNow = partQ == nil && !proactive && self.artist != nil
+                let sketchNow = teacherNow && route.teacher == .sketch
+                let checkNow = teacherNow && route.teacher == .check
+                if sketchNow || checkNow { Timeline.log("route", ["teacher": route.teacher.rawValue, "why": route.reason, "turn": myTurn]) }
                 if partQ != nil || sketchNow || checkNow { self.heldTeacher = [] }
                 if let p = partQ {
                     self.teacherStartedTurn = myTurn
@@ -1450,10 +1476,10 @@ final class CallController: NSObject, NSMenuDelegate {
                 } else if sketchNow || checkNow {
                     self.teacherStartedTurn = myTurn
                     self.requestVisual(checkNow
-                        ? "Check the user's work (the selected or marked text) step by step: say plainly whether it's right, show exactly which step went wrong and the fix. Started in parallel with the talker; the talker only says a short hand-over line."
+                        ? "Check the user's work step by step (what they selected or marked, else the problem their question names on screen, like \"number 2\"): say plainly whether it's right, show exactly which step went wrong and the fix. Started in parallel with the talker; the talker only says a short hand-over line."
                         : "Explain this to the user (2D lesson, or a 3D model if they asked for 3D). Started in parallel with the talker; the talker only says a short hand-over line.")
                 }
-                let q = BrainQuestion(text: self.talkerText(question, snap, proactive: proactive), snapshot: snap)
+                let q = BrainQuestion(text: self.talkerText(question, snap, route: route, proactive: proactive), snapshot: snap)
                 self.overlay.glance()
                 self.addReceipt(q, question: proactive ? "" : question, snap: snap, turn: myTurn)
                 if sketchNow || checkNow { self.receiptAlso("The teacher (\(self.config.model(for: .artist))) got the same screenshot to sketch an answer") }
@@ -1461,6 +1487,7 @@ final class CallController: NSObject, NSMenuDelegate {
                 guard myTurn == self.turn else { return }
                 let ev = self.parser.finish()
                 self.handle(ev)
+                if self.sayGateOn { self.settleSayGate(finished: true) }
                 self.releaseTeacher()
                 var said = self.parser.sayPreview
                 var note = Self.logNote(ev)
@@ -1507,22 +1534,17 @@ final class CallController: NSObject, NSMenuDelegate {
         }
     }
 
-    /// Two asks the fast talker kept getting wrong, said right where it reads last.
-    static func answerShapeHint(_ question: String) -> String? {
-        let q = question.lowercased()
-        if ["punchier", "shorter", "rewrite", "reword", "rephrase", "fix the grammar", "more formal", "less formal",
-            "tighten", "make it sound", "make this sound"].contains(where: { q.contains($0) }) {
-            return "(New wording: <say> must contain the whole new text itself, word for word, then \"Want me to swap it in?\", then <offer say=\"Swapping it in.\"><do>Replace the selected text with exactly: …the new text…</do></offer>. Rewrite only the selected words: no greeting or sign-off they didn't select. Never \"here's a version\" without the words.)"
-        }
-        if ["short version", "sum it up", "summarize", "summarise", "tl;dr", "tldr", "gist", "in a nutshell", "quick summary"].contains(where: { q.contains($0) }) {
-            return "(Summary: at most 3 short sentences, about 40 words, the main point first. Don't list every item.)"
-        }
-        return nil
+    /// The teacher started with the talker (`TalkerRoute.teacher`): the talker only hands over.
+    static func teacherLine(checking: Bool, question: String) -> String {
+        let like = TalkerRoute.handOverExample(question, checking: checking)
+        return checking
+            ? "(The teacher is ALREADY checking their work step by step in a narrated sketch. Say ONE short hand-over line in your own voice and in the user's language, like \"\(like)\" (never mention a teacher, and don't say whether it's right: the sketch will), mark the work it's about, and do NOT write <visual> or <agent>.)"
+            : "(The teacher is ALREADY preparing a narrated sketch for this question. Say ONE short hand-over line in your own voice and in the user's language, like \"\(like)\" (never mention a teacher, don't explain it yourself), mark what it's about, and do NOT write <visual>.)"
     }
 
     static let keyFactsHeader = "Still true from earlier in this session (use it when it matters for the answer): "
 
-    static let formatReminder = "(Reply only with the tags: start with <say>, then any of <visual>, <draw>, <agent>, <do>, <search>, <recall>, <remind>… Nothing outside them, no markdown.)"
+    static let formatReminder = "(Reply only with the tags: start with <say>, then any of <visual>, <draw>, <agent>, <do>, <search>, <recall>, <remind>… Nothing outside them, no markdown. With <visual>, <say> is only one short hand-over line.)"
 
     /// "Now: Sunday, 8 November 2026, 6:42 PM (Asia/Jerusalem)", so "what time is it?", "is it late?",
     /// "what did I do this morning?" get real answers. A few tokens per question.
@@ -1534,8 +1556,8 @@ final class CallController: NSObject, NSMenuDelegate {
         return "Now: \(f.string(from: date)) (\(zone.identifier))."
     }
 
-    private func talkerText(_ question: String, _ snap: Snapshot, proactive: Bool = false) -> String {
-        var lines = [proactive ? "(Nobody asked anything: this is a background update for you to pass on.) \(question)"
+    private func talkerText(_ question: String, _ snap: Snapshot, route: TalkerRoute, proactive: Bool = false) -> String {
+        var lines = [proactive ? "(Nobody asked anything: this is a background update for you to pass on in one or two short sentences: what was done and what to check. Don't mark anything.) \(question)"
                                : "User said: \"\(question)\"",
                      Self.nowLine(),
                      "Screenshot size: \(snap.width)x\(snap.height) px (coordinates use this size)."]
@@ -1570,11 +1592,8 @@ final class CallController: NSObject, NSMenuDelegate {
                 }
             }
         }
-        // Questions about Poinky itself get the current settings.
-        let q = question.lowercased()
-        let aboutApp = ["poinky", "poinky", "setting", "voice", "speed", "faster", "slower", "buddy", "shortcut",
-                        "sound", "teacher", "notch", "memory", "remember", "forget", "hotkey", "keyboard"].contains { q.contains($0) }
-        if aboutApp && !proactive { lines.append("Current Poinky settings: " + settingsSummary()) }
+        // Questions about Poinky itself get the current settings (and the manual, below).
+        if route.aboutApp && !proactive { lines.append("Current Poinky settings: " + settingsSummary()) }
         // Background agents, and any results the user hasn't heard yet.
         let status = agents.statusLines()
         if !status.isEmpty { lines.append("Background agents:\n" + status.joined(separator: "\n")) }
@@ -1582,21 +1601,19 @@ final class CallController: NSObject, NSMenuDelegate {
             "- \(p.name) \"\(p.title)\" in \(p.dir.path), \(p.status) \(Self.ago(p.started)) (key \(p.key)): \(HelperStream.clip(p.summary, 220))"
         }
         // (Rarely changes: sent when it does, or when the question is about helpers. The talker remembers it.)
-        let aboutHelpers = ["agent", "helper", "continue", "earlier", "last time", "resume", "undo"].contains { q.contains($0) }
-        if !earlier.isEmpty, sendOnce("earlier", earlier.joined()) || aboutHelpers {
+        if !earlier.isEmpty, sendOnce("earlier", earlier.joined()) || route.aboutHelpers {
             lines.append("Earlier agents (to continue one, `<agent resume=\"KEY\">what to do now</agent>`; it remembers its work):\n" + earlier.joined(separator: "\n"))
         }
         let next = agents.nextNames(3)
         lines.append("If you start an agent now, it will be called \(next[0]) (several: \(next.joined(separator: ", ")), in that order).")
         let scheduled = Reminders.summary()
-        let aboutTime = ["remind", "schedul", "alarm", "every ", "tomorrow", "later", "timer"].contains { q.contains($0) }
-        if !scheduled.isEmpty, sendOnce("reminders", scheduled) || aboutTime { lines.append(scheduled) }
+        if !scheduled.isEmpty, sendOnce("reminders", scheduled) || route.aboutTime { lines.append(scheduled) }
         let commands = AgentManager.commands
-        if !commands.isEmpty, sendOnce("commands", commands.joined(separator: ",")) || aboutHelpers {
+        if !commands.isEmpty, sendOnce("commands", commands.joined(separator: ",")) || route.aboutHelpers {
             lines.append("The user's commands and skills an agent can run (start one whose task begins with it, like `/review`): " + commands.prefix(40).map { "/" + $0 }.joined(separator: ", "))
         }
-        if ["usage", "used", "cost", "spent", "limit", "tokens", "how much", "plan"].contains(where: { q.contains($0) }), !agents.agents.isEmpty || !pastHelpers(limit: 1).isEmpty {
-            lines.append(agents.usageLine())
+        if route.aboutUsage, !agents.agents.isEmpty || !pastHelpers(limit: 1).isEmpty {
+            lines.append(agents.usageLine() + " (On a subscription this counts toward the plan's limits, not a bill.)")
         }
         if let c = helperContext { lines.append(c); helperContext = nil }
         if let n = offerNote, !proactive { lines.append(n); offerNote = nil }
@@ -1620,14 +1637,30 @@ final class CallController: NSObject, NSMenuDelegate {
         if partTurn == turn {
             lines.append(PartQuestion.talkerLine(name: overlay.lastPickName))
         } else if teacherStartedTurn == turn {
-            lines.append("(The teacher is ALREADY preparing a narrated sketch for this question. Say ONE short hand-over line in your own voice and in the user's language, like \"Sure, let me show you.\" (never mention a teacher), mark what it's about, and do NOT write <visual>.)")
+            lines.append(Self.teacherLine(checking: route.teacher == .check, question: question))
         } else if artistBusy {
             lines.append("(The teacher is still drawing your last visual request.)")
         }
-        if !proactive, let hint = Self.answerShapeHint(question) { lines.append(hint) }
+        if !proactive, let hint = route.shapeHint { lines.append(hint) }
         // Last, where a model that answers without a thinking step still sees it: the shape of the reply.
         lines.append(Self.formatReminder)
-        return lines.joined(separator: "\n")
+        // Instructions this question can use that the always-sent system prompt leaves out (see `TalkerExtras`),
+        // first in the message so the question and the format reminder stay last.
+        var extras: [TalkerExtras.Part] = []
+        if route.aboutApp && !proactive { extras.append(.app) }
+        if !status.isEmpty || route.aboutHelpers { extras.append(.helpers) }
+        if route.wantsVideo || video.window.isOpen || video.job?.status == .cooking { extras.append(.video) }
+        let sections = extras.filter { sendExtra($0) }.map { TalkerExtras.text($0) }.filter { !$0.isEmpty }
+        return (sections + lines).joined(separator: "\n")
+    }
+
+    /// True when the talker hasn't been given `part` recently: it stays in the conversation, so it's sent again
+    /// only after `TalkerExtras.resendAfter` questions (or to a fresh talker).
+    private func sendExtra(_ part: TalkerExtras.Part) -> Bool {
+        let key = "extra." + part.rawValue
+        if let at = sentOnce[key].flatMap(Int.init), talkerTurns - at < TalkerExtras.resendAfter { return false }
+        sentOnce[key] = String(talkerTurns)
+        return true
     }
 
     // MARK: - Receipts (what each question sent)
@@ -1836,22 +1869,64 @@ final class CallController: NSObject, NSMenuDelegate {
         }
     }
 
+    /// The talker's own hand-overs (`TalkerRoute.afterSay`): not for lookup answers, background updates or
+    /// while the teacher already sketches in parallel (that has its own gate), and only when there is a teacher.
+    private var sayGateOn: Bool { !lookupReply && artist != nil && teacherStartedTurn != turn && config.artistEnabled }
+
+    /// Lets the held rest of the `<say>` play, or drops it when a `<visual>` follows (then a short hand-over line).
+    private func settleSayGate(finished: Bool) {
+        guard sayGate.turn == turn, !sayGate.settled else { return }
+        switch TalkerRoute.afterSay(parser.text, finished: finished) {
+        case .wait:
+            return
+        case .visual:
+            sayGate.settled = true
+            if !sayGate.held.isEmpty {
+                Timeline.log("talker.cut", ["turn": turn, "pieces": sayGate.held.count, "why": "visual"])
+                speaker.enqueue(TalkerRoute.sketchLine(lastQuestion))
+            }
+        case .other:
+            sayGate.settled = true
+            for s in sayGate.held { speaker.enqueue(s) }
+            if !sayGate.held.isEmpty { state = .speaking }
+        }
+        sayGate.held = []
+    }
+
     private func handle(_ ev: TalkEvents) {
         // Answering from web pages or old transcripts: they can't make Poinky do anything.
         let ev = lookupReply ? ev.onlySpeech() : ev
         for s in ev.sentences {
+            var s = s
+            // The teacher is explaining it: the talker's part is one short hand-over (`TalkerRoute.handOver`).
+            if teacherStartedTurn == turn, partTurn != turn {
+                if handOverTurn != turn { handOverTurn = turn; handOverSaid = [] }
+                guard let kept = TalkerRoute.handOver(piece: s, before: handOverSaid, question: lastQuestion) else {
+                    Timeline.log("talker.cut", ["turn": turn, "words": s.split(separator: " ").count])
+                    continue
+                }
+                if kept != s { Timeline.log("talker.cut", ["turn": turn, "replaced": true]) }
+                handOverSaid.append(kept)
+                s = kept
+            } else if sayGateOn {
+                if sayGate.turn != turn { sayGate = (turn, [], [], false) }
+                if !sayGate.settled, TalkerRoute.firstSentenceDone(sayGate.passed) { sayGate.held.append(s); continue }
+                sayGate.passed.append(s)
+            }
             speaker.enqueue(s)
             state = .speaking
         }
+        if sayGateOn { settleSayGate(finished: false) }
         if !ev.sentences.isEmpty, spokenCaption.isEmpty { overlay.setClaudeCaption("…") }
         let lines = lastSnapshot?.text.lines ?? []
         let shotSize = lastSnapshot.map { CGSize(width: $0.width, height: $0.height) } ?? .zero
         for d in ev.draws {
-            let snapped = MarkSnapper.snap(d, lines: lines, size: shotSize, scale: replyScale)
+            let snapped = MarkSnapper.snap(d, lines: lines, size: shotSize, scale: replyScale, text: lastSnapshot?.text)
             overlay.apply(snapped, scale: replyScale)
             // What the talker marked is what's being explained: keep the paper and captions off it.
             if let b = Placement.bounds(ofDraw: snapped, scale: replyScale) {
                 focusRegion = focusRegion.map { $0.union(b) } ?? b
+                addPaperSubject(b)
                 placeCaptions()
             }
         }
@@ -1864,7 +1939,12 @@ final class CallController: NSObject, NSMenuDelegate {
             for f in ev.forget { Memory.forget(f) }
             // The two files that shape every session: changed only by tags in the talker's own reply
             // (lookup replies can't, see `onlySpeech`), and only their "Learned over time" part.
-            for f in ev.aboutUser { Identity.learn(f, into: Identity.userURL) }
+            // "About me" keeps only what the user said about themselves (never the screen, the app, a name on a page).
+            let said = history.suffix(3).map(\.user) + [lastQuestion]
+            for f in ev.aboutUser {
+                if UserFacts.fromUser(f, said: said) { Identity.learn(f, into: Identity.userURL) }
+                else { Timeline.log("aboutUser.dropped", [:]) }
+            }
             for f in ev.aboutSelf { Identity.learn(f, into: Identity.identityURL) }
             for f in ev.unlearnUser { Identity.unlearn(f, from: Identity.userURL) }
             for f in ev.unlearnSelf { Identity.unlearn(f, from: Identity.identityURL) }
@@ -2037,6 +2117,11 @@ final class CallController: NSObject, NSMenuDelegate {
 
     private func requestVisual(_ brief: String, aside: String? = nil) {
         guard artist != nil, let snap = lastSnapshot else { return }
+        // "Relates to the diagram, around 570,540": the paper keeps off that too.
+        if let r = Placement.region(inBrief: brief), snap.scale > 0 {
+            let pts = CGRect(x: r.minX / snap.scale, y: r.minY / snap.scale, width: r.width / snap.scale, height: r.height / snap.scale)
+            addPaperSubject(pts, move: false)
+        }
         var lines = ["Brief from the talker: \(brief)",
                      "User said: \"\(lastQuestion)\""]
         let talkerSaid = parser.sayPreview
@@ -2125,8 +2210,21 @@ final class CallController: NSObject, NSMenuDelegate {
         lessonScale = snapshot.scale
         switch ev {
         case .lessonStart(let title, let continuing):
-            openPaper(title: title, continuing: continuing)
             lessons.title(rec, title)
+            if continuing && overlay.scene.contains(where: { $0.type == "lesson" }) {
+                openPaper(title: title, continuing: true)
+            } else {
+                // The paper opens with the first step, so it can keep off what that step marks on the screen too
+                // (or after a moment without one).
+                pendingPaperToken += 1
+                let token = pendingPaperToken
+                pendingPaper = (title, token)
+                currentTag = nil
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { [weak self] in
+                    guard let self, let p = self.pendingPaper, p.token == token, self.state != .idle else { return }
+                    self.openPendingPaper()
+                }
+            }
         case .say(let line):
             openNarration()
             nextTag += 1
@@ -2137,6 +2235,10 @@ final class CallController: NSObject, NSMenuDelegate {
             speaker.enqueue(line, tag: nextTag)
             state = .speaking
         case .step(let json):
+            if pendingPaper != nil {
+                if let b = Placement.bounds(ofStep: json, scale: snapshot.scale) { addPaperSubject(b, move: false) }
+                openPendingPaper()
+            }
             if !lessonOpen { openPaper(title: "", continuing: true) }
             lessons.step(rec)
             schedule(.paper(snapScreenMarks(json, snapshot: snapshot)))
@@ -2148,6 +2250,7 @@ final class CallController: NSObject, NSMenuDelegate {
             lessons.step(rec, model: id, note: n)
             schedule(.model(id: id, code: code, note: n, aside: aside))
         case .lessonEnd:
+            pendingPaper = nil   // a lesson with no steps: no empty paper
             lessonOpen = false
         case .card(let spec):
             for m in Self.cardModels(spec) { lessons.model(rec, m) }
@@ -2173,7 +2276,7 @@ final class CallController: NSObject, NSMenuDelegate {
               var items = obj["items"] as? [[String: Any]] else { return json }
         let size = overlay.screen?.frame.size ?? CGSize(width: 1440, height: 900)
         for i in items.indices where items[i]["type"] as? String == "scene3d" {
-            let room = Placement.paper(screen: size, focus: focusRegion, occupied: [], maxWidth: 900)
+            let room = Placement.paper(screen: size, room: paperRoom(except: "scene3d"), maxWidth: 900)
             let w = room.width, h = min(room.height, w * 0.85)
             items[i]["x"] = room.minX * scale; items[i]["y"] = room.minY * scale
             items[i]["w"] = w * scale; items[i]["h"] = h * scale
@@ -2193,15 +2296,23 @@ final class CallController: NSObject, NSMenuDelegate {
         }
     }
 
-    private func openPaper(title: String, continuing: Bool) {
+    private func openPaper(title: String, continuing: Bool, keepTag: Bool = false) {
         lessonOpen = true
-        currentTag = nil
+        if !keepTag { currentTag = nil }
         let frame = paperFrame()
         // A dark screen behind the paper gets a chalkboard (or what the setting says).
         let light = config.paperLook == "auto" ? lastSnapshot.flatMap { PaperLook.brightness(of: $0, in: frame) } : nil
-        overlay.lessonBegin(frame: frame, title: title, continuing: continuing, avoid: focusRegion,
+        // The frame's height is the room it may grow into: the paper stays inside it (`lo`/`hi`).
+        overlay.lessonBegin(frame: frame, title: title, continuing: continuing, avoid: nil,
                             look: PaperLook.pick(setting: config.paperLook, brightness: light), session: callID)
         placeCaptions(extra: [frame])
+    }
+
+    /// The paper of a new lesson, waiting for its first step: open it now (its first line may already be playing).
+    private func openPendingPaper() {
+        guard let p = pendingPaper else { return }
+        pendingPaper = nil
+        openPaper(title: p.title, continuing: false, keepTag: true)
     }
 
     /// The teacher's lines join the voice queue (after anything the talker is still saying).
@@ -2213,6 +2324,7 @@ final class CallController: NSObject, NSMenuDelegate {
 
     /// The teacher finished writing: no more lines are coming.
     private func finishTeacherOutput() {
+        pendingPaper = nil
         lessonOpen = false
         if narrationOpen {
             narrationOpen = false
@@ -2287,7 +2399,7 @@ final class CallController: NSObject, NSMenuDelegate {
         guard !lines.isEmpty,
               var obj = (try? JSONSerialization.jsonObject(with: Data(json.utf8))) as? [String: Any],
               let ops = obj["ops"] as? [[String: Any]] else { return json }
-        obj["ops"] = ops.map { op in op["op"] as? String == "screen" ? MarkSnapper.snapItem(op, lines: lines, size: size, scale: snapshot.scale) : op }
+        obj["ops"] = ops.map { op in op["op"] as? String == "screen" ? MarkSnapper.snapItem(op, lines: lines, size: size, scale: snapshot.scale, text: snapshot.text) : op }
         guard let data = try? JSONSerialization.data(withJSONObject: obj), let out = String(data: data, encoding: .utf8) else { return json }
         return out
     }
@@ -2295,52 +2407,55 @@ final class CallController: NSObject, NSMenuDelegate {
     /// Where the paper goes: the largest free space beside, above or below what's being explained.
     private func paperFrame() -> CGRect {
         let size = overlay.screen?.frame.size ?? CGSize(width: 1440, height: 900)
-        let others = overlay.scene.filter { $0.type != "lesson" }.compactMap { item -> CGRect? in
+        return Placement.paper(screen: size, room: paperRoom(except: "lesson"))
+    }
+
+    /// What a paper or 3D model keeps off: what the question is about first, then other cards, the text
+    /// on the screen (an empty part of it is better) and the cursor.
+    private func paperRoom(except type: String) -> Placement.Room {
+        let others = overlay.scene.filter { $0.type != type }.compactMap { item -> CGRect? in
             guard let b = item.box, b.count == 4 else { return nil }
             return CGRect(x: b[0], y: b[1], width: b[2], height: b[3])
         }
-        return Placement.paper(screen: size, focus: focusRegion, occupied: others)
+        let k = lastSnapshot?.scale ?? 1
+        let text = k > 0 ? (lastSnapshot?.text.lines ?? []).map { CGRect(x: $0.rect.minX / k, y: $0.rect.minY / k, width: $0.rect.width / k, height: $0.rect.height / k) } : []
+        // Nothing marked or named yet: what's around the cursor is all there is to go on.
+        let subjects = paperSubjects.isEmpty ? (focusRegion.map { [$0] } ?? []) : paperSubjects
+        return Placement.Room(subjects: subjects, soft: cursorBox.map { [$0] } ?? [], occupied: others, text: text)
+    }
+
+    /// Something this question is about. An open paper that covers it moves aside (`move`), unless you
+    /// dragged it somewhere yourself.
+    private func addPaperSubject(_ r: CGRect, move: Bool = true) {
+        let size = overlay.screen?.frame.size ?? CGSize(width: 1440, height: 900)
+        let r = r.intersection(CGRect(origin: .zero, size: size))
+        // A "place" that's most of the screen says nothing about where the paper can go.
+        guard !r.isNull, r.width > 2, r.height > 2, r.width * r.height < size.width * size.height * 0.75 else { return }
+        if !paperSubjects.contains(r) { paperSubjects.append(r) }
+        if move { movePaperOff() }
+    }
+
+    /// The open paper covers what this question is about: move it to a spot that doesn't (same width,
+    /// so its drawing stays the same size). The page leaves alone a paper you dragged.
+    private func movePaperOff() {
+        guard let paper = overlay.scene.first(where: { $0.type == "lesson" }), let b = paper.box, b.count == 4 else { return }
+        let rect = CGRect(x: b[0], y: b[1], width: b[2], height: b[3])
+        // A mark mostly on the paper is about the paper ("what does this step mean?"): it stays.
+        func onPaper(_ r: CGRect) -> Bool { let i = r.intersection(rect); return !i.isNull && i.width * i.height >= 0.6 * r.width * r.height }
+        guard !paperSubjects.contains(where: onPaper), paperSubjects.contains(where: { $0.intersects(rect) }) else { return }
+        let size = overlay.screen?.frame.size ?? CGSize(width: 1440, height: 900)
+        let frame = Placement.paper(screen: size, room: paperRoom(except: "lesson"), width: rect.width, minHeight: min(rect.height, Placement.minPaperHeight))
+        guard !paperSubjects.contains(where: { $0.intersects(frame) }) else { return }   // nowhere better: leave it
+        overlay.lessonPlace(frame: frame)
+        placeCaptions(extra: [frame])
     }
 
     /// Captions move to the top when the bottom has what's being explained (or the paper).
     private func placeCaptions(extra: [CGRect] = []) {
         let size = overlay.screen?.frame.size ?? CGSize(width: 1440, height: 900)
-        var avoid = extra + overlay.occupiedRects
+        var avoid = extra + overlay.occupiedRects + paperSubjects
         if let f = focusRegion { avoid.append(f) }
         overlay.captionsAtTop(Placement.captionsAtTop(screen: size, avoid: avoid))
-    }
-
-    /// Questions that deserve a sketch right away (so the teacher can start with the talker).
-    /// "Is this right?" / "check my answer" about work that has math in it (digits with =, ², ×…).
-    static func wantsWorkChecked(_ q: String, work: String) -> Bool {
-        let s = q.lowercased()
-        let asks = ["is this right", "is this correct", "is that right", "is that correct", "is it right", "is it correct",
-                    "am i right", "did i get", "check this", "check my", "is my answer", "where did i go wrong", "any mistakes",
-                    "זה נכון", "צדקתי", "תבדוק"]
-        guard asks.contains(where: { s.contains($0) }) else { return false }
-        return work.range(of: #"\d\s*[=+×÷^²³√<>≤≥−-]|[=²³√≤≥]\s*\d"#, options: .regularExpression) != nil
-    }
-
-    static func wantsSketch(_ q: String, marked: Bool) -> Bool {
-        let s = q.lowercased()
-        // "How do I…" / "where do I…" questions get a step-by-step guide instead.
-        let howTo = ["how do i", "how can i", "how to ", "where do i", "where can i", "help me ", "walk me through", "show me how to"]
-        if howTo.contains(where: { s.contains($0) }) { return false }
-        // A video or a long explanation: the talker decides (it may make a video instead of a sketch).
-        let long = ["video", "explainer", "long explanation", "in depth", "in-depth", "deep dive", "the whole story", "full story"]
-        if long.contains(where: { s.contains($0) }) { return false }
-        let strong = ["explain", "how does", "how do ", "how is ", "how are", "how it works", "show me", "draw", "sketch",
-                      "diagram", "in 3d", "3d model", "teach me", "visualize", "what's the difference",
-                      "what is the difference", "compare"]
-            // Checking their work (math, science): the teacher checks carefully; the fast talker can slip.
-            + ["check my work", "check my answer", "is my answer", "did i solve", "did i get it right", "where did i go wrong"]
-            // The same asks in other languages people talk to Poinky in (Hebrew, Spanish, French, German).
-            + ["תסביר", "הסבר", "תסבירי", "איך עובד", "איך זה עובד", "תראה לי", "תראי לי", "תצייר", "מה ההבדל",
-               "explica", "cómo funciona", "explique", "comment ça marche", "erklär", "wie funktioniert"]
-        if strong.contains(where: { s.contains($0) }) { return true }
-        // Marked something and asked what/why about it.
-        let soft = ["what does", "what is", "what's", "what are", "why ", "mean"]
-        return marked && soft.contains(where: { s.contains($0) }) && s.split(separator: " ").count >= 3
     }
 
     // MARK: - Guide mode
@@ -2534,7 +2649,7 @@ final class CallController: NSObject, NSMenuDelegate {
             state = .speaking
         }
         for d in ev.draws {
-            let snapped = MarkSnapper.snap(d, lines: snap.text.lines, size: CGSize(width: snap.width, height: snap.height), scale: snap.scale)
+            let snapped = MarkSnapper.snap(d, lines: snap.text.lines, size: CGSize(width: snap.width, height: snap.height), scale: snap.scale, text: snap.text)
             overlay.clearAnnotations()
             overlay.apply(snapped, scale: snap.scale)
             guide?.target = Placement.bounds(ofDraw: snapped, scale: snap.scale)
