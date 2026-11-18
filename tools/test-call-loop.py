@@ -22,13 +22,22 @@ def pids():
 
 
 def run(name, asks, quit_after, env=None, args=()):
+    env = dict(env or {})
+    api = env.pop("_API", None)   # the API brain, against tools/fake-api.py on this port
+    server = None
+    if api:
+        server = subprocess.Popen([sys.executable, os.path.join(ROOT, "tools/fake-api.py"), api],
+                                  env={**os.environ, **{k: v for k, v in env.items() if k.startswith("FAKE_API")}})
+        time.sleep(0.5)
     d = tempfile.mkdtemp(prefix=f"poinky-loop-{name}-")
     os.makedirs(f"{d}/support"); os.makedirs(f"{d}/tl")
     with open(f"{d}/support/config.json", "w") as f:
-        json.dump({"homeShown": True, "checkForUpdates": False, "sounds": False}, f)
+        json.dump({"homeShown": True, "checkForUpdates": False, "sounds": False,
+                   **({"brain": "api", "apiKey": "test"} if api else {})}, f)
     e = {"POINKY_SUPPORT_DIR": f"{d}/support", "POINKY_TIMELINE_DIR": f"{d}/tl",
          "POINKY_SPEECH_LOG": f"{d}/speech.txt", "POINKY_CLAUDE_CMD": FAKE, "FAKE_CLAUDE_LOG": f"{d}/fake.txt"}
-    e.update(env or {})
+    e.update(env)
+    if api: e["POINKY_API_URL"] = f"http://127.0.0.1:{api}/v1/messages"
     cmd = ["open", "-n", "-g"]
     for k, v in e.items(): cmd += ["--env", f"{k}={v}"]
     cmd += [APP, "--args"]
@@ -51,6 +60,7 @@ def run(name, asks, quit_after, env=None, args=()):
         if pid:
             hung = True
             os.kill(pid, 9)
+    if server: server.terminate()
     events = []
     for fn in sorted(os.listdir(f"{d}/tl")):
         for line in open(f"{d}/tl/{fn}"):
@@ -147,6 +157,19 @@ DOER = {"FAKE_CLAUDE_REPLY": "<say>Okay, doing it.</say><do>wait a moment</do>",
                                           '<act>{"do":"wait","s":0.2}</act>',
                                           '<say>Step four.</say><act>{"do":"wait","s":0.2}</act>',
                                           '<done>All done.</done>'])}
+def c_api_interrupt(r):
+    # The API brain: a long reply is cut off by the next question, which must not wait for the old stream to
+    # finish (it waited the whole rest of it: the brain answers one question at a time).
+    f = []
+    toks = [e for e in r["events"] if e["ev"] == "firstToken"]
+    if len(toks) < 2: return [f"{len(toks)} first tokens: {[e['ev'] for e in r['events']]}"]
+    if toks[1].get("after", 99) > 1.5: f.append(f"the second answer started {toks[1].get('after')} s after it was asked")
+    if not r["speech"] or r["speech"][-1] != "Short.": f.append(f"said {r['speech']}")
+    return f
+
+
+LONG = "<say>" + " ".join(f"Word{i}." for i in range(60)) + "</say>"
+
 HANDOVER = {"FAKE_CLAUDE_REPLY": "<say>Sure, let me show you.</say>"}
 
 SCENARIOS = {
@@ -158,6 +181,9 @@ SCENARIOS = {
     "teacher-crash": (["explain how the heart works"], 10, {**HANDOVER, "FAKE_ARTIST_MODE": "crash"}, c_teacher_fail),
     "doer": (["do it for me"], 22, DOER, c_doer),
     "start-stall": (["hi"], 14, {"POINKY_TEST_STALL_START": "60", "POINKY_STUCK_SECS": "6"}, c_start_stall),
+    "api-interrupt": (["tell me a long story", "stop, say something short"], 16,
+                      {"_API": "18765", "FAKE_API_WORD_SECS": "0.12", "POINKY_ASK_GAP": "2",
+                       "FAKE_API_REPLIES": json.dumps([LONG, "<say>Short.</say>"])}, c_api_interrupt),
     "hang": (["what is this"], 22, {"FAKE_CLAUDE_MODE": "hang", "POINKY_STALL_SECS": "8", "POINKY_STUCK_SECS": "12"}, c_hang),
 }
 

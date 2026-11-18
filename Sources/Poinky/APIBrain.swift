@@ -31,7 +31,13 @@ final class APIBrain: Brain {
 
     func warmUp() async throws {}
 
-    func stop() { history.removeAll() }
+    /// The reply being streamed now. Cut off (you interrupted, asked again, the session ended) it ends at
+    /// once: the next question used to wait for all of it, since questions are answered one at a time.
+    private var current: Task<String, Error>?
+
+    func stop() { current?.cancel(); history.removeAll() }
+
+    func cancelCurrent() { current?.cancel() }
 
     func ask(_ question: BrainQuestion, onText: @escaping (String) -> Void) async throws -> String {
         // One question at a time, so the conversation history stays in order.
@@ -50,14 +56,17 @@ final class APIBrain: Brain {
                         "content": question.imageBlocks + [["type": "text", "text": question.text]]])
         trimOldImages()
 
+        let t = Task { @MainActor in try await self.stream(onText: onText) }
+        current = t
+        defer { if current == t { current = nil } }
         do {
-            let full = try await stream(onText: onText)
+            let full = try await withTaskCancellationHandler { try await t.value } onCancel: { t.cancel() }
             history.append(["role": "assistant",
                             "content": [["type": "text", "text": full.isEmpty ? "(no reply)" : full]]])
             return full
         } catch {
             history.removeLast() // keep user/assistant turns alternating
-            throw error
+            throw t.isCancelled ? CancellationError() : error   // (URLSession says "cancelled" its own way)
         }
     }
 
@@ -73,7 +82,7 @@ final class APIBrain: Brain {
         // Automatic: Haiku can skip thinking entirely (faster). Other current models don't accept that, so leave it to them.
         if effort.isEmpty && model.contains("haiku") { body["thinking"] = ["type": "disabled"] }
 
-        var req = URLRequest(url: URL(string: "https://api.anthropic.com/v1/messages")!)
+        var req = URLRequest(url: Self.endpoint)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "content-type")
         req.setValue(apiKey, forHTTPHeaderField: "x-api-key")
@@ -117,6 +126,9 @@ final class APIBrain: Brain {
         }
         return full
     }
+
+    /// Tests: POINKY_API_URL points at tools/fake-api.py.
+    private static let endpoint = URL(string: ProcessInfo.processInfo.environment["POINKY_API_URL"] ?? "https://api.anthropic.com/v1/messages")!
 
     private func trimOldImages() {
         var seen = 0
