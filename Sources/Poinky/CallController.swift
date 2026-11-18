@@ -555,7 +555,7 @@ final class CallController: NSObject, NSMenuDelegate {
             do {
                 try audio.start(mic: startedWithMic)
                 if let s = Self.testStallStart { try? await Task.sleep(nanoseconds: UInt64(s * 1e9)) }
-                try await listener.start(audio: audio, language: config.language)
+                try await listener.start(audio: audio, languages: SpeechLanguages.list(config))
             } catch {
                 guard myCall == callID else { return }
                 endCall()
@@ -706,7 +706,7 @@ final class CallController: NSObject, NSMenuDelegate {
             try? await Task.sleep(nanoseconds: UInt64(attempt) * 600_000_000)
             guard myCall == self.callID, self.state != .idle, !self.listener.running else { return }
             do {
-                try await self.listener.start(audio: self.audio, language: self.config.language)
+                try await self.listener.start(audio: self.audio, languages: SpeechLanguages.list(self.config))
                 self.listener.autoEnd = self.mode == .handsFree
             } catch {
                 if attempt < 3 { self.restartListener(attempt: attempt + 1); return }
@@ -826,6 +826,7 @@ final class CallController: NSObject, NSMenuDelegate {
         let here = screenWithMouse()
         if here != overlay.screen, overlay.occupiedRects.isEmpty { overlay.show(on: here) }
         pushCommitted = true
+        listener.setContext(speechContext())
         Timeline.log("keys.down", ["state": "\(state)"])
         captionFade?.cancel()
         if buddyHidden { setBuddyHidden(false) }
@@ -864,6 +865,19 @@ final class CallController: NSObject, NSMenuDelegate {
         guard let id = talkTarget else { return }
         talkTarget = nil
         overlay.helperListen(id: id, on: false)
+    }
+
+    /// Words the speech engine should expect: what was on screen at the last look (OCR), the window title and
+    /// selection, helper names, your name, and words from the last exchanges (`SpeechContext`).
+    private func speechContext() -> SpeechContext {
+        var words = ["Poinky"] + agents.agents.map(\.name) + AgentManager.names
+        if let name = FirstRun.userName() { words.append(name) }
+        words += SpeechContext.interesting(in: frontContext.window + "\n" + frontContext.selection, limit: 20)
+        if let snap = lastSnapshot {
+            words += SpeechContext.interesting(in: snap.text.lines.map(\.text).joined(separator: "\n"), limit: 60)
+        }
+        for h in history.suffix(3).reversed() { words += SpeechContext.interesting(in: h.user + "\n" + h.assistant, limit: 12) }
+        return SpeechContext(words: words, recent: history.suffix(2).map(\.user))
     }
 
     /// Let go: send what you said (or drop it if it was a shortcut or too short).
@@ -1775,6 +1789,7 @@ final class CallController: NSObject, NSMenuDelegate {
         let lesson = ended?.digest()
         if keep {
             history.append(Said(user: you, assistant: poinky, turn: t, lesson: lesson))
+            listener.setContext(speechContext())   // a follow-up in a call uses the words just said
             if history.count > 8 { history.removeFirst() }
             sessionExchanges.append(Said(user: Recall.clip(you, 300), assistant: Recall.clip(poinky, 400), turn: t, lesson: lesson))
             if sessionExchanges.count > 40 { sessionExchanges.removeFirst() }
