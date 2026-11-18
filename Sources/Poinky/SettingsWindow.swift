@@ -421,6 +421,7 @@ private struct VoiceTab: View {
                     }
                 }
             }
+            SpeechRecognitionSection(model: model)
             Section("Apple voice (used for other languages, or if the natural voice is off)") {
                 HStack {
                     Picker("Voice", selection: $model.config.voice) {

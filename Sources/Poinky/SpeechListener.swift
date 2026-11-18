@@ -87,7 +87,8 @@ final class SpeechListener {
     }
     /// (A "." left over from the segment before can start the next final: ". and how do I…")
     static func trimmed(_ text: String) -> String {
-        String(text.drop { ".,;:!?…-– ".contains($0) }).trimmingCharacters(in: .whitespaces)
+        // (Apple's Hebrew results start with a right-to-left mark.)
+        String(text.replacingOccurrences(of: "\u{200F}", with: "").drop { ".,;:!?…-– ".contains($0) }).trimmingCharacters(in: .whitespaces)
     }
     private var clearedAt: TimeInterval = 0
     /// The mic heard a voice (not just the room) since the last `clearText`.

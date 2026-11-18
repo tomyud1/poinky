@@ -348,6 +348,21 @@ final class AppleSpeechEngine: SpeechEngine {
         return nil
     }
 
+    /// A whole recording was fed at once (the mic check, the bench): let the analyzer read all of it, then settle.
+    func finishInput() async {
+        guard running, let gen = current else { return }
+        current = nil
+        input.detach()
+        settling = gen
+        gen.continuation.finish()
+        let a = gen.analyzer
+        let done = Task { try? await a.finalizeAndFinishThroughEndOfInput() }
+        _ = await SpeechDeadline.value(seconds: 8, done)
+        await Self.settle(nil, lastResult: { gen.lastResultAt })
+        settling = nil
+        Self.end(gen)
+    }
+
     /// The listener has taken the last question's words: results about the new one may come now.
     func nextQuestion() {
         let pending = held
@@ -483,5 +498,45 @@ enum SpeechDeadline {
             if first == nil { task.cancel() }
             return first
         }
+    }
+}
+
+/// Runs one engine over a recording (the mic check, the bench): start, feed it all, finish, the text.
+@MainActor
+enum SpeechRun {
+    static func transcribe(engineID: String, samples: [Float], rate: Double, language: String,
+                           context: SpeechContext = SpeechContext()) async -> String? {
+        let engine: any SpeechEngine
+        if engineID == "apple" { engine = AppleSpeechEngine() }
+        else if let e = LocalModels.make(engineID) { engine = e }
+        else { return nil }
+        var committed = "", volatile = ""
+        engine.onResult = { r in
+            guard !r.live, r.track == 0 else { return }
+            if r.isFinal { committed += " " + r.text; volatile = "" } else { volatile = r.text }
+        }
+        do { try await engine.start(languages: [language]) } catch {
+            NSLog("Poinky: \(engineID) can't hear \(language): \(error.localizedDescription)")
+            return nil
+        }
+        engine.setContext(context)
+        let fmt = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: rate, channels: 1, interleaved: false)!
+        let lead = [Float](repeating: 0, count: Int(rate * 0.2))
+        let all = lead + samples + lead
+        var off = 0
+        while off < all.count {
+            let n = min(1600, all.count - off)
+            guard let b = AVAudioPCMBuffer(pcmFormat: fmt, frameCapacity: AVAudioFrameCount(n)) else { break }
+            b.frameLength = AVAudioFrameCount(n)
+            all.withUnsafeBufferPointer { memcpy(b.floatChannelData![0], $0.baseAddress! + off, n * 4) }
+            engine.feed(b, voiced: true)
+            off += n
+            if off % 16_000 < 1600 { try? await Task.sleep(nanoseconds: 2_000_000) }
+        }
+        var text: String?
+        if let apple = engine as? AppleSpeechEngine { await apple.finishInput() } else { text = await engine.finish() }
+        engine.stop()
+        let out = text ?? SpeechListener.join(committed, volatile)
+        return SpeechListener.trimmed(out)
     }
 }

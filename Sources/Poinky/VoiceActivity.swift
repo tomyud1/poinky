@@ -9,6 +9,8 @@ final class VoiceActivity: @unchecked Sendable {
     private var lastVoice: TimeInterval = 0
     private var measured = false
     private var lastLevel: Float = 0
+    private var firstWindows = 0
+    private var firstMin: Float = 0
 
     /// How loud the voice is right now, 0…1 (relative to the room's noise).
     var level: Float {
@@ -38,9 +40,17 @@ final class VoiceActivity: @unchecked Sendable {
             var sum: Float = 0
             for j in i..<end { sum += ch[j] * ch[j] }
             let db = 20 * log10(max((sum / Float(end - i)).squareRoot(), 1e-7))
-            // The floor drops quickly to quiet moments and rises slowly (≈0.5 dB/s) in noisy rooms.
+            // The first 300 ms set the floor (a fan or a noisy room took a minute to learn, and was "voice" until
+            // then); after that it drops quickly to quiet moments and rises slowly (≈0.5 dB/s).
+            if firstWindows < 15 {
+                firstMin = firstWindows == 0 ? db : min(firstMin, db)
+                firstWindows += 1
+                if firstWindows == 15 { noiseFloor = max(noiseFloor, min(firstMin, -20)) }
+            }
             if db < noiseFloor { noiseFloor = noiseFloor * 0.7 + db * 0.3 } else { noiseFloor += 0.01 }
-            if db > max(noiseFloor + 12, -55) { voiced = true }
+            // 10 dB over the room, and above -64 dBFS. (It was -55: a soft voice on the plain built-in mic, ~-60,
+            // counted as silence in 47 % of questions, and a call then dropped its words; tools/stt-test.)
+            if db > max(noiseFloor + 10, -64) { voiced = true }
             peak = max(peak, db)
             i = end
         }
