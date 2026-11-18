@@ -1400,6 +1400,9 @@ final class CallController: NSObject, NSMenuDelegate {
                 self.askedAt = nil   // an error line isn't an answer: keep it out of the wait times
                 self.overlay.setClaudeCaption("⚠️ \(error.localizedDescription)")
                 self.speaker.enqueue(SpokenError.line(for: error))
+                // It's talking now: not "thinking" (the stuck detector, and a key press that would glue the
+                // next question onto this failed one, both go by that).
+                if self.speaker.isSpeaking { self.state = .speaking }
                 WelcomeWindowController.shared.offerFix(for: error)
             }
             guard myTurn == self.turn else { return }
