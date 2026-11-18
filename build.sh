@@ -46,7 +46,7 @@ chmod +x "$APP/Contents/Resources/phonon/install.sh"
 cp phonon/phonon_server.py "$APP/Contents/Resources/"
 # The optional local speech recognizer (Settings → Voice → Speech recognition): its source and installer.
 mkdir -p "$APP/Contents/Resources/stt/Sources/poinky-stt"
-cp stt/Package.swift stt/install.sh stt/models.json "$APP/Contents/Resources/stt/"
+cp stt/Package.swift stt/Package.resolved stt/install.sh stt/models.json "$APP/Contents/Resources/stt/"
 cp stt/Sources/poinky-stt/main.swift "$APP/Contents/Resources/stt/Sources/poinky-stt/"
 chmod +x "$APP/Contents/Resources/stt/install.sh"
 
