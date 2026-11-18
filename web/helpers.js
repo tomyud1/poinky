@@ -232,8 +232,9 @@
       }
       if (h.phase === 'asking') {
         h.phase = 'thanks'; h.t = 0; h.ask = ''; h.bub = ok ? 'Thanks!' : 'Okay, skipping it'; h.bubT = 0;
-      } else {   // answered from its card at the edge
+      } else {   // answered from its card at the edge (or its window, a notification…), maybe while on its way to you
         h.ask = ''; h.gotUntil = this.time + 2; h.gotText = ok ? '✓ Thanks' : 'Okay, skipping it'; h.lineT = 0;
+        if (h.phase === 'fly' && h.fly.kind === 'out' && !next) this.go(h, 'dock', this.slotPos(h));
       }
       if (next) this.raiseHand(id, next, nextDetail, nextKind);
       h.parked = false;
@@ -468,6 +469,7 @@
                 h.phase = h.finished ? 'ready' : 'dock'; h.t = 0; this.sound('land', { x: h.x, note: h.note }); h.squash = 0;
                 if (h.pendingDone) { const d = h.pendingDone; h.pendingDone = null; this.done(h.id, d); }
               }
+              else if (f.kind === 'out' && !h.ask) this.go(h, 'dock', this.slotPos(h));   // answered on the way
               else if (f.kind === 'out') { h.phase = 'asking'; h.t = 0; h.bub = h.ask; h.bubT = 0; this.sound('hand', { x: h.x, note: h.note }); this.react('ask', { id: h.id, name: h.name, text: h.ask }); }
               else if (f.kind === 'report') { h.phase = 'report'; h.t = 0; h.reported = false; }
             }
@@ -622,6 +624,8 @@
     }
 
     remove(h) {
+      // Gone while the main buddy faces it (its hand-off, its report): the buddy looks away again.
+      if (['bud', 'handoff', 'report'].includes(h.phase)) this.react('handoffEnd', { id: h.id });
       h.el && h.el.root.remove(); h.el && h.el.chip.remove();
       h.el && h.el.trail.forEach(t => t.remove());
       this.helpers.delete(h.id);
