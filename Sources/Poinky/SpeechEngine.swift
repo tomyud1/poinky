@@ -520,6 +520,7 @@ enum SpeechRun {
             return nil
         }
         engine.setContext(context)
+        if let local = engine as? LocalModelEngine { await local.waitReady(seconds: 30) }
         let fmt = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: rate, channels: 1, interleaved: false)!
         let lead = [Float](repeating: 0, count: Int(rate * 0.2))
         let all = lead + samples + lead
@@ -538,5 +539,30 @@ enum SpeechRun {
         engine.stop()
         let out = text ?? SpeechListener.join(committed, volatile)
         return SpeechListener.trimmed(out)
+    }
+}
+
+/// The languages a session listens for: the main one, then the others you speak.
+enum SpeechLanguages {
+    static func list(_ c: AppConfig) -> [String] {
+        var out = [c.language]
+        for l in c.otherLanguages ?? defaults(main: c.language) where !out.contains(where: { $0.prefix(2) == l.prefix(2) }) {
+            out.append(l)
+        }
+        return Array(out.prefix(2))   // two at most: each one is another recognizer running while you talk
+    }
+
+    /// macOS's preferred languages other than the main one ("he-IL" for someone whose Mac lists Hebrew).
+    static func defaults(main: String) -> [String] {
+        let regions = ["he": "he-IL", "ar": "ar-SA", "ru": "ru-RU", "uk": "uk-UA", "es": "es-ES", "fr": "fr-FR", "de": "de-DE",
+                       "it": "it-IT", "pt": "pt-BR", "ja": "ja-JP", "ko": "ko-KR", "zh": "zh-CN", "nl": "nl-NL", "tr": "tr-TR",
+                       "pl": "pl-PL", "en": "en-US", "iw": "he-IL"]
+        var out: [String] = []
+        for p in Locale.preferredLanguages {
+            let base = String(p.prefix(2)).lowercased()
+            guard base != String(main.prefix(2)).lowercased(), let l = regions[base], !out.contains(l) else { continue }
+            out.append(l)
+        }
+        return out
     }
 }

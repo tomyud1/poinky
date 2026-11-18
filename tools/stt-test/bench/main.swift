@@ -15,6 +15,12 @@ import Speech
 
 enum Timeline { static func log(_ ev: String, _ fields: [String: Any] = [:]) {} }
 enum Earcons { static let format = AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 1)! }
+struct AppConfig {   // the bits of the app's settings the listener reads
+    var language = "en-US"; var otherLanguages: [String]? = nil
+    var speechEngine = ProcessInfo.processInfo.environment["POINKY_STT_ENGINE"] ?? "auto"
+    static var dir: URL { URL(fileURLWithPath: ProcessInfo.processInfo.environment["POINKY_SUPPORT_DIR"] ?? NSTemporaryDirectory()) }
+    static func load() -> AppConfig { AppConfig() }
+}
 struct BrainError: LocalizedError { let message: String; init(_ m: String) { message = m }; var errorDescription: String? { message } }
 
 let args = CommandLine.arguments

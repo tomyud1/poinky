@@ -532,7 +532,7 @@ final class CallController: NSObject, NSMenuDelegate {
             do {
                 try audio.start(mic: startedWithMic)
                 if let s = Self.testStallStart { try? await Task.sleep(nanoseconds: UInt64(s * 1e9)) }
-                try await listener.start(audio: audio, language: config.language)
+                try await listener.start(audio: audio, languages: SpeechLanguages.list(config))
             } catch {
                 guard myCall == callID else { return }
                 endCall()
@@ -673,7 +673,7 @@ final class CallController: NSObject, NSMenuDelegate {
             try? await Task.sleep(nanoseconds: UInt64(attempt) * 600_000_000)
             guard myCall == self.callID, self.state != .idle, !self.listener.running else { return }
             do {
-                try await self.listener.start(audio: self.audio, language: self.config.language)
+                try await self.listener.start(audio: self.audio, languages: SpeechLanguages.list(self.config))
                 self.listener.autoEnd = self.mode == .handsFree
             } catch {
                 if attempt < 3 { self.restartListener(attempt: attempt + 1); return }

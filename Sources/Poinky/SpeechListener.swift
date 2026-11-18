@@ -205,13 +205,16 @@ final class SpeechListener {
         var result = SpeechPick.Result(text: appleText, engine: "apple", apple: appleText,
                                        language: languages.indices.contains(pickedTrack) ? languages[pickedTrack] : nil,
                                        appleMs: appleMs)
-        if let localTask, let local {
+        if let localTask, let local, LocalModels.speaks(local, result.language) {
             // Never wait without a way out: past the deadline, Apple's text goes.
             let deadline = max(0.25, LocalModels.deadline - (ProcessInfo.processInfo.systemUptime - started))
             let text = await SpeechDeadline.value(seconds: deadline, localTask) ?? nil
             let ms = (ProcessInfo.processInfo.systemUptime - started) * 1000
             result.engineMs = ms
-            if let text = text.map(Self.trimmed), !text.isEmpty {
+            // In a call the model also hears what came before the question; if it heard far more than Apple's
+            // engine did, that was probably the room or Claude's own voice: Apple's text goes.
+            let tooLong = autoEnd && !appleText.isEmpty && Self.words(text ?? "") > 2 * Self.words(appleText) + 4
+            if let text = text.map(Self.trimmed), !text.isEmpty, !tooLong {
                 result.text = text
                 result.engine = local.name
                 if let lang = LocalModels.lastLanguage(local) { result.language = lang }
@@ -236,6 +239,7 @@ final class SpeechListener {
         heardAudioFlag.reset()
         clearedAt = ProcessInfo.processInfo.systemUptime
         apple?.nextQuestion()
+        if !autoEnd { local?.discard() }   // holding the keys: the model hears from the moment you pressed
         MicDebug.shared.begin(autoEnd ? "hands-free" : "hold")
     }
 
@@ -372,7 +376,65 @@ final class MicFeeder: @unchecked Sendable {
         }
         seconds += dur
         lock.unlock()
-        for e in engines { e.feed(buffer, voiced: hasVoice) }
+        let out = gain.apply(buffer)
+        for e in engines { e.feed(out, voiced: hasVoice) }
+    }
+
+    let gain = InputGain()
+}
+
+/// Brings a quiet voice up to a level the recognizers like (only up, at most +24 dB, never clipping). The plain
+/// built-in mic (holding the keys has no voice processing, so no automatic gain) gives a soft voice at -50 to
+/// -60 dBFS, where Apple's engine made twice the word errors it makes at -38 (tools/stt-test).
+/// `POINKY_STT_GAIN=0` turns it off.
+final class InputGain: @unchecked Sendable {
+    private let lock = NSLock()
+    private var gainDB: Float = 0
+    private var voiceDB: Float?
+    private var floorDB: Float = -70
+    private let enabled = ProcessInfo.processInfo.environment["POINKY_STT_GAIN"] != "0"
+    static let target: Float = -26
+
+    var currentDB: Float { lock.lock(); defer { lock.unlock() }; return gainDB }
+
+    func apply(_ b: AVAudioPCMBuffer) -> AVAudioPCMBuffer {
+        guard enabled, let data = b.floatChannelData, b.frameLength > 0,
+              let out = AVAudioPCMBuffer(pcmFormat: b.format, frameCapacity: b.frameLength) else { return b }
+        out.frameLength = b.frameLength
+        let n = Int(b.frameLength), channels = Int(b.format.channelCount)
+        let window = max(1, Int(b.format.sampleRate * 0.02))
+        let src = data[0]
+        lock.lock()
+        var i = 0
+        while i < n {
+            let end = min(n, i + window)
+            var sum: Float = 0
+            for j in i..<end { sum += src[j] * src[j] }
+            let db = AudioLevels.db((sum / Float(end - i)).squareRoot())
+            if db < floorDB { floorDB = floorDB * 0.7 + db * 0.3 } else { floorDB += 0.01 }
+            if db > floorDB + 10, db > -66 {
+                // The voice's level: quick to rise, slow to fall.
+                voiceDB = voiceDB.map { db > $0 ? $0 * 0.7 + db * 0.3 : $0 * 0.995 + db * 0.005 } ?? db
+            }
+            if let v = voiceDB {
+                // Don't lift the room above -60 dBFS either (that's just louder hiss).
+                let want = max(0, min(24, InputGain.target - v, -60 - floorDB))
+                gainDB += max(-1.5, min(0.25, want - gainDB))   // up slowly (12 dB/s), down fast
+            }
+            let g = powf(10, gainDB / 20)
+            for c in 0..<channels {
+                let s = data[c], d = out.floatChannelData![c]
+                for j in i..<end {
+                    var y = s[j] * g
+                    let a = abs(y)
+                    if a > 0.7 { y = (y < 0 ? -1 : 1) * (0.7 + 0.3 * tanhf((a - 0.7) / 0.3)) }
+                    d[j] = y
+                }
+            }
+            i = end
+        }
+        lock.unlock()
+        return out
     }
 }
 

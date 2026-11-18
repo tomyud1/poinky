@@ -44,6 +44,11 @@ mkdir -p "$APP/Contents/Resources/phonon"
 cp phonon/phonon_server.py phonon/install.sh "$APP/Contents/Resources/phonon/"
 chmod +x "$APP/Contents/Resources/phonon/install.sh"
 cp phonon/phonon_server.py "$APP/Contents/Resources/"
+# The optional local speech recognizer (Settings → Voice → Speech recognition): its source and installer.
+mkdir -p "$APP/Contents/Resources/stt/Sources/poinky-stt"
+cp stt/Package.swift stt/install.sh stt/models.json "$APP/Contents/Resources/stt/"
+cp stt/Sources/poinky-stt/main.swift "$APP/Contents/Resources/stt/Sources/poinky-stt/"
+chmod +x "$APP/Contents/Resources/stt/install.sh"
 
 # Overlay page + 3D engine. libs.js packs three.js and the kit as text, so cards can
 # run them inside sandboxed frames that have no network access.
