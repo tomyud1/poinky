@@ -716,6 +716,7 @@ final class CallController: NSObject, NSMenuDelegate {
         pendingFocus = nil
         focusRegion = nil
         paperSubjects = []
+        overlay.setSubjects([])
         cursorBox = nil
         pendingPaper = nil
         endGuide()
@@ -1598,6 +1599,7 @@ final class CallController: NSObject, NSMenuDelegate {
             paperSubjects = [r]
             movePaperOff()   // an open paper over what you just marked moves aside
         }
+        overlay.setSubjects(paperSubjects)   // the speech bubble keeps off it too
         anchorDrawings(to: focusRegion, on: screen)
         placeCaptions()
         // Clicked a part of a 3D model and asked about it: the teacher answers on that model.
@@ -2755,7 +2757,7 @@ final class CallController: NSObject, NSMenuDelegate {
         let r = r.intersection(CGRect(origin: .zero, size: size))
         // A "place" that's most of the screen says nothing about where the paper can go.
         guard !r.isNull, r.width > 2, r.height > 2, r.width * r.height < size.width * size.height * 0.75 else { return }
-        if !paperSubjects.contains(r) { paperSubjects.append(r) }
+        if !paperSubjects.contains(r) { paperSubjects.append(r); overlay.setSubjects(paperSubjects) }
         if move { movePaperOff() }
     }
 

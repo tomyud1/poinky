@@ -401,6 +401,10 @@ final class Overlay: NSObject, WKNavigationDelegate {
     func captionDone(copy: String, keep: Bool) {
         js("SB.captionDone(\(jsString(copy)), \(keep))")
     }
+    /// What the answer is about (points): the speech bubble keeps off it (it already keeps off marks and cards).
+    func setSubjects(_ rects: [CGRect]) {
+        js("SB.bubbleAvoid && SB.bubbleAvoid([" + rects.map { "[\(Int($0.minX)),\(Int($0.minY)),\(Int($0.width)),\(Int($0.height))]" }.joined(separator: ",") + "])")
+    }
     func setYouCaption(_ text: String?) { js("SB.caption('you', \(jsString(text)))") }
     /// You held the keys but nothing was heard: a quiet note in your bubble (it goes away by itself).
     func youMissed(_ text: String) { js("SB.youMissed && SB.youMissed(\(jsString(text)))") }

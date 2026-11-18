@@ -252,6 +252,24 @@ struct InkMap {
         }
         return nil
     }
+    /// How many points of a pen's path (`pen`: half its width) touch ink outside `keep` (the target): a mark
+    /// that would run through the line above, a neighbour's checkbox, a diagram's line.
+    func touches(_ path: [CGPoint], pen: CGFloat, keep: CGRect, bg: Color) -> Int {
+        let r = pen + 1, ri = Int(r.rounded(.up))
+        var n = 0
+        for p in path {
+            let px = Int(p.x), py = Int(p.y)
+            var hit = false
+            for dy in -ri...ri where !hit { for dx in -ri...ri where !hit {
+                guard CGFloat(dx * dx + dy * dy) <= r * r else { continue }
+                let x = px + dx, y = py + dy
+                if keep.contains(CGPoint(x: CGFloat(x) + 0.5, y: CGFloat(y) + 0.5)) { continue }
+                if isInk(x, y, bg) { hit = true }
+            } }
+            if hit { n += 1 }
+        }
+        return n
+    }
     /// Whether the area has no ink at all.
     func clear(_ r: CGRect, bg: Color) -> Bool {
         let x0 = max(0, Int(r.minX)), x1 = min(w - 1, Int(r.maxX)), y0 = max(0, Int(r.minY)), y1 = min(h - 1, Int(r.maxY))
@@ -697,7 +715,7 @@ enum MarkSnapper {
             let b = c.isNull ? h : c
             it["type"] = "highlight"
             it["x"] = b.minX; it["y"] = b.minY; it["w"] = b.width; it["h"] = b.height
-            it["r"] = nil; it["rx"] = nil; it["ry"] = nil
+            it["r"] = nil; it["rx"] = nil; it["ry"] = nil; it["sq"] = nil; it["pad"] = nil
         }
         /// A number, bullet or checkbox just before the target's first line that OCR skipped (small, on that
         /// line: not a margin rule running down the block).
@@ -716,6 +734,19 @@ enum MarkSnapper {
             let outer = b.insetBy(dx: -(4 + 2.5) * k - pen, dy: -(4 + 2.5) * k - pen)
             if !screen.contains(outer) { highlight(); return }
             it["x"] = b.minX; it["y"] = b.minY; it["w"] = b.width; it["h"] = b.height
+            // The overlay draws it `pad` pt outside (4 by default) with corners wobbling 2.5 pt: closer when that
+            // would run through a neighbour (the line above, the next checkbox), a highlight when even that does.
+            let keep = t.insetBy(dx: -1, dy: -1)
+            func outline(_ r: CGRect) -> [CGPoint] {
+                [-2.5 * k, 0, 2.5 * k].flatMap { d in Self.roundRect(cx: r.midX, cy: r.midY, a: r.width / 2 + d, b: r.height / 2 + d, r: 0, step: 1.5) }
+            }
+            for padP: CGFloat in [4, 3, 2, 1] {
+                if ink.touches(outline(b.insetBy(dx: -padP * k, dy: -padP * k)), pen: pen + 0.5, keep: keep, bg: bg) == 0 {
+                    if padP != 4 { it["pad"] = padP }
+                    return
+                }
+            }
+            highlight()
         case "highlight":
             let b = t.insetBy(dx: -1, dy: -1)
             it["x"] = b.minX; it["y"] = b.minY; it["w"] = b.width; it["h"] = b.height
@@ -739,17 +770,63 @@ enum MarkSnapper {
                     return others.contains { $0.insetBy(dx: -pen, dy: -pen).contains(p) }
                 }.count
             }
-            // The most compact loop that's on screen, unless a somewhat wider one clears the other text.
-            var best: (CGFloat, CGFloat)?
+            // Ink the pen would touch that isn't the target (the line above, a diagram's line, a neighbour's box):
+            // the loop is drawn up to ~4% bigger than asked, so check a ring that wide.
+            let keep = t.insetBy(dx: -1, dy: -1)
+            func crosses(_ path: [CGPoint]) -> Bool { ink.touches(path, pen: pen + 1, keep: keep, bg: bg) > 0 }
+            func ellipse(_ rx: CGFloat, _ ry: CGFloat) -> [CGPoint] {
+                stride(from: 0.0, to: 2 * Double.pi, by: Double(1.5 / max(rx, ry))).flatMap { an -> [CGPoint] in
+                    [0.94, 1.0, 1.04].map { f in CGPoint(x: t.midX + rx * f * CGFloat(cos(an)), y: t.midY + ry * f * CGFloat(sin(an))) } }
+            }
+            // The most compact loop that's on screen, unless a somewhat wider one clears the other text and ink.
+            var best: (CGFloat, CGFloat)?, clean = false
             for m: CGFloat in [1.4, 1.22, 1.7, 2.1] {
                 let (rx, ry) = size(m)
-                let ell = CGRect(x: t.midX - rx - pen, y: t.midY - ry - pen, width: 2 * (rx + pen), height: 2 * (ry + pen))
+                let ell = CGRect(x: t.midX - rx * 1.04 - pen, y: t.midY - ry * 1.04 - pen, width: 2 * (rx * 1.04 + pen), height: 2 * (ry * 1.04 + pen))
                 guard screen.contains(ell) else { continue }
                 if best == nil { best = (rx, ry) }
-                if hits(rx, ry) == 0 { best = (rx, ry); break }
+                if hits(rx, ry) == 0, !crosses(ellipse(rx, ry)) { best = (rx, ry); clean = true; break }
+            }
+            if !clean {
+                // Dense text (a working between two close lines, a label on a diagram): a loop that clears it is too
+                // big or doesn't exist. A hand-drawn rounded rectangle hugs the target instead, as close as the
+                // pen allows; still touching something: a highlight, which never cuts through anything.
+                // Each side runs along the middle of the gap to whatever is next to it when that's close (the line
+                // above, a "2." before the block), never closer to the target than the pen allows.
+                func gap(_ side: Int, across lo: CGFloat, _ hi: CGFloat) -> CGFloat {   // 0 above, 1 below, 2 left, 3 right
+                    var d: CGFloat = 1
+                    while d < 40 {
+                        let r: CGRect
+                        switch side {
+                        case 0: r = CGRect(x: lo, y: t.minY - d, width: hi - lo, height: 0.5)
+                        case 1: r = CGRect(x: lo, y: t.maxY + d, width: hi - lo, height: 0.5)
+                        case 2: r = CGRect(x: t.minX - d, y: lo, width: 0.5, height: hi - lo)
+                        default: r = CGRect(x: t.maxX + d, y: lo, width: 0.5, height: hi - lo)
+                        }
+                        if !screen.contains(r) || !ink.clear(r, bg: bg) { return d }
+                        d += 1
+                    }
+                    return d
+                }
+                for padP: CGFloat in [6, 4.5, 3, 2] {
+                    let p = padP * k + pen, need = pen + 0.5
+                    // (half the gap, less the wobble: the stroke's middle, a little toward the target)
+                    let l = min(p, gap(2, across: t.minY - p, t.maxY + p) / 2 - 0.7), r = min(p, gap(3, across: t.minY - p, t.maxY + p) / 2 - 0.7)
+                    let top = min(p, gap(0, across: t.minX - l - pen, t.maxX + r + pen) / 2 - 0.7), bottom = min(p, gap(1, across: t.minX - l - pen, t.maxX + r + pen) / 2 - 0.7)
+                    guard top >= need, bottom >= need, l >= need, r >= need else { continue }
+                    let box = CGRect(x: t.minX - l, y: t.minY - top, width: t.width + l + r, height: t.height + top + bottom)
+                    let a = box.width / 2, b = box.height / 2, rr = min(b, 12 * k)
+                    guard screen.contains(box.insetBy(dx: -pen - 2, dy: -pen - 2)) else { continue }
+                    let path = [-0.7, 0, 0.7].flatMap { d in Self.roundRect(cx: box.midX, cy: box.midY, a: a + d, b: b + d, r: rr, step: 1.5) }
+                    if ink.touches(path, pen: pen + 0.3, keep: keep, bg: bg) == 0 {
+                        it["x"] = box.midX; it["y"] = box.midY; it["r"] = b; it["rx"] = a; it["ry"] = b; it["sq"] = rr
+                        return
+                    }
+                }
+                highlight(); return
             }
             guard let (rx, ry) = best else { highlight(); return }
-            it["x"] = t.midX; it["y"] = t.midY; it["r"] = ry; it["rx"] = rx; it["ry"] = ry
+            it["x"] = t.midX; it["y"] = t.midY; it["r"] = ry; it["rx"] = rx; it["ry"] = ry; it["sq"] = nil
         case "underline":
             // In the gap under the letters, above whatever comes next; no gap: a highlight.
             let bottom = t.maxY
@@ -778,6 +855,20 @@ enum MarkSnapper {
         default:
             place(&it, on: t)
         }
+    }
+
+    /// Points along a rounded rectangle (center, half sizes, corner radius) every `step` pixels: the path of a
+    /// circle mark drawn as a rounded box (`sq`), as overlay.html draws it.
+    static func roundRect(cx: CGFloat, cy: CGFloat, a: CGFloat, b: CGFloat, r: CGFloat, step: CGFloat) -> [CGPoint] {
+        let r = max(0, min(r, a, b)), sx = a - r, sy = b - r
+        var out: [CGPoint] = []
+        func line(_ p: CGPoint, _ q: CGPoint) { let n = max(1, Int(hypot(q.x - p.x, q.y - p.y) / step)); for i in 0..<n { let u = CGFloat(i) / CGFloat(n); out.append(CGPoint(x: p.x + (q.x - p.x) * u, y: p.y + (q.y - p.y) * u)) } }
+        func arc(_ ox: CGFloat, _ oy: CGFloat, _ a0: CGFloat) { let n = max(2, Int(r * .pi / 2 / step)); for i in 0..<n { let an = a0 + CGFloat(i) / CGFloat(n) * .pi / 2; out.append(CGPoint(x: ox + r * cos(an), y: oy + r * sin(an))) } }
+        line(CGPoint(x: cx - sx, y: cy - b), CGPoint(x: cx + sx, y: cy - b)); arc(cx + sx, cy - sy, -.pi / 2)
+        line(CGPoint(x: cx + a, y: cy - sy), CGPoint(x: cx + a, y: cy + sy)); arc(cx + sx, cy + sy, 0)
+        line(CGPoint(x: cx + sx, y: cy + b), CGPoint(x: cx - sx, y: cy + b)); arc(cx - sx, cy + sy, .pi / 2)
+        line(CGPoint(x: cx - a, y: cy + sy), CGPoint(x: cx - a, y: cy - sy)); arc(cx - sx, cy - sy, .pi)
+        return out
     }
 
     /// An arrow ends just outside its target, pointing at it from where its tail is; a tail inside the target
@@ -946,13 +1037,23 @@ enum MarkSnapper {
         ]
         if type == "box" || type == "highlight" { cands.swapAt(0, 1) }
         if type == "underline" { cands.swapAt(0, 2) }
+        // Further out (above, below, beside), for when everything next to the mark is text or picture (a busy
+        // chart): a label a little further off beats one hiding a bar or a line of text.
+        for n in 1...3 {
+            let d = CGFloat(n) * (h + g)
+            cands += [(CGRect(x: m.minX, y: m.minY - g - h - d, width: w, height: h), "start"),
+                      (CGRect(x: m.maxX - w, y: m.minY - g - h - d, width: w, height: h), "start"),
+                      (CGRect(x: m.minX, y: m.maxY + g + d, width: w, height: h), "start"),
+                      (CGRect(x: m.maxX + g + d, y: m.midY - h / 2, width: w, height: h), "start"),
+                      (CGRect(x: m.minX - g - w - d, y: m.midY - h / 2, width: w, height: h), "end")]
+        }
         let words = lines.flatMap { $0.words.map { $0.rect.insetBy(dx: -2, dy: -2) } }
         let screen = CGRect(origin: .zero, size: size).insetBy(dx: 6 * k, dy: 6 * k)
         // The page's color around the mark (judged over a wide area: a spot on a chart's bar is not "empty").
         let pageBG = ink?.background(m.insetBy(dx: -220 * k, dy: -160 * k))
         var best: (CGRect, String, CGFloat)?
         for (i, (r, anchor)) in cands.enumerated() {
-            var cost = CGFloat(i) * 0.04
+            var cost = CGFloat(min(i, 6)) * 0.04 + (i >= 6 ? 0.3 + CGFloat((i - 6) / 5) * 0.25 : 0)
             if !screen.contains(r) { cost += 50 }
             let covered = words.reduce(CGFloat(0)) { acc, wr in
                 let x = wr.intersection(r); return acc + (x.isNull ? 0 : x.width * x.height)

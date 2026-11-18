@@ -247,15 +247,49 @@
   }
   // A smooth hand-drawn loop: gentle, slow wobble (no jitter), slightly tilted,
   // overlapping a little at the end like a real pen stroke.
+  // A big loop tilts and wobbles less (in points it stays within ~3 pt), so a loop fitted between two lines of
+  // text never swings into them.
   function loop(cx, cy, rx, ry){
-    const n = 96, start = Math.random()*Math.PI*2, sweep = Math.PI*2*1.07, tilt = rnd(0.12);
+    const n = 96, start = Math.random()*Math.PI*2, sweep = Math.PI*2*1.07, big = Math.max(rx, ry);
+    const tilt = rnd(Math.min(0.12, 3 / big)), wob = Math.min(1, 70 / big);
     const p1 = Math.random()*6.28, p2 = Math.random()*6.28;
     let d = '';
     for (let i=0;i<=n;i++){
       const u = i/n, a = start + sweep*u;
-      const w = 1 + 0.03*Math.sin(a + p1) + 0.015*Math.sin(2*a + p2) - 0.05*u*u;
+      const w = 1 + wob*(0.03*Math.sin(a + p1) + 0.015*Math.sin(2*a + p2)) - 0.05*u*u;
       const x = Math.cos(a)*rx*w, y = Math.sin(a)*ry*w;
       d += (i?'L':'M') + (cx + x*Math.cos(tilt) - y*Math.sin(tilt)).toFixed(1) + ',' + (cy + x*Math.sin(tilt) + y*Math.cos(tilt)).toFixed(1);
+    }
+    return d;
+  }
+  // A rounded box drawn in one pen stroke (a circle mark in dense text, MarkSnapper's `sq`): it starts at the top
+  // left, goes round once and overlaps a little at the end, with a slow gentle wobble (under 1 pt: it may run in a narrow gap between lines).
+  function roundLoop(cx, cy, a, b, r){
+    r = Math.max(0, Math.min(r, a, b));
+    const sx = a - r, sy = b - r, segs = [];
+    const L = [2*sx, Math.PI*r/2, 2*sy, Math.PI*r/2, 2*sx, Math.PI*r/2, 2*sy, Math.PI*r/2], total = L.reduce((p, q) => p + q, 0) || 1;
+    const at = s => {   // the point at arc length s (clockwise from the top left corner's end)
+      s = ((s % total) + total) % total;
+      let i = 0; while (i < 7 && s > L[i]) { s -= L[i]; i++; }
+      const f = L[i] ? s / L[i] : 0, q = Math.PI/2;
+      switch (i) {
+        case 0: return [cx - sx + 2*sx*f, cy - b];
+        case 1: return [cx + sx + r*Math.cos(-q + q*f), cy - sy + r*Math.sin(-q + q*f)];
+        case 2: return [cx + a, cy - sy + 2*sy*f];
+        case 3: return [cx + sx + r*Math.cos(q*f), cy + sy + r*Math.sin(q*f)];
+        case 4: return [cx + sx - 2*sx*f, cy + b];
+        case 5: return [cx - sx + r*Math.cos(q + q*f), cy + sy + r*Math.sin(q + q*f)];
+        case 6: return [cx - a, cy + sy - 2*sy*f];
+        default: return [cx - sx + r*Math.cos(2*q + q*f), cy - sy + r*Math.sin(2*q + q*f)];
+      }
+    };
+    const n = Math.max(60, Math.round(total / 4)), s0 = -total * 0.03, sweep = total * 1.06, p1 = Math.random()*6.28;
+    let d = '';
+    for (let i = 0; i <= n; i++) {
+      const u = i / n, [x, y] = at(s0 + sweep * u);
+      // Inward a touch at the end (like the pen loop) and a slow wobble; both along the way to the center.
+      const off = 0.6 * Math.sin(u * 9 + p1) - 0.8 * u * u, dx = x - cx, dy = y - cy, len = Math.hypot(dx, dy) || 1;
+      d += (i ? 'L' : 'M') + (x + dx / len * off).toFixed(1) + ',' + (y + dy / len * off).toFixed(1);
     }
     return d;
   }
@@ -283,9 +317,10 @@
       case 'circle': { const cx=s(it.x), cy=s(it.y), r=Math.max(s(it.r),16);
         // rx/ry: the app fitted an ellipse around the whole target (several lines, a wide phrase).
         const rx = it.rx != null ? Math.max(s(it.rx),16) : r*1.15, ry = it.ry != null ? Math.max(s(it.ry),16) : r;
-        ink(g, loop(cx,cy,rx,ry)); label(g, cx+rx+10, cy-ry*0.55, it.label); break; }
-      case 'box': { const x=s(it.x), y=s(it.y), w=s(it.w), h=s(it.h);
-        ink(g, wobblyRect(x-4,y-4,w+8,h+8)); label(g, x, y-14, it.label); break; }
+        // sq: in dense text the app fitted a rounded box instead (a loop would cut the lines around it).
+        ink(g, it.sq != null ? roundLoop(cx, cy, s(it.rx), s(it.ry), s(it.sq)) : loop(cx,cy,rx,ry)); label(g, cx+rx+10, cy-ry*0.55, it.label); break; }
+      case 'box': { const x=s(it.x), y=s(it.y), w=s(it.w), h=s(it.h), p = it.pad != null ? Math.max(0, +it.pad) : 4;   // pad: pt (closer in dense text)
+        ink(g, wobblyRect(x-p,y-p,w+2*p,h+2*p)); label(g, x, y-14, it.label); break; }
       case 'arrow': { const x1=s(it.x1), y1=s(it.y1), x2=s(it.x2), y2=s(it.y2);
         const l = wobblyLine(x1,y1,x2,y2); ink(g, l.d); setTimeout(()=>ink(g, arrowHead(x2,y2,l.cx,l.cy)), 450);
         label(g, x1+(x1<x2?-6:6), y1+(y1<y2?-12:26), it.label); break; }

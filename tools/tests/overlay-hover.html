@@ -140,6 +140,22 @@
     SB.photo({ src: picture(800, 600), caption: 'Water' }); await wait(400);
     const pp = D.querySelector('.card.lpaper').getBoundingClientRect(), ph = D.querySelector('.card.photo').getBoundingClientRect();
     check(ph.left >= pp.right || ph.right <= pp.left, `a lesson's photo sits beside the paper (paper ${Math.round(pp.left)}–${Math.round(pp.right)}, photo ${Math.round(ph.left)}–${Math.round(ph.right)})`);
+
+    // ---------- the speech bubble keeps off the marks and what the answer is about ----------
+    SB.clearAll(); SB.captionMode('speech'); SB.phase('speaking');
+    const meet = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+    SB.tick(600, 400, 0); await wait(900);
+    // A circle right where the bubble would go (below right of the buddy), as the talker draws one.
+    SB.apply({ items: [{ type: 'circle', id: 'c1', x: 720, y: 470, r: 40 }] }, 1); await wait(250);
+    SB.caption('claude', 'This bar is the tallest one, so Billing closed the most tickets.'); await wait(700);
+    const g = D.querySelector('#draw > g[data-id="c1"]').getBoundingClientRect(), bb = SB.bubbleBox();
+    check(bb.on && !meet(bb, { x: g.left, y: g.top, w: g.width, h: g.height }), `the bubble keeps off a mark beside the buddy (bubble ${Math.round(bb.x)},${Math.round(bb.y)} ${Math.round(bb.w)}×${Math.round(bb.h)})`);
+    // What the answer is about (the app's subjects): kept clear too.
+    SB.clearAll(); SB.bubbleAvoid([[560, 300, 560, 90]]); SB.tick(600, 420, 0); await wait(700);
+    SB.caption('claude', 'The top bar is the Billing team.'); await wait(600);
+    const b2 = SB.bubbleBox();
+    check(b2.on && !meet(b2, { x: 560, y: 300, w: 560, h: 90 }), `the bubble keeps off what the answer is about (bubble ${Math.round(b2.x)},${Math.round(b2.y)})`);
+    SB.bubbleAvoid([]);
   } catch (e) { check(false, 'threw: ' + e.message); }
   window.testResults = { pass: fail.length === 0, lines: results };
   document.title = fail.length ? 'FAIL' : 'PASS';

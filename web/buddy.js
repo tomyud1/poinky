@@ -268,6 +268,27 @@
   }
   const bubbleRectNow = { x: 0, y: 0 };
 
+  // What the bubble keeps off: the marks on screen, cards (the paper, a model) and what the answer is about (the
+  // app's subjects, SB.bubbleAvoid). Measured a few times a second, not every frame.
+  let avoidApp = [], avoidList = [], avoidAt = 0, bubbleSpot = 0;
+  function avoidRects() {
+    const now = performance.now();
+    if (now - avoidAt < 200) return avoidList;
+    avoidAt = now;
+    const out = avoidApp.slice();
+    document.querySelectorAll('#draw > g, #cards > .card:not(.leaving)').forEach(e => {
+      const r = e.getBoundingClientRect(); if (r.width || r.height) out.push({ x: r.left, y: r.top, w: r.width, h: r.height });
+    });
+    return (avoidList = out);
+  }
+  function covered(x, y) {
+    let a = 0;
+    for (const r of avoidRects()) {
+      const w = Math.min(x + bubbleW, r.x + r.w + 8) - Math.max(x, r.x - 8), h = Math.min(y + bubbleH, r.y + r.h + 8) - Math.max(y, r.y - 8);
+      if (w > 0 && h > 0) a += w * h;
+    }
+    return a;
+  }
   function placeBubble() {
     if (!bubble.classList.contains('on')) return;
     if (parked) return placeParked();
@@ -277,9 +298,21 @@
     let left = side.x < 0;
     if (!left && x + bubbleW > innerWidth - 12) { x = B.x - 14 - bubbleW; left = true; }
     if (side.y > 0 && y + bubbleH > innerHeight - 12) y = B.y - bubbleH - 10;
-    bubble.classList.toggle('left', left);
-    bubble.style.left = Math.min(innerWidth - bubbleW - 8, Math.max(8, x)).toFixed(1) + 'px';
-    bubble.style.top = Math.min(innerHeight - bubbleH - 8, Math.max(8, y)).toFixed(1) + 'px';
+    const clampX = v => Math.min(innerWidth - bubbleW - 8, Math.max(8, v)), clampY = v => Math.min(innerHeight - bubbleH - 8, Math.max(8, v));
+    // Over a mark, a card or what's being explained: the buddy's other corners, the one covering least (and it
+    // stays put unless another is clearly better, so it doesn't hop about while you move).
+    const spots = [[x, y, left], [B.x + 28, B.y + 4, false], [B.x + 28, B.y - 8 - bubbleH, false], [B.x - 14 - bubbleW, B.y + 4, true], [B.x - 14 - bubbleW, B.y - 8 - bubbleH, true]]
+      .map(([sx, sy, l]) => { const cx = clampX(sx), cy = clampY(sy); return { x: cx, y: cy, left: l, c: covered(cx, cy) }; });
+    let pick = spots[Math.min(bubbleSpot, spots.length - 1)];
+    if (spots[0].c === 0) pick = spots[0];
+    else {
+      const best = spots.reduce((p, q) => q.c < p.c ? q : p);
+      if (best.c < pick.c - 150) pick = best;
+    }
+    bubbleSpot = spots.indexOf(pick);
+    bubble.classList.toggle('left', pick.left);
+    bubble.style.left = pick.x.toFixed(1) + 'px';
+    bubble.style.top = pick.y.toFixed(1) + 'px';
   }
 
   function setBubble(kind, text, extra) {
@@ -467,6 +500,10 @@
 
   // ---------- API for the app ----------
   Object.assign(SB, {
+    /** What this answer is about (rects in points, [x, y, w, h]): the speech bubble stays off it. */
+    bubbleAvoid(rs) { avoidApp = (rs || []).map(r => ({ x: +r[0], y: +r[1], w: +r[2], h: +r[3] })); avoidAt = 0; },
+    /** For tests: where the bubble is ({x, y, w, h}). */
+    bubbleBox() { const r = bubble.getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height, on: bubble.classList.contains('on') }; },
     /** Cursor position in points (or null when it's on another screen), and the mic level 0…1. */
     tick(x, y, l) {
       const now = performance.now();
