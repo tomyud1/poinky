@@ -93,6 +93,23 @@
     const blr = [...item('bl').querySelectorAll('rect')].map(r => r.getBBox());
     check(blr.length === 4 && Math.abs(blr[3].x + blr[3].width / 2 - T.graphs.gl.X(3)) < 1, 'bars given as [name, value] points land on their categories');
 
+    // Bars built up a few at a time with zeros as placeholders ([0, 0, 0, 42, 0] recolors Q4): zeros draw nothing.
+    SB.lessonBegin({ x: 700, y: 60, w: 640, h: 800 }, 'scores');
+    SB.lessonStep({ ops: [
+      { op: 'graph', id: 'gq', x: 90, y: 60, w: 620, h: 300, categories: ['Q1', 'Q2', 'Q3', 'Q4', 'Q5'], yrange: [0, 100] },
+      { op: 'bars', id: 'bq', graph: 'gq', values: [88, 76, 81, 42, 70], color: 'blue', labels: true },
+      { op: 'bars', id: 'bq4', graph: 'gq', values: [0, 0, 0, 42, 0], color: 'red' },
+      { op: 'mark', id: 'mq', target: 'bq4', style: 'circle' },
+      { op: 'text', id: 'note', x: 120, y: 90, text: 'easiest', size: 22, color: 'green' },
+    ] }, 1);
+    await done();
+    const q4 = [...item('bq4').querySelectorAll('rect')];
+    check(q4.length === 1 && Math.abs(q4[0].getBBox().x + q4[0].getBBox().width / 2 - T.graphs.gq.X(3)) < 1, `zeros next to real values are placeholders: only Q4 is redrawn (${q4.length} bars)`);
+    const mq = item('mq').querySelector('path').getBBox();
+    check(mq.width < 200, `so a mark on it circles just that bar (${Math.round(mq.width)} wide)`);
+    const nt = item('note').getBBox();
+    check(nt.y < T.graphs.gq.y + T.graphs.gq.h, `a note written inside the graph stays where it was put (y ${Math.round(nt.y)})`);
+
     // An x label on a plain graph that wouldn't fit at the end of the axis goes under it instead.
     SB.lessonStep({ ops: [{ op: 'graph', id: 'gx', x: 80, y: 500, w: 640, h: 160, xrange: [0, 10], yrange: [0, 5], xlabel: 'time in seconds' }] }, 1);
     await done();

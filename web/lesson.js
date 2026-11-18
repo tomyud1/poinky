@@ -109,15 +109,17 @@
   /** How far down to move rectangle r so it doesn't collide with what's drawn. */
   function freeShift(r) {
     let dy = 0;
+    // Something placed inside a graph's plot area is a note on the graph, not a collision with it.
+    const within = (c, s) => c.x + c.w / 2 > s.x && c.x + c.w / 2 < s.x + s.w && c.y + c.h / 2 > s.y && c.y + c.h / 2 < s.y + s.h;
     for (let k = 0; k < 8; k++) {
       const c = { x: r.x, y: r.y + dy, w: r.w, h: r.h };
-      const hit = used.find(b => overlap(c, b) > 0.2 * Math.min(c.w * c.h, b.w * b.h));
+      const hit = used.find(b => !(b.plot && within(c, b.plot)) && overlap(c, b) > 0.2 * Math.min(c.w * c.h, b.w * b.h));
       if (!hit) return dy;
       dy = hit.y + hit.h + 8 - r.y;
     }
     return dy;
   }
-  const claim = (r, id) => used.push({ ...r, id });
+  const claim = (r, id, plot) => used.push({ ...r, id, plot });
 
   // ---------- small helpers ----------
   function el(tag, attrs, parent) {
@@ -1068,7 +1070,7 @@
     const xlabUnder = !!o.xlabel && (!!cats || x + w + 14 + measure(o.xlabel, 20) > UNITS - 8);
     const under = Math.max(34, names ? names.depth : 0) + (xlabUnder ? 30 : 0);
     const y = o.y + freeShift({ x: x - 30, y: o.y - 14, w: w + 50, h: h + 10 + under });
-    claim({ x: x - 30, y: y - 14, w: w + 50, h: h + 10 + under }, o.id);
+    claim({ x: x - 30, y: y - 14, w: w + 50, h: h + 10 + under }, o.id, { x, y, w, h });
     grow(y + h + under);
     const X = v => x + (v - xr[0]) / (xr[1] - xr[0]) * w, Y = v => y + h - (v - yr[0]) / (yr[1] - yr[0]) * h;
     graphs[o.id || '_'] = { X, Y, xr, yr, x, y, w, h, g, id: o.id, cats };
@@ -1228,7 +1230,10 @@
   async function bars(o) {
     const gr = graphs[o.graph] || graphs._last;
     if (!gr) return;
-    const data = dataOf(o, gr).map((d, i) => [...d, i]).filter(([xv, yv]) => isFinite(yv) && xv >= gr.xr[0] && xv <= gr.xr[1]);
+    // Values like [0, 0, 340, 0] add or recolor one bar: those zeros are placeholders, not bars of zero.
+    const all = dataOf(o, gr), mixed = all.some(d => d[1] === 0) && all.some(d => d[1] !== 0 && isFinite(d[1]));
+    const said = i => Array.isArray(o.labels) && o.labels[i] != null && o.labels[i] !== '';
+    const data = all.map((d, i) => [...d, i]).filter(([xv, yv, i]) => isFinite(yv) && xv >= gr.xr[0] && xv <= gr.xr[1] && !(mixed && yv === 0 && !said(i)));
     if (!data.length) return;
     const g = group(o);
     const [stroke, fill] = theme(o.color) || THEME.blue;
