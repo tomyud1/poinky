@@ -102,6 +102,8 @@ final class CallController: NSObject, NSMenuDelegate {
     private var freshTalkerSince: TimeInterval = 0
     private var needsRecap = false
     private var swappedTalker = false   // this session's talker was swapped: the summary's key facts go with each question
+    private var handOverTurn = -1            // the turn `handOverSaid` belongs to
+    private var handOverSaid: [String] = []  // what the talker said so far while the teacher sketches the answer
     private var sentOnce: [String: String] = [:]   // context that rarely changes: sent again only when it does
     // Swap when the talker's conversation gets this big (Claude Code reports it with each answer), or after
     // this many questions (a fallback, and for the API brain, which doesn't report it and drops old screenshots).
@@ -1473,12 +1475,16 @@ final class CallController: NSObject, NSMenuDelegate {
     }
 
     /// The teacher started with the talker (`TalkerRoute.teacher`): the talker only hands over.
-    static let teacherStartedLine = "(The teacher is ALREADY preparing a narrated sketch for this question. Say ONE short hand-over line in your own voice and in the user's language, like \"Sure, let me show you.\" (never mention a teacher), mark what it's about, and do NOT write <visual>.)"
-    static let teacherCheckingLine = "(The teacher is ALREADY checking their work step by step in a narrated sketch. Say ONE short hand-over line in your own voice and in the user's language, like \"Let me go through it.\" (never mention a teacher, and don't say whether it's right: the sketch will), mark the work it's about, and do NOT write <visual>.)"
+    static func teacherLine(checking: Bool, question: String) -> String {
+        let like = TalkerRoute.handOverExample(question, checking: checking)
+        return checking
+            ? "(The teacher is ALREADY checking their work step by step in a narrated sketch. Say ONE short hand-over line in your own voice and in the user's language, like \"\(like)\" (never mention a teacher, and don't say whether it's right: the sketch will), mark the work it's about, and do NOT write <visual> or <agent>.)"
+            : "(The teacher is ALREADY preparing a narrated sketch for this question. Say ONE short hand-over line in your own voice and in the user's language, like \"\(like)\" (never mention a teacher, don't explain it yourself), mark what it's about, and do NOT write <visual>.)"
+    }
 
     static let keyFactsHeader = "Still true from earlier in this session (use it when it matters for the answer): "
 
-    static let formatReminder = "(Reply only with the tags: start with <say>, then any of <visual>, <draw>, <agent>, <do>, <search>, <recall>, <remind>… Nothing outside them, no markdown.)"
+    static let formatReminder = "(Reply only with the tags: start with <say>, then any of <visual>, <draw>, <agent>, <do>, <search>, <recall>, <remind>… Nothing outside them, no markdown. With <visual>, <say> is only one short hand-over line.)"
 
     /// "Now: Sunday, 8 November 2026, 6:42 PM (Asia/Jerusalem)", so "what time is it?", "is it late?",
     /// "what did I do this morning?" get real answers. A few tokens per question.
@@ -1559,7 +1565,7 @@ final class CallController: NSObject, NSMenuDelegate {
         if partTurn == turn {
             lines.append(PartQuestion.talkerLine(name: overlay.lastPickName))
         } else if teacherStartedTurn == turn {
-            lines.append(route.teacher == .check ? Self.teacherCheckingLine : Self.teacherStartedLine)
+            lines.append(Self.teacherLine(checking: route.teacher == .check, question: question))
         } else if artistBusy {
             lines.append("(The teacher is still drawing your last visual request.)")
         }
@@ -1734,6 +1740,18 @@ final class CallController: NSObject, NSMenuDelegate {
         // Answering from web pages or old transcripts: they can't make Poinky do anything.
         let ev = lookupReply ? ev.onlySpeech() : ev
         for s in ev.sentences {
+            var s = s
+            // The teacher is explaining it: the talker's part is one short hand-over (`TalkerRoute.handOver`).
+            if teacherStartedTurn == turn, partTurn != turn {
+                if handOverTurn != turn { handOverTurn = turn; handOverSaid = [] }
+                guard let kept = TalkerRoute.handOver(piece: s, before: handOverSaid, question: lastQuestion) else {
+                    Timeline.log("talker.cut", ["turn": turn, "words": s.split(separator: " ").count])
+                    continue
+                }
+                if kept != s { Timeline.log("talker.cut", ["turn": turn, "replaced": true]) }
+                handOverSaid.append(kept)
+                s = kept
+            }
             speaker.enqueue(s)
             state = .speaking
         }

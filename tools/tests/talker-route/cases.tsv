@@ -19,12 +19,12 @@ help me understand this paragraph	n	-	sketch	-
 show me how to balance this equation	n	-	sketch	-
 how do I calculate the net force	n	-	sketch	-
 # "How do I" in an app: a walkthrough (the talker's <guide>), no paper
-how do I make the title bigger	n	-	none	-
-how do I export this as a PDF	n	-	none	-
-where do I change the font size	n	-	none	-
-how can I add a filter to this column	n	-	none	-
-walk me through setting up a new rule	n	-	none	-
-show me how to turn on dark mode	n	-	none	-
+how do I make the title bigger	n	-	none	guide
+how do I export this as a PDF	n	-	none	guide
+where do I change the font size	n	-	none	guide
+how can I add a filter to this column	n	-	none	guide
+walk me through setting up a new rule	n	-	none	guide
+show me how to turn on dark mode	n	-	none	guide
 help me with number three	n	-	none	-
 # Short on purpose, or a few words: the talker answers alone
 how do you say nice to meet you in French	n	-	none	-
@@ -116,3 +116,13 @@ can you make this sound more polite	n	-	none	rewrite
 fix the grammar in this	n	-	none	rewrite
 give me the short version of this page	n	-	none	summary
 sum it up	n	-	none	summary
+explain question 1	n	-	sketch	-
+מה עושים בשאלה 1?	n	-	none	-
+תסביר לי את שאלה 1	n	-	sketch	-
+# Before this conversation: look it up (a hint to write <recall>)
+what did you tell me yesterday about my thesis outline	n	-	none	recall
+what did we talk about last time	n	-	none	helpers,recall
+what was I doing in Claude Code this morning	n	-	none	recall
+מה דיברנו אתמול	n	-	none	recall
+quiz me on this	n	-	none	quiz
+תעשה לי בוחן קצר	n	-	none	quiz

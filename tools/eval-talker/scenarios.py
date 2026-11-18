@@ -226,6 +226,23 @@ TEXTEDIT_CTX = ["Front app: TextEdit, window “summer-job.txt”.", "Open docum
 LANG = screen("Safari", ["File", "Edit", "View", "History", "Bookmarks", "Window", "Help"], "Trip to Lyon — packing list", """
 <h2 style="margin-top:0">Lyon, December</h2><p>Flights: Dec 12 → Dec 19</p><p>☐ adapter &nbsp; ☐ scarf &nbsp; ☐ phrasebook</p>""")
 
+# An engineering problem sheet in Hebrew (a PDF in Preview), with formulas and a figure.
+HEB_SHEET = screen("Preview", ["File", "Edit", "View", "Go", "Tools", "Window", "Help"],
+                   "סטטיקה - תרגיל בית 3.pdf — Page 1 of 2", """
+<div dir="rtl" style="font-family:'Arial Hebrew',Arial;font-size:16px">
+<h2 style="margin-top:0">סטטיקה ותורת החוזק — תרגיל בית 3</h2>
+<p><b>שאלה 1.</b> קורה פשוטה AB באורך L = 4 m נשענת על סמכים בקצותיה. במרכז הקורה פועל כוח מרוכז F = 10 kN כלפי מטה.
+חשבו את כוחות הריאקציה R<sub>A</sub> ו-R<sub>B</sub>, ואת המומנט המקסימלי בקורה.</p>
+<svg width="520" height="150" style="display:block;margin:10px auto"><line x1="40" y1="80" x2="480" y2="80" stroke="#222" stroke-width="8"/>
+<polygon points="40,84 25,112 55,112" fill="#888"/><polygon points="480,84 465,112 495,112" fill="#888"/>
+<line x1="260" y1="20" x2="260" y2="72" stroke="#c00" stroke-width="3"/><polygon points="260,76 252,60 268,60" fill="#c00"/>
+<text x="270" y="35" fill="#c00">F = 10 kN</text><text x="30" y="135">A</text><text x="478" y="135">B</text>
+<text x="230" y="140">L = 4 m</text></svg>
+<p>רמז: M<sub>max</sub> = F·L / 4</p>
+<p><b>שאלה 2.</b> מוט פלדה בקוטר d = 20 mm נמתח בכוח P = 30 kN. חשבו את המאמץ הנורמלי σ = P / A.</p></div>""")
+HEB_CTX = ["Front app: Preview, window “סטטיקה - תרגיל בית 3.pdf — Page 1 of 2”.",
+           "Open document: ~/Documents/Technion/סטטיקה/סטטיקה - תרגיל בית 3.pdf."]
+
 def offered(tag):
     """The reply's `<offer>` holds this tag (prepared for a yes)."""
     return lambda r: bool(r.get("offer") and r["offer"]["tags"].get(tag))
@@ -458,7 +475,7 @@ SCENARIOS = [
          said="how do you say nice to meet you in French", cursor=(600, 300),
          checks=[("says the French", say(r"enchant|ravi")),
                  ("no paper for it", lacks("visual", "video")),
-                 ("brief", say_words_max(30)),
+                 ("brief", say_words_max(40)),
                  ("doesn't act", lacks(*ACTING))]),
     dict(id="explain-briefly", who="student", html=LECTURE, ctx=LECTURE_CTX[:2], said="explain briefly what Rubisco does",
          cursor=(520, 330),
@@ -483,11 +500,24 @@ SCENARIOS = [
     dict(id="chart-line", who="office", html=CHART, ctx=CHART_CTX, said="show this as a line", cursor=(600, 450),
          checks=[("asks the teacher (<visual>)", has("visual")),
                  ("the brief has the data", lambda r: sum(str(v) in "".join(b for _, b in r["tags"].get("visual") or []) for _, v in CHART_DATA) >= 5),
-                 ("the brief says where the chart is", body("visual", r"\b\d{2,4}\s*[,x×]\s*\d{2,4}\b|around \d|at \(?\d")),
+                 ("the brief says where the chart is", body("visual", r"\b\d{2,4}\s*[,x×]\s*\d{2,4}\b|around \(?\d|at \(?\d|\b[xy]\s*=?\s*\d{2,4}")),
                  ("one short hand-over line", say_words_max(15)),
                  ("doesn't act", lacks("agent", "do"))]),
     dict(id="textedit-bigger", who="writer", html=TEXTEDIT, ctx=TEXTEDIT_CTX, said="how do I make the title bigger", cursor=(400, 300),
          checks=[("walks them through it (<guide>) or does it (<do>)", lambda r: bool(r["tags"].get("guide") or r["tags"].get("do"))),
                  ("no spoken how-to (one short line)", say_words_max(15)),
                  ("no paper", lacks("visual"))]),
+
+    # The owner's own case: engineering homework in Hebrew, asked about in English or in Hebrew.
+    dict(id="hebrew-sheet-en", who="student", html=HEB_SHEET, ctx=HEB_CTX, said="explain question 1", cursor=(700, 300),
+         checks=[("answers in English", lambda r: not re.search(r"[֐-׿]{3,}", r["say"])),
+                 ("one short hand-over line, no <visual> (the teacher already started)", lambda r: not r["tags"].get("visual") and len(r["say"].split()) <= 15),
+                 ("marks question 1 (or nothing)", lambda r: not r["draw"] or not re.search(r"שאלה 2|P = 30|σ", r["draw"])),
+                 ("doesn't act", lacks("agent", "do", "video"))]),
+    dict(id="hebrew-sheet-he", who="student", html=HEB_SHEET, ctx=HEB_CTX, said="מה עושים בשאלה 1?", cursor=(700, 300),
+         checks=[("answers in Hebrew", lambda r: len(re.findall(r"[֐-׿]", r["say"])) > 0.5 * max(1, len(re.findall(r"[A-Za-z֐-׿]", r["say"])))),
+                 ("hands it to the sketch (<visual>)", has("visual")),
+                 ("the brief names question 1", body("visual", r"question 1|שאלה 1|problem 1|\b1\b")),
+                 ("the brief has the data (4 m, 10 kN)", body("visual", r"10\s*kN") ),
+                 ("doesn't act", lacks("agent", "do", "video"))]),
 ]

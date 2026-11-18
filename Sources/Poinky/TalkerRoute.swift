@@ -7,7 +7,7 @@ import Foundation
 /// pinned by the phrase table in tools/tests/talker-route/cases.tsv (run by tools/test-talker.sh).
 struct TalkerRoute: Equatable {
     enum Teacher: String { case none, sketch, check }
-    enum Shape: String { case rewrite, summary }
+    enum Shape: String { case rewrite, summary, quiz, recall, guide }
 
     var teacher: Teacher = .none
     /// Which rule decided `teacher` (the table test and the timeline name it).
@@ -33,8 +33,10 @@ struct TalkerRoute: Equatable {
         r.aboutTime = has(s, aboutTimeWords)
         r.aboutUsage = has(s, aboutUsageWords)
         r.wantsVideo = has(s, longWords)
-        r.shape = has(s, rewriteWords) ? .rewrite : has(s, summaryWords) ? .summary : nil
         (r.teacher, r.reason) = teacher(s, marked: marked, work: work)
+        r.shape = has(s, rewriteWords) ? .rewrite : has(s, summaryWords) ? .summary : has(s, quizWords) ? .quiz
+            : has(s, pastWords) ? .recall
+            : r.reason == "how-to" && !r.aboutApp && has(s, appHowToWords) ? .guide : nil
         return r
     }
 
@@ -126,12 +128,41 @@ struct TalkerRoute: Equatable {
     static let summaryWords = ["short version", "sum it up", "summarize", "summarise", "tl;dr", "tldr", "gist",
                                "in a nutshell", "quick summary"]
 
+    static let quizWords = ["quiz me", "test me", "ask me questions", "בוחן", "תבחן אותי", "תשאל אותי"]
+    /// About something before this conversation: look it up (`<recall>`) instead of saying "I don't remember".
+    static let pastWords = ["yesterday", "last time", "last week", "the other day", "earlier today", "this morning",
+                            "what did you tell me", "what did we talk", "what were we", "אתמול", "בפעם הקודמת"]
+    /// A how-to that's a walkthrough in an app ("help me with number three" isn't).
+    static let appHowToWords = ["how do i", "how can i", "how to ", "where do i", "where can i", "walk me through",
+                                "show me how to", "איך אני", "איך עושים", "איך משנים", "איפה אני"]
+
     static func has(_ s: String, _ phrases: [String]) -> Bool {
         phrases.contains { p in
             guard p.hasPrefix("=") else { return s.contains(p) }
             let w = NSRegularExpression.escapedPattern(for: String(p.dropFirst()))
             return s.range(of: #"(?<![\p{L}\p{N}])"# + w + #"(?![\p{L}\p{N}])"#, options: .regularExpression) != nil
         }
+    }
+
+    /// A hand-over line in the question's language, for the "the teacher is already sketching" note: with only an
+    /// English example, Haiku answered Hebrew questions in full instead of handing over.
+    static func handOverExample(_ question: String, checking: Bool) -> String {
+        if question.unicodeScalars.contains(where: { (0x0590...0x05FF).contains($0.value) }) {
+            return checking ? "בוא נעבור על זה." : "בטח, אני אראה לך."
+        }
+        return checking ? "Let me go through it." : "Sure, let me show you."
+    }
+
+    /// While the teacher sketches the answer in parallel, the talker only hands over. Haiku without a thinking step
+    /// still explained it first (in Hebrew in every run), so the explanation was said twice. What of its reply is
+    /// spoken: pieces up to the end of its first sentence, at most `handOverWords` words in all; a first piece that's
+    /// longer becomes the stock line. `before`: the pieces already let through this turn. Nil: drop the piece.
+    static let handOverWords = 16
+    static func handOver(piece: String, before: [String], question: String) -> String? {
+        if let last = before.last, last.last.map({ ".!?…".contains($0) }) == true { return nil }
+        let words = (before + [piece]).joined(separator: " ").split(whereSeparator: \.isWhitespace).count
+        if words <= handOverWords { return piece }
+        return before.isEmpty ? handOverExample(question, checking: false) : nil
     }
 
     /// The hint `shape` stands for, said right where the fast talker reads last.
@@ -141,6 +172,12 @@ struct TalkerRoute: Equatable {
             return "(New wording: <say> must contain the whole new text itself, word for word, then \"Want me to swap it in?\", then <offer say=\"Swapping it in.\"><do>Replace the selected text with exactly: …the new text…</do></offer>. Rewrite only the selected words: no greeting or sign-off they didn't select. Never \"here's a version\" without the words.)"
         case .summary?:
             return "(Summary: at most 3 short sentences, about 40 words, the main point first. Don't list every item.)"
+        case .quiz?:
+            return "(Quiz: you ask. Put the first question itself in <say> and wait for their answer. No <visual>, no helper.)"
+        case .recall?:
+            return "(About something before this conversation: don't answer from memory or say you don't have it. Say a short line like \"Let me look.\" and write <recall>topic and time words</recall>.)"
+        case .guide?:
+            return "(How to do something: if it's done in an app on screen, your <say> is only \"Sure, I'll walk you through it.\" (no steps in it) and you add <guide>the goal</guide>; it shows them one click at a time.)"
         case nil:
             return nil
         }

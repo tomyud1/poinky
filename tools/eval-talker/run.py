@@ -94,10 +94,13 @@ def extra(name):
     return open(os.path.join(ROOT, "prompts", name + ".md"), encoding="utf-8").read().strip()
 
 
-def teacher_line(kind="sketch"):
-    name = "teacherCheckingLine" if kind == "check" else "teacherStartedLine"
-    m = re.search(r'static let %s = "((?:[^"\\]|\\.)*)"' % name, _controller())
-    return swift_literal(m.group(1))
+def teacher_line(kind, like):
+    """CallController.teacherLine, read from the source."""
+    src = _controller()
+    body = src[src.index("static func teacherLine"):]
+    lits = re.findall(r'"(\(The teacher is ALREADY(?:[^"\\]|\\.)*)"', body[:body.index("\n    }\n")])
+    line = swift_literal(lits[0] if kind == "check" else lits[1])
+    return line.replace("\\(like)", like)
 
 
 def message_text(sc):
@@ -122,7 +125,7 @@ def message_text(sc):
     else:
         lines.append(f"If you start an agent now, it will be called {free[0]}.")
     if rt["teacher"] != "none":
-        lines.append(teacher_line(rt["teacher"]))
+        lines.append(teacher_line(rt["teacher"], rt["handOver"]))
     if rt.get("hint"):
         lines.append(rt["hint"])
     m = re.search(r'static let formatReminder = "((?:[^"\\]|\\.)*)"', _controller())

@@ -21,11 +21,35 @@ if args.count > 1, args[1] == "--json" {
     let qs = (try? JSONSerialization.jsonObject(with: data)) as? [[String: Any]] ?? []
     let out: [[String: Any]] = qs.map { q in
         let r = TalkerRoute.classify(q["q"] as? String ?? "", marked: q["marked"] as? Bool ?? false, work: q["work"] as? String ?? "")
-        return ["teacher": r.teacher.rawValue, "reason": r.reason, "flags": flags(r), "hint": r.shapeHint ?? NSNull()]
+        let q0 = q["q"] as? String ?? ""
+        return ["teacher": r.teacher.rawValue, "reason": r.reason, "flags": flags(r), "hint": r.shapeHint ?? NSNull(),
+                "handOver": TalkerRoute.handOverExample(q0, checking: r.teacher == .check)]
     }
     let json = try! JSONSerialization.data(withJSONObject: out, options: [.sortedKeys])
     FileHandle.standardOutput.write(json)
     exit(0)
+}
+
+// The hand-over gate while the teacher sketches in parallel: what of the talker's pieces is spoken.
+if args.count > 1, args[1] == "--handover" {
+    let cases: [([String], [String])] = [
+        (["Sure, let me show you."], ["Sure, let me show you."]),
+        (["Sure,", "let me show you."], ["Sure,", "let me show you."]),
+        (["Sure, let me sketch it.", "The friction pulls back, so you subtract four from ten."], ["Sure, let me sketch it."]),
+        (["The friction of four newtons pulls the cart back against the ten newton pull, so the net is six.", "Let me sketch it."],
+         ["Sure, let me show you."]),
+        (["הסיכום: חוקרים מצאו שהליכה של עשרים דקות אחרי הארוחה מורידה את העלייה בסוכר בדם, בעיקר אם מתחילים ללכת תוך חצי שעה."],
+         ["בטח, אני אראה לך."]),
+    ]
+    var bad = 0
+    for (pieces, want) in cases {
+        var said: [String] = []
+        let q = pieces.first?.unicodeScalars.contains(where: { (0x0590...0x05FF).contains($0.value) }) == true ? "תסביר לי" : "explain this"
+        for p in pieces { if let k = TalkerRoute.handOver(piece: p, before: said, question: q) { said.append(k) } }
+        if said != want { bad += 1; print("FAIL \(pieces) → \(said), want \(want)") } else { print("ok   \(pieces.count) piece(s) → \(said)") }
+    }
+    print("\(cases.count - bad)/\(cases.count) hand-over cases")
+    exit(bad == 0 ? 0 : 1)
 }
 
 // Columns (tab-separated): question, marked (y/n), work (the selected/marked text, or -), teacher, flags (comma list or -).
