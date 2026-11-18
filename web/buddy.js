@@ -38,6 +38,7 @@
   #bubble.you{background:rgba(24,24,28,.84);-webkit-backdrop-filter:blur(14px);color:rgba(255,255,255,.92);font-style:italic;
     box-shadow:0 6px 22px rgba(0,0,0,.3)}
   #bubble.dim{opacity:.55}
+  #bubble.you.miss{color:rgba(255,255,255,.72);background:rgba(24,24,28,.7)}
   #bubble.left{transform-origin:100% 0}
   .sb-ripple{position:absolute;width:34px;height:34px;margin:-17px 0 0 -17px;border-radius:50%;border:2.5px solid #3b82ff;
     pointer-events:none;z-index:49;animation:sbRipple .6s ease-out forwards;box-shadow:0 0 10px rgba(59,130,255,.6)}
@@ -67,6 +68,7 @@
   const ring = buddy.querySelector('.ring');
   const bubble = document.createElement('div');
   bubble.id = 'bubble';
+  bubble.dir = 'auto';   // Hebrew or Arabic reads right to left
   document.body.append(buddy, bubble);
   const hud = document.getElementById('hud');
 
@@ -222,19 +224,30 @@
     bubble.style.top = Math.min(innerHeight - bubbleH - 8, Math.max(8, y)).toFixed(1) + 'px';
   }
 
-  function setBubble(kind, text) {
+  function setBubble(kind, text, extra) {
     clearTimeout(fadeTimer);
     if (!buddyOn || !shown || !text) {
       if (!kind || kind === bubbleKind) { bubble.classList.remove('on'); bubbleKind = null; }
       return;
     }
     bubbleKind = kind; bubbleText = text;
-    bubble.className = kind === 'you' ? 'you' : '';
-    bubble.textContent = text;
+    bubble.className = (kind === 'you' ? 'you' : '') + (extra ? ' ' + extra : '');
+    // Your words are dimmed while Claude thinks about them (the question can arrive after the phase).
+    if (kind === 'you' && phase === 'thinking') bubble.classList.add('dim');
+    bubble.textContent = kind === 'you' ? latestWords(text) : text;
     bubbleW = bubble.offsetWidth; bubbleH = bubble.offsetHeight;
     bubble.classList.add('on');
     placeBubble();
   }
+
+  // A long question shows its end (what you're saying now), not a bubble growing down the screen.
+  function latestWords(t) {
+    t = String(t).trim();
+    if (t.length <= YOU_MAX) return t;
+    const tail = t.slice(-YOU_MAX), cut = tail.indexOf(' ');
+    return '…' + (cut > 0 && cut < 24 ? tail.slice(cut + 1) : tail);
+  }
+  const YOU_MAX = 150;
 
   // The sentence being spoken right now (captions arrive as the whole answer so far).
   // A sentence ends at . ! ? … before a capital, a digit or another script's letter, but not
@@ -309,6 +322,20 @@
       if (phase === 'thinking' && bubbleKind === 'you') bubble.classList.add('dim'); else bubble.classList.remove('dim');
       if (phase === 'listening' && bubbleKind === 'claude') setBubble(null, null);
       if (phase === 'off') { setBubble(null, null); fly = null; home = null; tucked = blink = false; B.placed = false; }
+    },
+    /** You held the keys but nothing was heard: a quiet note in your bubble that goes away by itself
+     *  (the next caption replaces it at once). */
+    youMissed(text) {
+      setBubble('you', text, 'miss');
+      if (bubbleKind === 'you') fadeTimer = setTimeout(() => { bubble.classList.remove('on'); bubbleKind = null; }, 1800);
+    },
+    /** For tests: what the bubble shows. */
+    bubbleState() {
+      const r = bubble.getBoundingClientRect();
+      return { on: bubble.classList.contains('on'), kind: bubbleKind, text: bubble.textContent, cls: bubble.className,
+               x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height),
+               buddy: B.placed ? { x: Math.round(B.x), y: Math.round(B.y) } : null, phase, shown, buddyOn,
+               visible: buddy.classList.contains('on'), vw: innerWidth, vh: innerHeight };
     },
     /** Hide the buddy for now (it comes back when you ask something). */
     buddyShow(on) {
