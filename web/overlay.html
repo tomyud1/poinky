@@ -12,7 +12,7 @@
   @keyframes dr{to{stroke-dashoffset:0}}
   g.fade{transition:opacity .3s}
 
-  .card{position:absolute;display:flex;flex-direction:column;animation:pop .4s cubic-bezier(.2,.9,.3,1.15)}
+  .card{position:absolute;display:flex;flex-direction:column;animation:pop .4s cubic-bezier(.2,.9,.3,1.15);isolation:isolate}
   .card.paper{border-radius:14px;overflow:hidden;background:#fbf8f0;box-shadow:0 22px 60px rgba(0,0,0,.35),0 0 0 1px rgba(0,0,0,.08)}
   .card .bar{height:38px;flex:none;display:flex;align-items:center;justify-content:center;position:relative;cursor:grab;
     font:500 13px ui-monospace,Menlo,monospace;color:#8a8577;background:rgba(0,0,0,.045);border-bottom:1px solid rgba(0,0,0,.06)}

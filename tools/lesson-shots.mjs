@@ -1,5 +1,5 @@
 // Plays a teacher reply in tools/lesson-player.html (headless Chrome) and saves a picture at the end of every
-// spoken line, plus one when it's done.
+// spoken line, plus final.png when the drawing is done.
 // Usage: node tools/lesson-shots.mjs reply.txt outdir [--bg light|dark|code] [--size 1512x982] [--speed 1]
 // Also saves saved.png: the picture the paper's Save button makes.
 import { spawn } from 'node:child_process';
@@ -46,7 +46,10 @@ for (let t = 0; t < 240000; t += 100) {
   if (len > seen) { seen = len; await shot(`line${String(++n).padStart(2, '0')}.png`); }
   if (done) break;
 }
-await sleep(4000 / speed);
+// The last line has been said; the drawing may still be catching up. final.png is when it's done and the pen
+// has had time to go (2.5 s), so a pen left behind shows.
+for (let i = 0; i < 600 && await ev('document.getElementById("overlay").contentWindow.SB.lessonBusy()'); i++) await sleep(100);
+await sleep(3000);
 await shot('final.png');
 const pic = (await send('Runtime.evaluate', { expression: 'document.getElementById("overlay").contentWindow.SB.lessonPicture()', awaitPromise: true, returnByValue: true })).result?.value;
 if (pic && pic.png) writeFileSync(join(outDir, 'saved.png'), Buffer.from(pic.png.split(',')[1], 'base64'));
