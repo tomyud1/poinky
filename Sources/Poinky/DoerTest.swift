@@ -117,6 +117,13 @@ enum DoerTest {
     /// `POINKY_TEST_FRONT=<words>` (real doer runs on scratch documents): the same, for a window of another app
     /// whose title has those words.
     static var mayAct: Bool {
+        // `POINKY_TEST_APP=<name>`: an app the run started itself (e.g. TextEdit, whose "Make Rich Text" turns
+        // the window into "Untitled"): any of its windows.
+        if let name = ProcessInfo.processInfo.environment["POINKY_TEST_APP"], !name.isEmpty {
+            if NSWorkspace.shared.frontmostApplication?.localizedName == name { return true }
+            Timeline.log("test.notFront", ["app": NSWorkspace.shared.frontmostApplication?.localizedName ?? ""])
+            return false
+        }
         if let words = ProcessInfo.processInfo.environment["POINKY_TEST_FRONT"], !words.isEmpty {
             let title = frontWindowTitle()
             if title.localizedCaseInsensitiveContains(words) { return true }
