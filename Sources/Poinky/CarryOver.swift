@@ -42,7 +42,8 @@ enum CarryOver {
         let then = Array(Set(items.compactMap { $0.app }.filter { !$0.isEmpty })).sorted()
         let thenText = then.isEmpty ? "" : " with \(then.joined(separator: " and ")) in front then"
         var out = ["Your previous session with the user, \(ago)\(thenText): a different moment, NOT the screen now"
-                   + (sameScreen ? "" : " (the user is in \(app.isEmpty ? "another app" : app) now)")
+                   + (sameScreen ? "" : sameApp ? " (another window is in front now\(window.isEmpty ? "" : ": “\(clip(window, 50))”"))"
+                                                : " (the user is in \(app.isEmpty ? "another app" : app) now)")
                    + ". Use it only if they refer back to it; what's on screen now comes only from the screenshot and the lines above:"]
         for e in items {
             var s = "- " + (e.you.isEmpty ? "(nobody asked)" : "User: \(clip(e.you, 200))")

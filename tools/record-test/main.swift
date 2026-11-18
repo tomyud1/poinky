@@ -93,6 +93,8 @@ func check(_ ok: Bool, _ what: String, _ detail: @autoclosure () -> String = "")
           "asked about earlier: kept, labeled as another moment and app", back.joined(separator: "\n"))
     let same = CarryOver.lines(cursor, ago: "4 minutes ago", question: "and the second paragraph?", app: "Cursor", window: "bugs.md")
     check(same.count == 2 && !same[0].contains("the user is in"), "the same app and window: kept", same.joined(separator: "\n"))
+    let otherWin = CarryOver.lines(cursor, ago: "x", question: "what did you say before?", app: "Cursor", window: "other.md")
+    check(otherWin.first?.contains("another window is in front now: “other.md”") == true, "the same app, another window, asked back: says it's another window", otherWin.first ?? "")
     check(CarryOver.lines(cursor, ago: "x", question: "and the second paragraph?", app: "Cursor", window: "other.md").isEmpty,
           "the same app, another window: left out")
     check(!CarryOver.lines(cursor, ago: "x", question: "מה אמרת קודם?", app: "Safari", window: "").isEmpty, "Hebrew \"what did you say before\": kept")
