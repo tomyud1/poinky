@@ -6,3 +6,4 @@ voice-samples/
 *.pem
 __pycache__/
 eval3d/runs/
+stt/.build/

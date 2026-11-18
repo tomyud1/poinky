@@ -291,7 +291,12 @@ final class Overlay: NSObject, WKNavigationDelegate {
     func lessonBegin(frame: CGRect, title: String, continuing: Bool = false, avoid: CGRect? = nil, look: String = "paper", session: Int? = nil) {
         let a = avoid.map { ",avoid:{x:\(Int($0.minX)),y:\(Int($0.minY)),w:\(Int($0.width)),h:\(Int($0.height))}" } ?? ""
         let extra = ",look:\(jsString(look))" + (session.map { ",session:\($0)" } ?? "")
-        js("SB.lessonBegin({x:\(Int(frame.minX)),y:\(Int(frame.minY)),w:\(Int(frame.width)),h:\(Int(frame.height)),h0:240\(a)\(extra)}, \(jsString(title)), \(continuing))")
+        // lo/hi: the band it may use (it grows down from y and never past hi, so it stays off what Placement kept it off).
+        js("SB.lessonBegin({x:\(Int(frame.minX)),y:\(Int(frame.minY)),w:\(Int(frame.width)),h:\(Int(frame.height)),h0:240,lo:\(Int(frame.minY)),hi:\(Int(frame.maxY))\(a)\(extra)}, \(jsString(title)), \(continuing))")
+    }
+    /// Moves the open paper (same width) off what the next question is about; one you dragged stays put.
+    func lessonPlace(frame: CGRect) {
+        js("SB.lessonPlace && SB.lessonPlace({x:\(Int(frame.minX)),y:\(Int(frame.minY)),lo:\(Int(frame.minY)),hi:\(Int(frame.maxY))})")
     }
 
     // MARK: Drawings follow their window
@@ -352,6 +357,7 @@ final class Overlay: NSObject, WKNavigationDelegate {
     /// A save you asked for by voice finished: where it went (nil: nothing to save, or it failed) and,
     /// for the notebook, how many pages.
     var onLessonSaved: ((URL?, Int?) -> Void)?
+    var onStudyPDF: (() -> Void)?   // a study paper's PDF button (CallController+Study.swift)
 
     /// Screen rectangles of things currently drawn (cards and the paper), in points.
     var occupiedRects: [CGRect] { cardRects }
@@ -483,6 +489,8 @@ final class Overlay: NSObject, WKNavigationDelegate {
             if let id = Int("\(msg["id"] ?? "")") { onHelperAsking?(id) }
         case "helperAction":
             if let id = Int("\(msg["id"] ?? "")"), let action = msg["action"] as? String { onHelperAction?(id, action) }
+        case "studyPDF":
+            onStudyPDF?()
         case "saveLesson":
             // The paper's Save button (or "save this page"): a picture of the page on the Desktop.
             let title = msg["title"] as? String ?? "", png = msg["png"] as? String, svg = msg["svg"] as? String

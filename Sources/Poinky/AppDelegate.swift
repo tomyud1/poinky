@@ -21,6 +21,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             Updater.shared.selfTest(out: args[i + 1])
             return
         }
+        // `Poinky --study-eval <outdir> <sheet> <en|he> <step>…`: a study session with the real models, no screen (StudyEval.swift).
+        if let i = args.firstIndex(of: "--study-eval") {
+            let rest = Array(args[(i + 1)...])
+            Task { @MainActor in await StudyEval.run(rest) }
+            return
+        }
+        // `Poinky --study-pdf <state.json> <out.pdf>`: the solved PDF of a saved study session (its files beside state.json).
+        if let i = args.firstIndex(of: "--study-pdf"), i + 2 < args.count {
+            let state = URL(fileURLWithPath: args[i + 1]), dec = JSONDecoder()
+            dec.dateDecodingStrategy = .iso8601
+            if let data = try? Data(contentsOf: state), let sheet = try? dec.decode(StudySheet.self, from: data) {
+                setenv("POINKY_STUDY_DIR", state.deletingLastPathComponent().deletingLastPathComponent().path, 1)
+                print(StudyPDF.build(sheet, to: URL(fileURLWithPath: args[i + 2]))?.path ?? "failed")
+            } else { print("can't read \(state.path)") }
+            exit(0)
+        }
         // `Poinky --read-context out.txt`: what AppContextReader sees in the front app (as the signed app).
         if let i = args.firstIndex(of: "--read-context"), i + 1 < args.count {
             let out = args[i + 1]
@@ -83,6 +99,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             HelperTest.run(out: args[i + 1], dir: args[i + 2], tasks: Array(args[(i + 3)...]))
             return
         }
+        // `Poinky --mic-check-shot <out.png>` (with POINKY_MIC_CHECK_WAVS=<dir>): the mic check on recordings.
+        if let i = args.firstIndex(of: "--mic-check-shot"), i + 1 < args.count {
+            MicCheckWindow.snapshot(to: args[i + 1])
+            return
+        }
         if let i = args.firstIndex(of: "--receipts-shot"), i + 1 < args.count {
             ReceiptsWindow.snapshot(to: args[i + 1])
             return
@@ -104,7 +125,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller = c
         // `Poinky --listen-test <script.json> <out.txt>`: scripted holds and heard words (ListenTest.swift).
         if let (script, out) = listenTest { ListenTest.run(script: script, out: out, controller: c) }
-        let quiet = args.contains { ["--ask", "--video", "--play-video", "--listen-test"].contains($0) }
+        // `Poinky --mic-check`: opens the microphone check (also Settings → Voice).
+        if args.contains("--mic-check") { DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { MicCheckWindow.shared.show() } }
+        let quiet = args.contains { ["--ask", "--video", "--play-video", "--listen-test", "--mic-check"].contains($0) }
         if let page = args.contains("--welcome") ? .hello : quiet ? nil : WelcomeModel.pageToResume(configExisted: configExisted) {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { WelcomeWindowController.shared.show(at: page) }
         }
@@ -125,10 +148,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // call loop without a mic; with POINKY_CLAUDE_CMD=tools/fake-claude.py no tokens are used).
         // Several `--ask`s are asked one after another, `POINKY_ASK_GAP` seconds apart (default 5).
         let gap = ProcessInfo.processInfo.environment["POINKY_ASK_GAP"].flatMap(Double.init) ?? 5
-        let asks = args.indices.filter { args[$0] == "--ask" && $0 + 1 < args.count }.map { args[$0 + 1] }
+        // `--study-photo <file>` among the asks: a photo of your work handed to the study session (as the iPhone capture does).
+        let asks = args.indices.filter { ["--ask", "--study-photo"].contains(args[$0]) && $0 + 1 < args.count }
+            .map { args[$0] == "--study-photo" ? "\u{1}photo:" + args[$0 + 1] : args[$0 + 1] }
+        let ask: (String) -> Void = { q in
+            if q.hasPrefix("\u{1}photo:") { StudySession.shared.driver = c; StudySession.shared.checkWork(file: URL(fileURLWithPath: String(q.dropFirst(7)))) } else { c.askTyped(q) }
+        }
         if let wait = ProcessInfo.processInfo.environment["POINKY_ASK_WAIT"].flatMap(Double.init), asks.count > 1 {
             // Each question after the first waits until the last answer is done (spoken and sketched) plus `wait` s.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { c.askTyped(asks[0]) }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { ask(asks[0]) }
             var next = 1, quietSince: Double?
             Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { t in
                 MainActor.assumeIsolated {
@@ -136,12 +164,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     let now = ProcessInfo.processInfo.systemUptime
                     if !c.quietForTests { quietSince = nil; return }
                     if quietSince == nil { quietSince = now }
-                    if now - quietSince! >= wait { c.askTyped(asks[next]); next += 1; quietSince = nil }
+                    if now - quietSince! >= wait { ask(asks[next]); next += 1; quietSince = nil }
                 }
             }
         } else {
             for (n, q) in asks.enumerated() {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1 + Double(n) * gap) { c.askTyped(q) }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1 + Double(n) * gap) { ask(q) }
             }
         }
         if let i = args.firstIndex(of: "--end-after"), i + 1 < args.count, let secs = Double(args[i + 1]) {

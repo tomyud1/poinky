@@ -59,16 +59,21 @@ struct BrainQuestion {
     let text: String
     /// Nil: text only (a follow-up with what a lookup found, or a web search: the screen was already sent).
     let snapshot: Snapshot?
+    /// More pictures after the screenshot (JPEG base64): a study session's sheet pages and photos of your work.
+    var extraImages: [String] = []
 
     /// The screenshot, plus the close-up of what you marked (if any).
     var imageBlocks: [[String: Any]] {
-        guard let snapshot else { return [] }
+        guard let snapshot else { return extraBlocks }
         var blocks: [[String: Any]] = [["type": "image",
                                         "source": ["type": "base64", "media_type": "image/jpeg", "data": snapshot.jpegBase64]]]
         if let f = snapshot.focus {
             blocks.append(["type": "image", "source": ["type": "base64", "media_type": "image/jpeg", "data": f.jpegBase64]])
         }
-        return blocks
+        return blocks + extraBlocks
+    }
+    private var extraBlocks: [[String: Any]] {
+        extraImages.map { ["type": "image", "source": ["type": "base64", "media_type": "image/jpeg", "data": $0]] }
     }
 
     /// Lines describing the close-up, for the text part of the message.
@@ -125,12 +130,8 @@ enum SpokenError {
 enum BrainFactory {
     static func make(config: AppConfig, role: PromptRole) throws -> Brain {
         var prompt = SystemPrompt.load(role)
-        // The talker also knows Poinky itself (to answer "how do I…" about the app) and,
-        // like the guide, what it remembers about the user.
-        if role == .talker, let url = Bundle.main.url(forResource: "poinky-manual", withExtension: "md"),
-           let manual = try? String(contentsOf: url, encoding: .utf8) {
-            prompt += "\n\n" + manual
-        }
+        // The talker, like the guide, knows what it remembers about the user. (What it needs only for some
+        // questions, like the app manual, goes with those questions: `TalkerExtras`.)
         if role == .talker || role == .guide || role == .doer {
             prompt += Identity.promptSection()
             prompt += Memory.promptSection(enabled: config.memoryEnabled)

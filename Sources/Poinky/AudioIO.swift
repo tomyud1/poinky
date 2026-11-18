@@ -73,6 +73,9 @@ final class AudioIO {
             voiceProcessing = false
         }
         running = true
+        MicDebug.shared.micInfo = ["mode": "call", "voiceProcessing": voiceProcessing,
+                                   "agc": voiceProcessing && engine.inputNode.isVoiceProcessingAGCEnabled,
+                                   "micFormat": "\(engine.inputNode.outputFormat(forBus: 0))"]
     }
 
     /// Plays an interface sound through this engine (returns false if the engine isn't running).
@@ -102,6 +105,7 @@ final class AudioIO {
         e.prepare()
         try e.start()
         micEngine = e
+        MicDebug.shared.micInfo = ["mode": "hold", "voiceProcessing": false, "agc": false, "micFormat": "\(format)"]
         // AirPods switch to headset mode when their mic opens, which can stop this engine right after it
         // starts: start it again on the new format, so the hold still hears you.
         micObserver = NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange, object: e, queue: .main) { [weak self] _ in
