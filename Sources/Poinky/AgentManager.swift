@@ -184,9 +184,42 @@ final class AgentManager {
         return AppConfig.dir.appendingPathComponent("agents", isDirectory: true)
     }
 
+    /// Why the last `start` returned nil, in words to say ("The folder … isn't there anymore"); nil: Claude
+    /// Code isn't installed.
+    private(set) var refusal: String?
+    /// …and the same request with a folder that's there (the closest one above), to offer instead.
+    private(set) var refusalOffer: AgentRequest?
+
+    /// A folder that was asked for but isn't there (moved or deleted), and the closest folder above it that
+    /// is (not the home folder or the disk itself), to offer instead.
+    static func missingFolder(_ dir: String?) -> (path: URL, nearest: URL?)? {
+        guard let d = dir?.trimmingCharacters(in: .whitespaces), !d.isEmpty else { return nil }
+        let url = URL(fileURLWithPath: (d as NSString).expandingTildeInPath).standardizedFileURL
+        var isDir: ObjCBool = false
+        if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir), isDir.boolValue { return nil }
+        let home = FileManager.default.homeDirectoryForCurrentUser.standardizedFileURL.path
+        var up = url.deletingLastPathComponent()
+        while up.path.count > 1, up.path != home {
+            if FileManager.default.fileExists(atPath: up.path, isDirectory: &isDir), isDir.boolValue { return (url, up) }
+            up = up.deletingLastPathComponent()
+        }
+        return (url, nil)
+    }
+
     /// Starts a helper, or puts it in line if `maxRunning` are already working.
-    /// Returns nil if Claude Code isn't installed.
+    /// Returns nil if Claude Code isn't installed, or if the folder it should work in is gone (`refusal` says so:
+    /// it used to run in the home folder without a word, and continuing one there failed vaguely).
     func start(_ req: AgentRequest, config: AppConfig) -> Agent? {
+        refusal = nil
+        refusalOffer = nil
+        if let gone = Self.missingFolder(req.dir) {
+            let who = req.name.map { "\($0) worked in" } ?? "The helper would work in"
+            refusal = "\(who) \(AppContext.tilde(gone.path.path)), but that folder isn't there anymore."
+            // A fresh start there (a resumed session belongs to its old folder; what it did goes along as notes).
+            refusalOffer = gone.nearest.map { AgentRequest(title: req.title, dir: $0.path, task: req.task, model: req.model,
+                                                           planFirst: req.planFirst, name: req.name, earlier: req.earlier) }
+            return nil
+        }
         guard let exe = Self.executable(config: config) else { return nil }
         lastConfig = config
         maxRunning = max(1, min(Self.names.count, config.maxHelpers))
@@ -573,8 +606,14 @@ final class AgentManager {
         if AppConfig.efforts.contains(config.agentEffort) { args += ["--effort", config.agentEffort] }
 
         let p = Process()
-        p.executableURL = URL(fileURLWithPath: exe)
-        p.arguments = args
+        // Through Poinky's wrapper, so what the helper starts (tests, a dev server) ends with it (HelperExec).
+        if let me = Bundle.main.executableURL, Self.groupHelpers {
+            p.executableURL = me
+            p.arguments = ["--helper-exec", exe] + args
+        } else {
+            p.executableURL = URL(fileURLWithPath: exe)
+            p.arguments = args
+        }
         p.currentDirectoryURL = worktrees[id]?.workDir ?? dir
         var env = ProcessInfo.processInfo.environment
         // A clean Claude Code environment (not settings inherited from wherever Poinky was started).
@@ -922,6 +961,9 @@ final class AgentManager {
         h.write(Data(text.utf8))
         try? h.close()
     }
+
+    /// Helpers run in a process group of their own (`POINKY_HELPER_GROUPS=0`: directly, as before).
+    static let groupHelpers = ProcessInfo.processInfo.environment["POINKY_HELPER_GROUPS"] != "0"
 
     static func executable(config: AppConfig) -> String? {
         if let fake = ProcessInfo.processInfo.environment["POINKY_HELPER_CMD"], !fake.isEmpty,

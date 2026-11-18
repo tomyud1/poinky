@@ -459,6 +459,8 @@ final class Overlay: NSObject, WKNavigationDelegate {
             webView.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
         }
     }
+    /// Tests (`--listen-test` {"pointHelper": true}): as if the mouse rested on this helper.
+    func testPointHelper(_ id: Int?) { pointedHelper = id }
     /// Tests (`--listen-test` {"killPage": true}): end the page's process the way macOS would.
     func testKillPage() {
         guard let pid = (web?.value(forKey: "_webProcessIdentifier") as? NSNumber)?.int32Value, pid > 0 else { return }

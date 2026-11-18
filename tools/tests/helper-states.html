@@ -18,7 +18,8 @@
     if (k === 'handoff' || k === 'report') look = d && d.id; else if (k === 'handoffEnd' || k === 'absorb') look = null;
   };
   const layer = new HelperLayer(root, { main: { pos: () => main, react }, sound: () => {}, params: { dock: 'right', hold: true } });
-  const run = secs => { for (let t = 0; t < secs; t += 1 / 60) { layer.update(1 / 60); layer.render(); } };
+  // Like buddy.js: it stops facing a helper whose position is gone.
+  const run = secs => { for (let t = 0; t < secs; t += 1 / 60) { layer.update(1 / 60); layer.render(); if (look && !layer.pos(look)) look = null; } };
   const phase = id => { const h = layer.helpers.get(id); return h ? h.phase + (h.phase === 'fly' ? '>' + h.fly.kind : '') : 'gone'; };
 
   // 1. Answered while it flies to you (from its window, a notification or the phone): it turns back to work.

@@ -26,6 +26,12 @@ final class AudioIO {
     /// `POINKY_MUTE=1` (tests): everything plays as usual, at volume 0.
     static let muted = ProcessInfo.processInfo.environment["POINKY_MUTE"] == "1"
     private var fakeMicOn = false
+    /// Tests: `POINKY_TEST_MIC_FAIL=1`, the microphone never opens (as with no input device, or one that's busy).
+    static let testMicFail = ProcessInfo.processInfo.environment["POINKY_TEST_MIC_FAIL"] == "1"
+    /// Tests: `POINKY_TEST_AUDIO_LOST=secs`, that long after the first start the output device goes away for good
+    /// (the end of `restartIfStopped` when every retry failed).
+    private static let testLostAfter = ProcessInfo.processInfo.environment["POINKY_TEST_AUDIO_LOST"].flatMap(Double.init)
+    private static var testLostDone = false
 
     /// Whether echo cancellation is active (false if voice processing couldn't start).
     private(set) var voiceProcessing = false
@@ -42,6 +48,19 @@ final class AudioIO {
     func start(mic: Bool = true) throws {
         guard !running else { return }
         defer { if running { watchDevice() } }
+        if let s = Self.testLostAfter, !Self.testLostDone {
+            Self.testLostDone = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + s) { [weak self] in
+                MainActor.assumeIsolated {
+                    guard let self, self.running else { return }
+                    NSLog("Poinky: test: the audio device is gone")
+                    self.player.stop(); self.sfx.stop(); self.engine.stop()
+                    self.unwatchDevice()
+                    self.running = false
+                    self.onRestart?()
+                }
+            }
+        }
         // A fresh engine each time: one that ever had a mic would open it again on start.
         engine = AVAudioEngine()
         player = AVAudioPlayerNode()
@@ -90,6 +109,7 @@ final class AudioIO {
 
     /// Opens the microphone (hold-to-talk). Its audio goes to `micRelay`.
     func startMic() throws {
+        if Self.testMicFail { throw BrainError("The microphone couldn't start (POINKY_TEST_MIC_FAIL).") }
         if Self.fakeMic { fakeMicOn = true; return }
         guard micEngine == nil else { return }
         let e = AVAudioEngine()

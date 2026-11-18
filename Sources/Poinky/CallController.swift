@@ -224,14 +224,18 @@ final class CallController: NSObject, NSMenuDelegate {
     private var stateSince: TimeInterval = 0
     private var askedAt: TimeInterval?        // you finished asking (keys released, or the pause ended): for the wait time
     private var firstTokenTurn = -1
+    private var lookingUp = false             // a `<search>` / `<recall>` is running for the current question
+    private var lookupTurn = -1               // …for this turn (an interrupted one doesn't count)
     private var firstSentenceTurn = -1
     /// Longer than this in one state means Poinky is stuck (nothing legitimate takes this long:
     /// replies have their own 75 s watchdog, captures 6 s, web searches 30 s).
     /// Tests: the session takes this long to start (a speech engine that doesn't come up).
     static let testStallStart = ProcessInfo.processInfo.environment["POINKY_TEST_STALL_START"].flatMap(Double.init)
+    /// "Speaking" counts from the voice's last progress (a sentence queued, audio scheduled or heard), so a long
+    /// answer is fine; past the reply watchdog (75 s) with nothing heard, the voice is stuck.
     static let stuckAfter: [State: TimeInterval] = {
-        if let s = ProcessInfo.processInfo.environment["POINKY_STUCK_SECS"].flatMap(Double.init) { return [.thinking: s, .starting: s] }   // tests
-        return [.thinking: 150, .starting: 300]
+        if let s = ProcessInfo.processInfo.environment["POINKY_STUCK_SECS"].flatMap(Double.init) { return [.thinking: s, .starting: s, .speaking: s] }   // tests
+        return [.thinking: 150, .starting: 300, .speaking: 90]
     }()
 
     // Video explainers (CallController+Video.swift).
@@ -249,6 +253,7 @@ final class CallController: NSObject, NSMenuDelegate {
     func setup() {
         // A session with no "session.end" before the next "app.start" (and no "app.quit") means Poinky was
         // killed, crashed, froze or lost power: the timeline couldn't tell those from a hang before.
+        Launches.started()   // first: how the last run ended ("app.unclean": froze, crashed, killed, restart)
         Timeline.log("app.start", ["commit": String(Updater.running.commit.prefix(7))])
         reminderTimer = Timer.scheduledTimer(withTimeInterval: Self.reminderTick, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.checkReminders() }
@@ -264,6 +269,11 @@ final class CallController: NSObject, NSMenuDelegate {
         listener.onStatus = { [weak self] msg in self?.overlay.setClaudeCaption(msg) }
         listener.onDied = { [weak self] in self?.restartListener() }
         speaker.onTurnFinished = { [weak self] in self?.finishedSpeaking() }
+        // Looking something up: once "One sec, let me check." has been heard, it's working, not speaking.
+        speaker.onDrained = { [weak self] in
+            guard let self, self.lookingUp, self.lookupTurn == self.turn, self.state == .speaking else { return }
+            self.state = .thinking
+        }
         speaker.isQuiet = { [weak self] in self?.silent ?? false }
         // Captions follow the voice: each sentence appears as it's spoken.
         speaker.onSentenceStarted = { [weak self] sentence, tag in
@@ -535,6 +545,7 @@ final class CallController: NSObject, NSMenuDelegate {
             // (After each wait: a session reset meanwhile (stuck, Start Fresh) must not be set up by this one.)
             guard await SpeechListener.requestPermissions() else {
                 guard myCall == callID else { return }
+                typedAfterStart = nil   // not asked minutes later, once permissions are given
                 state = .idle
                 WelcomeWindowController.shared.offerFix(.permissions)
                 return
@@ -542,6 +553,7 @@ final class CallController: NSObject, NSMenuDelegate {
             guard myCall == callID else { return }
             guard await ScreenCapture.hasPermission() else {
                 guard myCall == callID else { return }
+                typedAfterStart = nil
                 state = .idle
                 ScreenCapture.requestPermission()
                 WelcomeWindowController.shared.offerFix(.permissions, askedScreen: true)
@@ -570,6 +582,7 @@ final class CallController: NSObject, NSMenuDelegate {
                 talker = try BrainFactory.make(config: config, role: .talker)
                 artist = config.artistEnabled ? try BrainFactory.make(config: config, role: .artist) : nil
             } catch {
+                typedAfterStart = nil
                 state = .idle
                 showAlert("Couldn't start the brain.", info: error.localizedDescription)
                 return
@@ -578,6 +591,7 @@ final class CallController: NSObject, NSMenuDelegate {
             overlay.show(on: screenWithMouse())
             overlay.setBuddy(config.buddy)
             overlay.setCaption(you: nil, claude: nil)
+            if let m = pendingMiss { pendingMiss = nil; overlay.youMissed(m) }
             updateUI()
             speaker.attach(audio)
             let startedWithMic = mode == .handsFree
@@ -663,6 +677,15 @@ final class CallController: NSObject, NSMenuDelegate {
         askAfterStart = false
         typedAfterStart = nil
         pendingLine = nil
+        pendingMiss = nil
+        // Per question or per hold: none of it may reach the next session ("start fresh" said while pointing at
+        // a helper sent the next session's first question to that helper).
+        endHelperListen()
+        helperContext = nil
+        clearedForUtterance = false
+        lastAskAt = 0
+        lastSnapshot = nil
+        focusTask?.cancel(); focusTask = nil
         listener.stop()
         speaker.stop()
         audio.stop()
@@ -703,10 +726,15 @@ final class CallController: NSObject, NSMenuDelegate {
         searcher?.stop()
         searcher = nil
         lookupReply = false
+        lookingUp = false
+        home.model.lookingUp = false
         pendingOffer = nil
         offerNote = nil
         savedNote = nil
         carriedOver = false
+        // Drawings hidden behind a window that covers them go now: un-hiding them first showed the paper over
+        // that window until the overlay was cleared (0.35 s later).
+        if overlay.contentHidden { overlay.clearAll() }
         overlay.bakeContent()
         overlay.setContentVisible(true)
         currentTag = nil
@@ -795,6 +823,13 @@ final class CallController: NSObject, NSMenuDelegate {
     // Tests (`--listen-test`, ListenTest.swift): the talk keys and the words, scripted.
     func testKeys(down: Bool) { ptt.fakeFlags = down ? ptt.combo : [] }
     func testWords(_ text: String, final: Bool, live: Bool) { listener.fakeResult(text, isFinal: final, live: live) }
+    /// A helper (POINKY_HELPER_CMD=tools/fake-helper.py for no tokens); its id, or nil if it didn't start.
+    func testEndSession() { endCall(quietly: true) }
+    /// As if the drawings' window were covered (followAnchor keeps them hidden; here the anchor is dropped so it can't
+    /// show them again, the window being in plain view in a test).
+    func testCoverDrawings(_ covered: Bool) { anchor = nil; overlay.setContentVisible(!covered) }
+    func testLessonSaved() { lessonSaved(FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Desktop/Poinky test.png"), pages: nil) }
+    func testStartHelper(_ task: String) -> Int? { agents.start(AgentRequest(title: "Test helper", dir: nil, task: task), config: config)?.id }
     var testState: String { "\(state)" }
 
     /// The talk keys went down: open the mic right away (so your first word isn't cut off).
@@ -809,8 +844,34 @@ final class CallController: NSObject, NSMenuDelegate {
         }
         pushGen += 1
         if !finishingPush { listener.clearText() }
+        micError = nil
         do { try audio.startMic() } catch {
             NSLog("Poinky: mic failed: \(error.localizedDescription)")
+            micError = error.localizedDescription
+        }
+    }
+
+    private var micError: String?       // why the mic didn't open for this hold
+    private var pendingMiss: String?     // a note for your bubble once the session that's starting is on screen
+
+    /// Held to talk, but the mic didn't open (no input device, one that's busy, access turned off meanwhile):
+    /// say so where your words would be, instead of nothing at all.
+    private func micFailed() {
+        let denied = !SpeechListener.fake && AVCaptureDevice.authorizationStatus(for: .audio) != .authorized
+        Timeline.log("mic.fail", ["denied": denied, "state": "\(state)", "why": micError ?? ""])
+        let note = denied ? "Poinky can't use the mic" : "Couldn't open the mic"
+        playSound(.cancel)
+        if denied {
+            if state != .starting { WelcomeWindowController.shared.offerFix(.permissions) }   // (starting: the session asks)
+            return
+        }
+        if state == .idle {
+            pendingMiss = note
+            startSession(.push)
+        } else if state == .starting {
+            pendingMiss = note
+        } else {
+            overlay.youMissed(note)
         }
     }
 
@@ -843,6 +904,7 @@ final class CallController: NSObject, NSMenuDelegate {
             turn += 1
             talker?.cancelCurrent()
             speaker.stop()
+            lookingUp = false; home.model.lookingUp = false
             clearMarksOnInterrupt()
             stopLesson()
             state = restingState
@@ -856,13 +918,12 @@ final class CallController: NSObject, NSMenuDelegate {
 
     /// Held on purpose (no other key): show that we're listening, and stop Claude if it was talking.
     private func pushCommit() {
-        guard audio.micOn else { return }
+        guard audio.micOn else { micFailed(); return }
         lastActivity = ProcessInfo.processInfo.systemUptime
         if state == .idle { startSession(.push) }
         guard mode == .push, state != .idle else { return }
-        // Talking on another screen: bring the buddy over (if nothing is drawn on the old one).
-        let here = screenWithMouse()
-        if here != overlay.screen, overlay.occupiedRects.isEmpty { overlay.show(on: here) }
+        // Talking on another screen: the buddy (and what you ask about) comes over.
+        followMouseScreen()
         pushCommitted = true
         listener.setContext(speechContext())
         textTurn = false   // talking: the answer is said (unless quiet mode is on)
@@ -882,6 +943,7 @@ final class CallController: NSObject, NSMenuDelegate {
         case .thinking:
             // Claude hasn't answered yet: what you say now is the rest of that question.
             turn += 1
+            lookingUp = false; home.model.lookingUp = false
             talker?.cancelCurrent()
             speaker.stop()
             mergeNext = true
@@ -924,7 +986,8 @@ final class CallController: NSObject, NSMenuDelegate {
         if mode == .handsFree && state != .idle { return }   // a hands-free call hears you anyway
         let myPush = pushGen
         pushCommitted = false
-        guard send, mode == .push, state != .idle else {
+        // (The mic never opened: its note is already showing, there's nothing to send.)
+        guard send, mode == .push, state != .idle, micError == nil else {
             audio.stopMic()
             // Settle and throw away whatever was heard (it was a shortcut, not a question).
             if !finishingPush, listener.running { Task { _ = await self.listener.finishUtterance() } }
@@ -1132,6 +1195,13 @@ final class CallController: NSObject, NSMenuDelegate {
         if url != nil { savedNote = "(Poinky already saved it and told the user: «\(line)»)" }
         logExchange("", line, note: url == nil ? "nothing to save" : "saved the paper", history: false)
         guard state != .idle else { sayWhenFree(line); return }
+        // You're talking (holding the keys, or mid-sentence in a call) or a question is being answered: after that,
+        // like a reminder, not over you (it set "speaking" while you held the keys).
+        if pushCommitted || ptt.isDown || state == .listening || state == .thinking || state == .starting {
+            dueLines.append(line)
+            deliverReminders()
+            return
+        }
         speaker.openSource()
         speaker.enqueue(line)
         speaker.endTurn()
@@ -1210,7 +1280,7 @@ final class CallController: NSObject, NSMenuDelegate {
             Timeline.log("reminder.due", ["late": late, "agent": r.agentTitle != nil])
             if let title = r.agentTitle {
                 if agents.start(AgentRequest(title: title, dir: r.agentDir, task: r.text), config: config) == nil {
-                    dueLines.append("I couldn't start the helper you scheduled, \(title): background helpers need Claude Code.")
+                    dueLines.append("I couldn't start the helper you scheduled, \(title): " + (agents.refusal ?? "background helpers need Claude Code."))
                     continue
                 }
             }
@@ -1412,6 +1482,7 @@ final class CallController: NSObject, NSMenuDelegate {
     private func interrupt(maybeMore: Bool = true) {
         turn += 1
         talker?.cancelCurrent()   // it may still be writing the rest: don't make the next question wait for it
+        lookingUp = false; home.model.lookingUp = false
         Timeline.log("interrupt", ["turn": turn])
         speaker.stop()
         // Talking again within a few seconds of asking usually means you weren't done:
@@ -1474,6 +1545,7 @@ final class CallController: NSObject, NSMenuDelegate {
     /// `proactive`: nobody asked; Poinky has something to tell the user (an agent finished).
     private func ask(_ question: String, proactive: Bool = false) {
         swapTalkerIfReady()
+        if !proactive, mode == .push { followMouseScreen() }   // (typed: the question is about the screen you're on)
         guard let talker, let screen = overlay.screen else { return }
         releaseTeacher()   // an older teacher's lines aren't waiting for this talker
         flushLessons()     // lessons of questions whose answer was cut off go into the record by themselves
@@ -1490,6 +1562,8 @@ final class CallController: NSObject, NSMenuDelegate {
         // A background update (a helper's report) is built from helper output, which can contain text from
         // web pages or files: like a lookup reply, it may only speak and mark, never act.
         lookupReply = proactive
+        lookingUp = false
+        home.model.lookingUp = false
         lastAskAt = ProcessInfo.processInfo.systemUptime
         markFade?.cancel()
         // Each question starts with a clean screen: the previous answer's marks go away.
@@ -1566,7 +1640,7 @@ final class CallController: NSObject, NSMenuDelegate {
                         : "Explain this to the user (2D lesson, or a 3D model if they asked for 3D). Started in parallel with the talker; the talker only says a short hand-over line.")
                 }
                 let q = BrainQuestion(text: self.talkerText(question, snap, route: route, proactive: proactive), snapshot: snap)
-                self.overlay.glance()
+                if !snap.isBlind { self.overlay.glance() }
                 self.addReceipt(q, question: proactive ? "" : question, snap: snap, turn: myTurn)
                 if sketchNow || checkNow { self.receiptAlso("The teacher (\(self.config.model(for: .artist))) got the same screenshot to sketch an answer") }
                 _ = try await talker.ask(q) { delta in self.received(delta, turn: myTurn) }
@@ -1581,7 +1655,13 @@ final class CallController: NSObject, NSMenuDelegate {
                 // `<recall>` / `<search>`: look it up, then the talker answers from what was found.
                 if !proactive, ev.recall != nil || ev.search != nil {
                     if ev.search != nil, said.isEmpty { self.speaker.enqueue("One sec, let me check."); self.state = .speaking }
+                    // While it looks: "speaking" only as long as something is heard, then working on it.
+                    self.lookingUp = true
+                    self.lookupTurn = myTurn
+                    self.home.model.lookingUp = true
+                    if !self.speaker.isSpeaking { self.state = .thinking }
                     let found = await self.lookUp(recall: ev.recall, search: ev.search, question: question, turn: myTurn)
+                    if myTurn == self.turn { self.lookingUp = false; self.home.model.lookingUp = false }
                     guard myTurn == self.turn else { return }
                     Receipts.update(self.receiptID) { r in
                         if let q = ev.search { r.lookups.append("Web search “\(q)” (Claude's web search got these words and your question)") }
@@ -1630,7 +1710,15 @@ final class CallController: NSObject, NSMenuDelegate {
                 guard wantsContext else { return AppContext() }
                 return (try? await Deadline.run(0.5, "Reading the front app") { AppContextReader.read(app: front, excluded: excluded) }) ?? AppContext()
             }
-            let snap = try await ScreenCapture.capture(screen: screen, marks: marks, cursor: cursor, focus: focus)
+            let snap: Snapshot
+            do {
+                snap = try await ScreenCapture.capture(screen: screen, marks: marks, cursor: cursor, focus: focus)
+            } catch let e where !(e is CancellationError) {
+                // The display is asleep or off, or the capture service is stuck: ask without a picture
+                // rather than "Sorry, that didn't work".
+                Timeline.log("capture.failed", ["why": e.localizedDescription])
+                snap = Snapshot.blind(screen: screen.frame.size, why: e.localizedDescription)
+            }
             return (snap, await reading.value)
         }
     }
@@ -1799,7 +1887,7 @@ final class CallController: NSObject, NSMenuDelegate {
         }
         r.parts = Receipts.sessionParts
         r.message = q.text
-        receiptID = Receipts.add(r, jpegBase64: snap.jpegBase64)
+        receiptID = Receipts.add(r, jpegBase64: snap.isBlind ? nil : snap.jpegBase64)
         receiptTurn = myTurn
     }
 
@@ -1866,6 +1954,7 @@ final class CallController: NSObject, NSMenuDelegate {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 10) { [weak self] in
                     guard let self, searching, myTurn == self.turn else { return }
                     self.speaker.enqueue("Still looking.")
+                    if self.state == .thinking { self.state = .speaking }
                 }
                 let r = await searcher!.search(q, context: question)
                 searching = false
@@ -2102,16 +2191,13 @@ final class CallController: NSObject, NSMenuDelegate {
                                          dir: own.dir, task: req.task, model: req.model, planFirst: req.planFirst)
                     r.resume = own.id
                     r.fork = true
-                    if agents.start(r, config: config) == nil {
-                        overlay.setClaudeCaption("⚠️ Couldn't start the agent: background agents need Claude Code installed")
-                    }
+                    if agents.start(r, config: config) == nil { helperRefused(inReply: true) }
                     continue
                 }
+                if pastHelper(key: key) != nil, agents.refusal != nil { helperRefused(inReply: true); continue }
                 NSLog("Poinky: no earlier helper with the key \(key); starting a new one")
             }
-            if agents.start(req, config: config) == nil {
-                overlay.setClaudeCaption("⚠️ Couldn't start the agent: background agents need Claude Code installed")
-            }
+            if agents.start(req, config: config) == nil { helperRefused(inReply: true) }
         }
         handleVideoTags(ev)
         if let what = ev.saveLesson { overlay.saveLesson(all: what == "all") }
@@ -2122,6 +2208,32 @@ final class CallController: NSObject, NSMenuDelegate {
                                      window: frontContext.window, selection: frontContext.selection) {
             pendingOffer = o
             Timeline.log("offer.made", ["do": o.actions.doTask != nil, "agents": o.actions.agents.count, "reminders": o.actions.reminders.count])
+        }
+    }
+
+    /// A helper couldn't start: say why (its folder is gone, or Claude Code is missing), and offer the closest
+    /// folder that's there, if any ("Want me to start it in ~/code instead?" → a yes starts it, no model call).
+    private func helperRefused(inReply: Bool, said: String = "") {
+        guard let why = agents.refusal else {
+            overlay.setClaudeCaption("⚠️ Couldn't start the agent: background agents need Claude Code installed")
+            return
+        }
+        Timeline.log("helper.refused", ["offer": agents.refusalOffer != nil])
+        var line = why
+        if let r = agents.refusalOffer, let dir = r.dir {
+            line += " Want me to start it in \(AppContext.tilde(dir)) instead?"
+            var a = TalkEvents()
+            a.agents = [r]
+            pendingOffer = PendingOffer(actions: a, say: "Okay, starting it there.", made: ProcessInfo.processInfo.systemUptime,
+                                        app: Self.frontBundle(), window: frontContext.window, selection: frontContext.selection)
+        } else {
+            line += " Tell me which folder it should use."
+        }
+        if inReply, state != .idle {
+            speaker.enqueue(line)
+            state = .speaking
+        } else {
+            sayQuick(line, said: said)
         }
     }
 
@@ -3151,6 +3263,8 @@ final class CallController: NSObject, NSMenuDelegate {
         case .resume(let past, let text)?:
             if let a = agents.resume(past, text: text, config: config) {
                 sayQuick("Okay, \(a.name) will pick it up.", said: said)
+            } else if agents.refusal != nil {
+                helperRefused(inReply: false, said: said)
             } else {
                 ask(said)
             }
@@ -3399,9 +3513,15 @@ final class CallController: NSObject, NSMenuDelegate {
 
     /// Stuck in one state far longer than anything legitimate takes: write down why, start over, and say so.
     private func checkStuck() {
+        var since = stateSince
+        if state == .speaking {
+            if artistBusy { return }   // the teacher writes the next lines (it has its own watchdog)
+            since = max(since, speaker.lastProgress)
+        }
         guard let limit = Self.stuckAfter[state],
-              ProcessInfo.processInfo.systemUptime - stateSince > limit else { return }
-        Timeline.log("stuck", ["state": "\(state)", "secs": Int(ProcessInfo.processInfo.systemUptime - stateSince), "turn": turn,
+              ProcessInfo.processInfo.systemUptime - since > limit else { return }
+        Timeline.log("stuck", ["state": "\(state)", "secs": Int(ProcessInfo.processInfo.systemUptime - since), "turn": turn,
+                               "voice": speaker.debugState, "audio": audio.running, "lookingUp": lookingUp,
                                "finishingPush": finishingPush, "pushCommitted": pushCommitted, "guideBusy": guideBusy,
                                "guide": guide != nil, "artistBusy": artistBusy, "asking": askingNow != nil,
                                "lookupReply": lookupReply, "speaking": speaker.isSpeaking, "mode": "\(mode)"])
@@ -3429,15 +3549,30 @@ final class CallController: NSObject, NSMenuDelegate {
     // MARK: - Helpers
 
     private func screenWithMouse() -> NSScreen {
-        let loc = NSEvent.mouseLocation
-        return NSScreen.screens.first(where: { NSMouseInRect(loc, $0.frame, false) }) ?? NSScreen.main ?? NSScreen.screens[0]
+        let screens = NSScreen.screens
+        return ScreenChoice.index(of: NSEvent.mouseLocation, in: screens.map(\.frame)).map { screens[$0] } ?? NSScreen.main ?? screens[0]
     }
 
     /// Cursor in the overlay's coordinates (points, origin top-left of that screen).
     private func localCursor(on screen: NSScreen) -> CGPoint? {
-        let loc = NSEvent.mouseLocation
-        guard NSMouseInRect(loc, screen.frame, false) else { return nil }
-        return CGPoint(x: loc.x - screen.frame.minX, y: screen.frame.maxY - loc.y)
+        ScreenChoice.local(NSEvent.mouseLocation, on: screen.frame)
+    }
+
+    /// You're asking from another display than the overlay's: the buddy, your words and the screenshot go there
+    /// (they stayed on the old one while something was drawn on it, and Claude saw the wrong screen). What was
+    /// drawn there goes (one overlay, one screen).
+    private func followMouseScreen() {
+        let here = screenWithMouse()
+        let screens = NSScreen.screens
+        guard ScreenChoice.shouldMove(overlay: overlay.screen.flatMap { s in screens.firstIndex(of: s) }, mouse: screens.firstIndex(of: here)) else { return }
+        Timeline.log("screen.moved", ["drawn": !overlay.occupiedRects.isEmpty])
+        if !overlay.occupiedRects.isEmpty {
+            stopLesson()
+            overlay.clearAll()
+            anchor = nil
+            focusRegion = nil
+        }
+        overlay.show(on: here)
     }
 
     private func showAlert(_ text: String, info: String, settingsPane: String? = nil) {

@@ -19,7 +19,7 @@ echo two > "$TMP/other/file.txt"; g "$TMP/other" commit -am two; g "$TMP/other" 
 
 check() {   # check <name> <expected state prefix>
   mkdir -p "$TMP/support-$1"
-  POINKY_SUPPORT_DIR="$TMP/support-$1" POINKY_TIMELINE_DIR="$TMP/tl-$1" POINKY_UPDATE_SOURCE="$TMP/checkout" \
+  POINKY_SUPPORT_DIR="$TMP/support-$1" POINKY_TIMELINE_DIR="$TMP/tl-$1" POINKY_UPDATE_SOURCE="$TMP/checkout" POINKY_MUTE=1 \
     POINKY_UPDATE_CHECK_ONLY=1 "$APP" --update-test "$TMP/out-$1.txt" >/dev/null 2>&1 &
   local pid=$!
   for _ in $(seq 1 60); do kill -0 $pid 2>/dev/null || break; sleep 0.5; done
@@ -35,4 +35,9 @@ check dirty 'unavailable("There' "not offered, with the reason"
 echo "U2. The same checkout, clean, is offered it"
 git -C "$TMP/checkout" checkout -q -- file.txt
 check clean 'available, changes 1' "offered (1 change)"
+echo "U3. The checkout already pulled GitHub's version, only this build is older: a rebuild, not an update"
+g "$TMP/checkout" pull -q --ff-only
+OLD="$(git -C "$TMP/checkout" rev-parse HEAD~1)"
+POINKY_UPDATE_RUNNING="$OLD" check rebuild 'upToDate, changes 0:  rebuild: ' "not offered as an update; says to rebuild"
+grep -q "has 1 commit this build doesn't. Rebuild to match your source" "$TMP/out-rebuild.txt" || { printf "  \033[31mFAIL\033[0m the rebuild line: %s\n" "$(cat "$TMP/out-rebuild.txt")"; fail=1; }
 exit $fail

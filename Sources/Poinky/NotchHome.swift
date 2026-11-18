@@ -10,6 +10,7 @@ import SwiftUI
 @MainActor
 final class NotchModel: ObservableObject {
     @Published var phase = "off"            // off · starting · ready · listening · thinking · speaking
+    @Published var lookingUp = false        // "thinking" is a web search or a look through earlier conversations
     @Published var guide = false
     @Published var level: Double = 0        // mic level while listening, 0…1
     @Published var expanded = false
@@ -233,7 +234,7 @@ struct NotchView: View {
     private var label: String {
         switch m.phase {
         case "listening": return "Listening"
-        case "thinking": return "Thinking"
+        case "thinking": return m.lookingUp ? "Looking it up" : "Thinking"
         case "speaking": return m.writing ? "Writing" : "Speaking"
         case "starting": return "Waking up"
         default: return m.guide && m.sessionOn ? "Your turn" : "Buddy"
@@ -374,7 +375,7 @@ struct NotchView: View {
         if m.guide && m.phase == "ready" { return "Guide mode: do the step I circled, I'll watch for your click. Hold \(h) to ask or say stop." }
         switch m.phase {
         case "listening": return "Listening. Let go of \(h) to send, or keep talking."
-        case "thinking": return "Thinking about your question. Tap \(h) to cancel."
+        case "thinking": return m.lookingUp ? "Looking it up for you. Tap \(h) to cancel." : "Thinking about your question. Tap \(h) to cancel."
         case "speaking": return m.writing ? "Writing the answer (quiet: nothing is said). Hold \(h) to cut in, or tap it to stop." : "Speaking. Hold \(h) to cut in with a new question, or tap it to stop."
         case "starting": return "Waking up the Claude sessions…"
         default: return "Hold \(h) and talk, let go to send. Drag while holding to mark things. A quick tap stops me."

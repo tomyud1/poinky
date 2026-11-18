@@ -80,6 +80,17 @@
   style.textContent = css;
   document.head.appendChild(style);
 
+  // Which way a caption, label or note reads: right to left when most of its letters are Hebrew or Arabic, so the
+  // period of "Python היא שפת תכנות." lands on the left (dir="auto" goes by the first letter: "P", left to right).
+  // Shared with overlay.html and lesson.js.
+  window.textDir = window.textDir || function (s) {
+    s = String(s || '');
+    const rtl = (s.match(/[\u0590-\u08FF\uFB1D-\uFDFF\uFE70-\uFEFF]/g) || []).length;
+    if (!rtl) return 'ltr';
+    const ltr = (s.match(/[A-Za-z\u00C0-\u024F\u0370-\u03FF\u0400-\u04FF]/g) || []).length;
+    return rtl >= ltr ? 'rtl' : 'ltr';
+  };
+
   const buddy = document.createElement('div');
   buddy.id = 'buddy';
   buddy.innerHTML = '<div class="ring"></div>' +
@@ -88,7 +99,7 @@
   const ring = buddy.querySelector('.ring');
   const bubble = document.createElement('div');
   bubble.id = 'bubble';
-  bubble.dir = 'auto';   // Hebrew or Arabic reads right to left
+  bubble.dir = 'auto';   // Hebrew or Arabic reads right to left (set per text by textDir)
   document.body.append(buddy, bubble);
   const hud = document.getElementById('hud');
 
@@ -209,14 +220,14 @@
     }
     // Facing a helper it's handing a task to (or hearing back from).
     const facing = home ? { x: home.fx, y: home.fy } : look && SB.helperPos ? SB.helperPos(look) : null;
-    if (facing || look) {
+    // The helper it faced is gone (stopped, finished and removed): it turns back, instead of keeping the turn.
+    if (look && !home && !facing) look = null;
+    if (facing) {
       const t = facing;
-      if (t) {
-        const d0 = Math.atan2(-fy, -fx) * 180 / Math.PI;           // where its tip points now
-        let want = Math.atan2(t.y - B.y, t.x - B.x) * 180 / Math.PI - d0;
-        want = ((want + 540) % 360) - 180;
-        lookRot += (((want - lookRot + 540) % 360) - 180) * Math.min(1, dt * 10);
-      }
+      const d0 = Math.atan2(-fy, -fx) * 180 / Math.PI;           // where its tip points now
+      let want = Math.atan2(t.y - B.y, t.x - B.x) * 180 / Math.PI - d0;
+      want = ((want + 540) % 360) - 180;
+      lookRot += (((want - lookRot + 540) % 360) - 180) * Math.min(1, dt * 10);
     } else lookRot += (((0 - lookRot + 540) % 360) - 180) * Math.min(1, dt * 8);
     rot += lookRot;
     const P = pose(now);
@@ -280,6 +291,7 @@
     // Your words are dimmed while Claude thinks about them (the question can arrive after the phase).
     if (kind === 'you' && phase === 'thinking') bubble.classList.add('dim');
     bubble.textContent = kind === 'you' ? latestWords(text) : text;
+    bubble.dir = window.textDir(bubble.textContent);
     bubbleW = bubble.offsetWidth; bubbleH = bubble.offsetHeight;
     bubble.classList.add('on');
     placeBubble();
@@ -491,7 +503,7 @@
                scroll: t ? { top: t.scrollTop, height: t.scrollHeight, view: t.clientHeight } : null,
                x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height),
                buddy: B.placed ? { x: Math.round(B.x), y: Math.round(B.y) } : null, phase, shown, buddyOn,
-               visible: buddy.classList.contains('on'), vw: innerWidth, vh: innerHeight };
+               visible: buddy.classList.contains('on'), vw: innerWidth, vh: innerHeight, look, lookRot: Math.round(lookRot) };
     },
     /** Hide the buddy for now (it comes back when you ask something). */
     buddyShow(on) {

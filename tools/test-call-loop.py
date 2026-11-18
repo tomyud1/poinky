@@ -3,7 +3,7 @@
 
 Each scenario launches build/Poinky.app in a scratch support folder, asks typed questions (`--ask`), quits
 (`--quit-after`), and checks the timeline and the speech log (what was captioned and said). It needs the
-build's Screen Recording permission and an awake display, and it speaks through the speakers, so it's a
+build's Screen Recording permission and an awake display, and it plays its audio at volume 0 (POINKY_MUTE=0 to hear it), so it's a
 local check (not CI). A run that doesn't quit by itself is killed (by its own pid) and fails.
 
 Usage: tools/test-call-loop.py [scenario …]     (no names: all of them; --list shows them)
@@ -71,7 +71,7 @@ def run(name, asks, quit_after, env=None, args=()):
             os.kill(pid, 9)
     if server: server.terminate()
     events = []
-    for fn in sorted(os.listdir(f"{d}/tl")):
+    for fn in sorted(f for f in os.listdir(f"{d}/tl") if f.endswith(".jsonl")):
         for line in open(f"{d}/tl/{fn}"):
             events.append(json.loads(line))
     speech, spoken = [], []
@@ -210,6 +210,63 @@ def c_doer_quiet(r):
 QUIET = {**DOER, "POINKY_STUCK_SECS": "5",
          "FAKE_GUIDE_REPLIES": json.dumps(['<act>{"do":"wait","s":0.2}</act>'] * 6 + ['<done>All done.</done>'])}
 HANDOVER = {"FAKE_CLAUDE_REPLY": "<say>Sure, let me show you.</say>"}
+
+def c_said(*words):
+    # One spoken error line, with these words: what happened, not a generic "got stuck".
+    def check(r):
+        if len(r["speech"]) != 1 or not all(w in r["speech"][0] for w in words): return [f"said {r['speech']}, want one line with {words}"]
+        return []
+    return check
+
+
+def c_blind(r):
+    # The display is asleep (every capture fails): the question goes without a picture, told so, and is answered.
+    f = []
+    if r["speech"] != ["Fake answer."]: f.append(f"said {r['speech']}")
+    if not evs(r, "capture.failed"): f.append("no capture.failed in the timeline")
+    log = open(r["dir"] + "/fake.txt").read() if os.path.exists(r["dir"] + "/fake.txt") else ""
+    if "couldn't be captured" not in log: f.append("the talker wasn't told there's no screenshot")
+    return f
+
+
+def c_gone_folder(r):
+    # A helper for a folder that's gone: said plainly, the closest folder offered, and a yes starts it there.
+    f = []
+    sp = r["speech"]
+    if len(sp) < 3 or "isn't there anymore" not in sp[1] or "Want me to start it in" not in sp[1]: f.append(f"said {sp}")
+    elif "on it" not in sp[2]: f.append(f"the yes didn't start it: {sp}")
+    return f
+
+
+def c_audio_lost(r):
+    # The output device goes away for good mid-answer (Apple's voice): the turn still ends ("speaking" never cleared).
+    f = []
+    seq = states(r)
+    if "speaking" not in seq: f.append(f"never spoke: {seq}")
+    if seq[-2:] != ["ready", "idle"]: f.append(f"ended with {seq[-3:]} (stuck on speaking?)")
+    return f
+
+
+def c_synth_hang(r):
+    # Apple's voice never answers: "speaking" with nothing heard is caught, logged and recovered from.
+    f = []
+    if not evs(r, "stuck", state="speaking"): f.append("no stuck detection while speaking")
+    if not evs(r, "reset"): f.append("no reset")
+    return f
+
+
+def c_search(r):
+    # <search>: "speaking" only while the short line is heard; the search itself is "thinking" (looking it up).
+    f = []
+    ev = [e for e in r["events"] if e["ev"] == "state"]
+    seq = [e["to"] for e in ev]
+    if r["speech"] != ["One sec.", "It is sunny."]: f.append(f"said {r['speech']}")
+    # The longest "speaking" stretch must be short (the search takes 6 s).
+    longest = max([b["t"] - a["t"] for a, b in zip(ev, ev[1:]) if a["to"] == "speaking"] or [0])
+    if longest > 4: f.append(f"'speaking' for {longest:.1f} s while it searched: {seq}")
+    if "thinking" not in seq[seq.index("speaking"):] if "speaking" in seq else True: f.append(f"states {seq}")
+    return f
+
 
 # Quiet mode and typed answers (Quiet.swift): nothing is played (the WAV of what was played is digital silence, but
 # as long as reading takes), while captions, lesson steps and <end/> work as with the voice.
@@ -402,6 +459,16 @@ SCENARIOS = {
     "api-interrupt": (["tell me a long story", "stop, say something short"], 16,
                       {"_API": "18765", "FAKE_API_WORD_SECS": "0.12", "POINKY_ASK_GAP": "2",
                        "FAKE_API_REPLIES": json.dumps([LONG, "<say>Short.</say>"])}, c_api_interrupt),
+    "audio-lost": (["tell me a long story"], 16, {"FAKE_CLAUDE_REPLY": LONG, "POINKY_TEST_AUDIO_LOST": "3"}, c_audio_lost),
+    "synth-hang": (["what is this"], 16, {"POINKY_TEST_SYNTH_HANG": "1", "POINKY_STUCK_SECS": "5"}, c_synth_hang),
+    "search": (["what's the weather"], 16, {"FAKE_CLAUDE_REPLIES": json.dumps(["<say>One sec.</say><search>weather today</search>", "<say>It is sunny.</say>"]),
+                                            "FAKE_SEARCH_SECS": "6"}, c_search),
+    "gone-folder": (["have a helper fix it", "yes"], 14,
+                    {"FAKE_CLAUDE_REPLIES": json.dumps(['<say>Mint will fix it.</say><agent title="Fix" dir="/tmp/poinky-gone-folder/app">Fix the tests.</agent>']),
+                     "POINKY_HELPER_CMD": os.path.join(ROOT, "tools/fake-helper.py"), "POINKY_ASK_GAP": "5"}, c_gone_folder),
+    "blind": (["what's two plus two"], 10, {"POINKY_TEST_CAPTURE_FAIL": "1"}, c_blind),
+    "crash": (["what is this"], 10, {"FAKE_CLAUDE_MODE": "crash"}, c_said("quit")),
+    "stall-line": (["what is this"], 16, {"FAKE_CLAUDE_MODE": "hang", "POINKY_STALL_SECS": "6"}, c_said("stopped answering")),
     "quiet": (["what is this"], 12, {**TWO, "_CONFIG": '{"quiet": true}', "_AUDIO": "1"}, c_quiet),
     "quiet-end": (["bye"], 12, {"FAKE_CLAUDE_REPLY": "<say>Bye for now, see you later.</say><end/>", "_CONFIG": '{"quiet": true}'}, c_quiet_end),
     "quiet-lesson": (["explain how the heart works"], 16, {**LESSON, "_CONFIG": '{"quiet": true}'}, c_quiet_lesson),

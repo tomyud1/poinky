@@ -7,7 +7,12 @@ import AppKit
 ///   {"at": 1.6, "words": "what is", "final": false, "live": true}   a result (main transcriber unless "live")
 ///   {"at": 2.4, "probe": "label"}          writes what the bubble shows (SB.bubbleState) and the call state
 ///   {"at": 3.0, "killPage": true}         ends the overlay page's process (as memory pressure would)
-///   {"at": 8.0, "endSession": true}       ends the session (as the idle timeout would); the next hold starts a new one
+///   {"at": 1.0, "contentVisible": false}  the drawings' window is covered (WindowTracker hides them)
+///   {"at": 1.0, "endSession": true}       the session ends (as after 15 idle minutes)
+///   {"at": 1.0, "js": "expr", "expectJS": "value", "label": "…"}   evaluates in the overlay page and checks the result
+///   {"at": 1.0, "saved": true}            a page was saved ("save my notes"): Poinky says where
+///   {"at": 1.0, "helper": "fixture:fix-bug"}   starts a helper (POINKY_HELPER_CMD={root}/tools/fake-helper.py)
+///   {"at": 2.0, "pointHelper": true}      as if the mouse rested on the newest helper (false: on nothing)
 ///   {"at": 1.0, "type": "question"}       a typed question (⌃⌥T)
 ///   {"at": 9.0, "quit": true}
 /// A probe's "expect" is checked here (ListenTest.check) and written as an ok / FAIL line. A script can be a list of
@@ -90,7 +95,26 @@ enum ListenTest {
                             }
                         }
                     }
-                    if step["endSession"] as? Bool == true { c.endCall(quietly: true); write(String(format: "%.2f session ended", at)) }
+                    if let on = step["contentVisible"] as? Bool { c.testCoverDrawings(!on); write(String(format: "%.2f drawings %@", at, on ? "shown" : "hidden (a window covers them)")) }
+                    if step["endSession"] as? Bool == true { c.testEndSession(); write(String(format: "%.2f session ended", at)) }
+                    if let js = step["js"] as? String {
+                        c.overlay.evaluateForTest(js) { r in
+                            MainActor.assumeIsolated {
+                                let got = r.map { "\($0)" } ?? "nil"
+                                write(String(format: "%.2f js %@ = %@", at, js, got))
+                                if let want = step["expectJS"] as? String { write((got == want ? "ok   " : "FAIL ") + (step["label"] as? String ?? js) + (got == want ? "" : " (got \(got), wanted \(want))")) }
+                            }
+                        }
+                    }
+                    if step["saved"] as? Bool == true { c.testLessonSaved(); write(String(format: "%.2f a page was saved (state %@)", at, c.testState)) }
+                    if let task = step["helper"] as? String {
+                        write(String(format: "%.2f helper %@", at, c.testStartHelper(task).map { "\($0)" } ?? "didn't start"))
+                    }
+                    if let p = step["pointHelper"] as? Bool {
+                        let id = p ? c.agents.agents.last?.id : nil
+                        c.overlay.testPointHelper(id)
+                        write(String(format: "%.2f pointing at helper %@", at, id.map { "\($0)" } ?? "none"))
+                    }
                     if let t = step["type"] as? String { c.askTyped(t); write(String(format: "%.2f typed", at)) }
                     if step["killPage"] as? Bool == true { c.overlay.testKillPage(); write(String(format: "%.2f page killed", at)) }
                     if step["quit"] as? Bool == true { try? h?.synchronize(); NSApp.terminate(nil) }

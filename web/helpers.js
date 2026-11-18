@@ -624,8 +624,7 @@
     }
 
     remove(h) {
-      // Gone while the main buddy faces it (its hand-off, its report): the buddy looks away again.
-      if (['bud', 'handoff', 'report'].includes(h.phase)) this.react('handoffEnd', { id: h.id });
+      // (Gone while the main buddy faces it: buddy.js turns back by itself once `pos` is null.)
       h.el && h.el.root.remove(); h.el && h.el.chip.remove();
       h.el && h.el.trail.forEach(t => t.remove());
       this.helpers.delete(h.id);
