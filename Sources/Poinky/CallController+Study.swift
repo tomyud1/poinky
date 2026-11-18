@@ -181,7 +181,11 @@ extension CallController {
         if !quiet { studySay(StudyWords.reading(lang == "he")) }
         Timeline.log("study.start", ["question": question ?? "", "fresh": fresh])
         Task { @MainActor in
-            guard let snap = try? await self.studyCapture(), myGen == s.gen else { s.working = false; return }
+            guard let snap = try? await self.studyCapture(), myGen == s.gen else {
+                s.working = false
+                if myGen == s.gen { s.activeCall = -1; self.studySay(lang == "he" ? "סליחה, לא הצלחתי לראות את המסך." : "Sorry, I couldn't see the screen.") }
+                return
+            }
             s.lastShot = snap
             var f = self.studyFront
             // Tests: the sheet's file, whatever is in front (the fake brain doesn't look at the screen).

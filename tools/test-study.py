@@ -101,7 +101,7 @@ def main():
     pdfs = [f for f in os.listdir(f"{d}/out") if f.endswith(".pdf")]
     checks = []
     def check(name, cond, info=""):
-        checks.append(cond); print(("PASS " if cond else "FAIL ") + name + ("" if cond else f"  [{info}]"))
+        cond = bool(cond); checks.append(cond); print(("PASS " if cond else "FAIL ") + name + ("" if cond else f"  [{info}]"))
     check("launches quit by themselves", ok1 and ok2)
     check("the question was presented, then part א", any("hydrostatic force" in s for s in speech), speech[:6])
     check("three hints, then no more", intents.count("hint") >= 3 and any("as far as hints go" in s for s in speech), intents)
