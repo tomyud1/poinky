@@ -1320,6 +1320,8 @@ final class CallController: NSObject, NSMenuDelegate {
 
     private func deliverTyped(_ text: String, helper: Int?, box: Bool = false) {
         textTurn = box
+        // Asked now (the wait is measured from here): not from an earlier question whose answer hadn't been heard yet.
+        askedAt = ProcessInfo.processInfo.systemUptime
         if box, helper == nil, typeBox.isOpen { typeBox.asked(text) } else { overlay.setYouCaption(text.count > 160 ? String(text.prefix(159)) + "…" : text) }
         if let helper, agents.agents.contains(where: { $0.id == helper }) { talkTarget = helper }
         heard(utterance: text)
