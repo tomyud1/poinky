@@ -132,20 +132,15 @@ final class CallController: NSObject, NSMenuDelegate {
     private lazy var summary = SessionSummary { [weak self] in self.flatMap { Self.makeSummarizer($0.config) } }
 
     private struct ArtistJob {
-        let text: String; let snapshot: Snapshot; var aside: String? = nil; var quiet = false
+        let text: String; let snapshot: Snapshot; var quiet = false
         var turn = -1; var question = ""   // the question it answers (its lesson goes into the record with it)
         var study: StudyJob? = nil   // a study session's teacher job (CallController+Study.swift)
     }
     /// The teacher started alongside the talker: what it writes waits here until the talker's hand-over line
     /// is in the voice queue (a quick teacher was heard before "Sure, let me show you."). Nil: not holding.
     private var heldTeacher: [() -> Void]?
-    // A question about a part you clicked on a 3D model: the teacher's steps on that model are an aside
-    // (the model goes back to the lesson's view once they've been heard). See PartQuestion.
+    // A question about a part you clicked on a 3D model: the teacher answers it on that model. See PartQuestion.
     private var partTurn = -1                // the talker only names the part this turn
-    private var artistAside: String?         // the model id of the aside the teacher is writing now
-    private var asideToEnd: String?          // a model showing an aside, to send back once it's heard
-    private var asideGen = 0
-    private var asideNoted = false           // the aside being written already has its line in the notes
     private var artistBusy = false
     private var artistWaiting: ArtistJob?    // only the newest waiting request is kept
     private var artistRetries: [String: Int] = [:]
@@ -157,7 +152,7 @@ final class CallController: NSObject, NSMenuDelegate {
     private var nextTag = 0
     private var currentTag: Int?
     private var startedTags: Set<Int> = []
-    private enum PendingStep { case paper(String), model(id: String, code: String, note: String?, aside: Bool) }
+    private enum PendingStep { case paper(String), model(id: String, code: String, note: String?) }
     private var lineForTag: [Int: String] = [:]   // each lesson line's words (a 3D step's note falls back to them)
     private var notedTags: Set<Int> = []          // lines whose 3D step already added a note
     /// How long a 3D step stays on screen before the next sentence starts, and the pause after its sentence.
@@ -704,8 +699,6 @@ final class CallController: NSObject, NSMenuDelegate {
         artistWaiting = nil
         heldTeacher = nil
         artistRetries.removeAll()
-        artistAside = nil
-        asideToEnd = nil
         lessonOpen = false
         narrationOpen = false
         pendingSteps.removeAll()
@@ -1525,7 +1518,6 @@ final class CallController: NSObject, NSMenuDelegate {
             artistGen += 1
             artistBusy = false
             artistWaiting = nil
-            artistAside = nil   // (its job won't finish: what it showed goes back once you've been answered)
             overlay.setArtistBusy(false)
             Timeline.log("teacher.cancel", [:])
             teacher.cancelCurrent()
@@ -1636,7 +1628,7 @@ final class CallController: NSObject, NSMenuDelegate {
                     self.teacherStartedTurn = myTurn
                     self.partTurn = myTurn
                     Timeline.log("partQuestion", ["turn": myTurn])
-                    self.requestVisual(PartQuestion.brief(modelId: p.id, name: p.name, part: p.part), aside: p.id)
+                    self.requestVisual(PartQuestion.brief(modelId: p.id, name: p.name, part: p.part))
                 } else if sketchNow || checkNow {
                     self.teacherStartedTurn = myTurn
                     self.requestVisual(checkNow
@@ -2376,7 +2368,6 @@ final class CallController: NSObject, NSMenuDelegate {
         pendingSteps.removeAll()
         lessons.speechDone()   // a lesson that's all written and said is finished (into the record)
         lastActivity = ProcessInfo.processInfo.systemUptime
-        maybeEndAside()
         releaseReports()   // the helpers that were reported merge into the buddy
         guard state == .speaking || state == .thinking else { return }
         // A walkthrough's next step is still being prepared: that's thinking, not "ready" (it flipped
@@ -2433,7 +2424,7 @@ final class CallController: NSObject, NSMenuDelegate {
 
     // MARK: - The artist
 
-    private func requestVisual(_ brief: String, aside: String? = nil) {
+    private func requestVisual(_ brief: String) {
         guard artist != nil, let snap = lastSnapshot else { return }
         // "Relates to the diagram, around 570,540": the paper keeps off that too.
         if let r = Placement.region(inBrief: brief), snap.scale > 0 {
@@ -2461,7 +2452,7 @@ final class CallController: NSObject, NSMenuDelegate {
             lines.append("Earlier in the conversation:")
             for h in history.suffix(3) { lines.append("- User: \(Recall.clip(h.user, 400)) / Talker: \(Recall.clip(h.assistant, 700))") }
         }
-        runArtist(ArtistJob(text: lines.joined(separator: "\n"), snapshot: snap, aside: aside, turn: turn, question: lastQuestion))
+        runArtist(ArtistJob(text: lines.joined(separator: "\n"), snapshot: snap, turn: turn, question: lastQuestion))
     }
 
     private func runArtist(_ job: ArtistJob) {
@@ -2471,8 +2462,6 @@ final class CallController: NSObject, NSMenuDelegate {
         artistBusy = true
         overlay.setArtistBusy(true)
         currentTag = nil
-        artistAside = job.aside
-        if job.aside != nil { asideGen += 1; asideNoted = false }
         let myCall = callID, myGen = artistGen, myLesson = lessonToken
         // What it says and shows goes into the record with its question (a fix for a broken card doesn't; a study
         // session keeps its own record).
@@ -2506,8 +2495,6 @@ final class CallController: NSObject, NSMenuDelegate {
             guard myCall == self.callID, myGen == self.artistGen else { job.study?.done(false); return }
             self.teacherDo { self.finishTeacherOutput() }   // closes the paper/narration even if it forgot to
             self.artistBusy = false
-            self.artistAside = nil
-            self.maybeEndAside()
             job.study?.done(!box.failed && myLesson == self.lessonToken)
             if let next = self.artistWaiting {
                 self.artistWaiting = nil
@@ -2567,12 +2554,9 @@ final class CallController: NSObject, NSMenuDelegate {
             lessons.step(rec)
             schedule(.paper(snapScreenMarks(json, snapshot: snapshot)))
         case .step3d(let id, let code, let note):
-            // An answer about a clicked part is one line in the notes (its first step's), however many sentences.
-            let aside = id == artistAside
-            var n = stepNote(note)
-            if aside { if asideNoted { n = nil } else if n != nil { asideNoted = true } }
+            let n = stepNote(note)
             lessons.step(rec, model: id, note: n)
-            schedule(.model(id: id, code: code, note: n, aside: aside))
+            schedule(.model(id: id, code: code, note: n))
         case .lessonEnd:
             pendingPaper = nil   // a lesson with no steps: no empty paper
             lessonOpen = false
@@ -2669,25 +2653,11 @@ final class CallController: NSObject, NSMenuDelegate {
     private func play(_ step: PendingStep, paced: Bool = false) {
         switch step {
         case .paper(let json): overlay.lessonStep(json, scale: lessonScale)
-        case .model(let id, let code, let note, let aside):
-            overlay.run3d(id: id, code: code, note: note, aside: aside)
-            if aside { asideToEnd = id }
+        case .model(let id, let code, let note):
+            overlay.run3d(id: id, code: code, note: note)
             if paced { speaker.holdNext(for: Self.stepDwell, breath: Self.stepBreath) }
         }
     }
-
-    /// A step about a clicked part goes back to the lesson's view once the teacher is done and its lines were heard.
-    private func maybeEndAside() {
-        guard let id = asideToEnd, artistAside == nil, !narrationOpen, !speaker.isSpeaking, pendingSteps.isEmpty else { return }
-        asideToEnd = nil
-        let gen = asideGen
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.asideLinger) { [weak self] in
-            guard let self, gen == self.asideGen, self.artistAside == nil else { return }
-            self.overlay.end3dAside(id: id)
-        }
-    }
-    /// How long the close-up stays after its last sentence, so the last thing it showed can be seen.
-    static let asideLinger: TimeInterval = 2.0
 
     /// The line in the notes beside a 3D model for the step being written: the teacher's own note, or
     /// else the sentence it goes with, shortened (once per sentence). A step with no sentence (a fix) has none.
