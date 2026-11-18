@@ -76,6 +76,7 @@ final class SpeechListener {
     }
 
     static func requestPermissions() async -> Bool {
+        if fake { return true }   // scripted words: no mic, nothing to ask for
         let speechOK: Bool = await withCheckedContinuation { cont in
             SFSpeechRecognizer.requestAuthorization { cont.resume(returning: $0 == .authorized) }
         }

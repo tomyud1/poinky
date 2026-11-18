@@ -1,0 +1,14 @@
+{"about": "The first hold of a session: live words show next to the buddy, the question replaces them as you let go, and a late result after that (the live model's final can come after the main one) neither shows again nor cuts off the answer.",
+ "steps": [
+  {"at": 1.5, "keys": "down"},
+  {"at": 2.3, "words": "what is", "live": true},
+  {"at": 2.5, "probe": "live words while holding", "expect": {"state": "listening", "kind": "you", "text": "what is", "near": true}},
+  {"at": 2.9, "words": "what is this button", "live": true},
+  {"at": 3.0, "words": "What is this button for?", "final": true},
+  {"at": 3.1, "keys": "up"},
+  {"at": 3.4, "probe": "the question as you let go", "expect": {"kind": "you", "text": "What is this button for?"}},
+  {"at": 3.45, "words": "What is this button", "final": true, "live": true},
+  {"at": 3.6, "probe": "a late result doesn't show again", "expect": {"notState": "listening"}},
+  {"at": 5.0, "probe": "and the answer goes on", "expect": {"notState": "listening", "kind": "claude"}},
+  {"at": 6.0, "quit": true}
+ ]}

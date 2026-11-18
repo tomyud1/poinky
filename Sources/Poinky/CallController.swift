@@ -695,13 +695,20 @@ final class CallController: NSObject, NSMenuDelegate {
     // MARK: - Hold to talk
 
     private var finishingPush = false   // a released question is still being turned into text
+    private var holdHeard: (count: Int, first: TimeInterval?) = (0, nil)   // live words during this hold (Timeline)
+    private var holdStart: TimeInterval = 0
+
+    // Tests (`--listen-test`, ListenTest.swift): the talk keys and the words, scripted.
+    func testKeys(down: Bool) { ptt.fakeFlags = down ? ptt.combo : [] }
+    func testWords(_ text: String, final: Bool, live: Bool) { listener.fakeResult(text, isFinal: final, live: live) }
+    var testState: String { "\(state)" }
 
     /// The talk keys went down: open the mic right away (so your first word isn't cut off).
     private func pushDown() {
         videoKeysDown()   // a playing video pauses right away
         // In a hands-free call the mic is already on (⌥ still marks).
         guard !(mode == .handsFree && state != .idle) else { return }
-        guard AVCaptureDevice.authorizationStatus(for: .audio) == .authorized else {
+        guard AVCaptureDevice.authorizationStatus(for: .audio) == .authorized || SpeechListener.fake else {
             // First time: ask for the permissions instead of recording.
             if state == .idle { startSession(.push) }
             return
@@ -768,6 +775,11 @@ final class CallController: NSObject, NSMenuDelegate {
         if buddyHidden { setBuddyHidden(false) }
         playSound(.open)
         stopActing(pause: true)
+        holdHeard = (0, nil)
+        holdStart = ProcessInfo.processInfo.systemUptime
+        // A lesson still being written would start talking over you (its next line sets "speaking"): it stops,
+        // as when you talk over it.
+        stopLesson()
         switch state {
         case .speaking:
             interrupt(maybeMore: false)
@@ -813,7 +825,10 @@ final class CallController: NSObject, NSMenuDelegate {
         }
         finishingPush = true
         askedAt = ProcessInfo.processInfo.systemUptime
-        Timeline.log("keys.up")
+        // How the live words did during the hold (no words): did any show, and how soon.
+        var up: [String: Any] = ["partials": holdHeard.count]
+        if let first = holdHeard.first { up["firstMs"] = Int((first - holdStart) * 1000) }
+        Timeline.log("keys.up", up)
         Task { @MainActor in
             defer { self.finishingPush = false }
             // Keep the mic a moment longer so the end of your last word isn't clipped.
@@ -825,19 +840,23 @@ final class CallController: NSObject, NSMenuDelegate {
                 try? await Task.sleep(nanoseconds: 100_000_000); waited += 1
             }
             guard self.state != .idle, self.mode == .push else { return }
+            let gotAudio = self.listener.heardAudio
             let text = await self.listener.finishUtterance()
             guard self.state != .idle, self.mode == .push else { return }
             if self.state == .listening, !self.pushCommitted { self.state = self.restingState }
             if text.trimmingCharacters(in: .whitespaces).isEmpty {
                 self.askedAt = nil
-                Timeline.log("heard.nothing")
+                Timeline.log("heard.nothing", ["audio": gotAudio])
                 self.playSound(.cancel)
-                self.overlay.setYouCaption(nil)
+                // Say so, quietly, where your words would have been (otherwise it reads as "it didn't hear me").
+                if self.pushCommitted { self.overlay.setYouCaption(nil) }   // already holding again
+                else { self.overlay.youMissed(gotAudio ? "Didn't catch that" : "No sound from the mic") }
                 self.mergeNext = false   // nothing was said: don't glue the next question to the last one
                 self.endHelperListen()
                 return
             }
             self.playSound(.send)
+            self.overlay.setYouCaption(text)   // the final words (the live ones can lag or differ)
             self.heard(utterance: text)
         }
     }
@@ -846,7 +865,14 @@ final class CallController: NSObject, NSMenuDelegate {
 
     private func heard(partial text: String) {
         guard state != .idle, state != .starting else { return }
-        if state == .speaking && isEcho(text) { return }
+        // Hold to talk: words count while you hold the keys and while the hold is settled. A result after
+        // that is old words: it must not show again, or cut off the answer as if you'd kept talking.
+        if mode == .push, !pushCommitted, !finishingPush { return }
+        // The echo check is for calls (the mic is open while Claude talks). Holding the keys, Claude was
+        // stopped first, so overlap with what it said is your own words ("what does mitochondria mean").
+        if mode == .handsFree, state == .speaking, isEcho(text) { return }
+        if pushCommitted, holdHeard.first == nil { holdHeard.first = ProcessInfo.processInfo.systemUptime }
+        holdHeard.count += 1
         // You started talking while it's clicking for you: pause and listen.
         if guide?.acting == true, guide?.waiting == false, text.split(whereSeparator: \.isWhitespace).count >= 2 { stopActing(pause: true) }
         overlay.setYouCaption(text)
@@ -872,7 +898,7 @@ final class CallController: NSObject, NSMenuDelegate {
         guard state != .idle, state != .starting else { return }
         if askedAt == nil { askedAt = ProcessInfo.processInfo.systemUptime }
         if state == .speaking {
-            if isEcho(text) { return }
+            if mode == .handsFree, isEcho(text) { return }
             interrupt()
         } else if state == .thinking {
             turn += 1

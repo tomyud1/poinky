@@ -20,7 +20,12 @@ final class AudioIO {
     private(set) var running = false
     private var micEngine: AVAudioEngine?
     private var engineHasMic = false
-    var micOn: Bool { micEngine != nil }
+    var micOn: Bool { micEngine != nil || fakeMicOn }
+    /// Tests (`--listen-test`): holding the keys "opens" a mic that records nothing (words are scripted).
+    static var fakeMic = false
+    /// `POINKY_MUTE=1` (tests): everything plays as usual, at volume 0.
+    static let muted = ProcessInfo.processInfo.environment["POINKY_MUTE"] == "1"
+    private var fakeMicOn = false
 
     /// Whether echo cancellation is active (false if voice processing couldn't start).
     private(set) var voiceProcessing = false
@@ -82,6 +87,7 @@ final class AudioIO {
 
     /// Opens the microphone (hold-to-talk). Its audio goes to `micRelay`.
     func startMic() throws {
+        if Self.fakeMic { fakeMicOn = true; return }
         guard micEngine == nil else { return }
         let e = AVAudioEngine()
         let input = e.inputNode
@@ -109,6 +115,7 @@ final class AudioIO {
     }
 
     func stopMic() {
+        fakeMicOn = false
         if let o = micObserver { NotificationCenter.default.removeObserver(o); micObserver = nil }
         guard let e = micEngine else { return }
         e.inputNode.removeTap(onBus: 0)
@@ -131,6 +138,7 @@ final class AudioIO {
         }
         let speakerFormat = engine.outputNode.inputFormat(forBus: 0)
         engine.connect(engine.mainMixerNode, to: engine.outputNode, format: speakerFormat)
+        if Self.muted { engine.mainMixerNode.outputVolume = 0 }
         engine.attach(player)
         engine.connect(player, to: engine.mainMixerNode, format: playbackFormat)
         engine.attach(sfx)

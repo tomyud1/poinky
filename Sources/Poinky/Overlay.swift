@@ -360,6 +360,8 @@ final class Overlay: NSObject, WKNavigationDelegate {
     }
     func setClaudeCaption(_ text: String?) { js("SB.caption('claude', \(jsString(text)))") }
     func setYouCaption(_ text: String?) { js("SB.caption('you', \(jsString(text)))") }
+    /// You held the keys but nothing was heard: a quiet note in your bubble (it goes away by itself).
+    func youMissed(_ text: String) { js("SB.youMissed && SB.youMissed(\(jsString(text)))") }
     func setArtistBusy(_ on: Bool) { js("SB.artist(\(on ? "true" : "false"))") }
     /// A short glint on the buddy (or a faint glow around the screen while it's hidden) right after a
     /// screenshot is taken for Claude, so you always know when Poinky looks.
@@ -479,7 +481,18 @@ final class Overlay: NSObject, WKNavigationDelegate {
         }
     }
 
+    /// `POINKY_OVERLAY_LOG=file`: every call into the page, with the time (tests: the exact order the page gets).
+    private static let callLog: FileHandle? = ProcessInfo.processInfo.environment["POINKY_OVERLAY_LOG"].flatMap { path in
+        FileManager.default.createFile(atPath: path, contents: nil)
+        return FileHandle(forWritingAtPath: path)
+    }
+    static func logCall(_ line: String) {
+        guard let h = callLog else { return }
+        h.write(Data(String(format: "%.3f %@\n", ProcessInfo.processInfo.systemUptime, line).utf8))
+    }
+
     private func js(_ script: String) {
+        if Self.callLog != nil, !script.hasPrefix("SB.tick(") { Self.logCall((web == nil ? "(dropped, no page) " : loaded ? "" : "(queued) ") + script) }
         guard web != nil else { return }
         if loaded { web.evaluateJavaScript(script, completionHandler: nil) } else { pendingJS.append(script) }
     }

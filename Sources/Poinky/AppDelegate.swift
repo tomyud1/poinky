@@ -92,10 +92,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         // The first-run tour opens for a new install (no settings yet) or one left halfway; `--welcome` forces it.
         let configExisted = FileManager.default.fileExists(atPath: AppConfig.fileURL.path)
+        let listenTest = args.firstIndex(of: "--listen-test").flatMap { i in i + 2 < args.count ? (args[i + 1], args[i + 2]) : nil }
+        if listenTest != nil { ListenTest.prepare() }
         let c = CallController()
         c.setup()
         controller = c
-        let quiet = args.contains { ["--ask", "--video", "--play-video"].contains($0) }
+        // `Poinky --listen-test <script.json> <out.txt>`: scripted holds and heard words (ListenTest.swift).
+        if let (script, out) = listenTest { ListenTest.run(script: script, out: out, controller: c) }
+        let quiet = args.contains { ["--ask", "--video", "--play-video", "--listen-test"].contains($0) }
         if let page = args.contains("--welcome") ? .hello : quiet ? nil : WelcomeModel.pageToResume(configExisted: configExisted) {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { WelcomeWindowController.shared.show(at: page) }
         }
