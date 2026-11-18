@@ -81,12 +81,19 @@ final class CallController: NSObject, NSMenuDelegate {
     private var mergeNext = false        // you kept talking: add the next words to the last question
     private var lastAskAt: TimeInterval = 0
     private var spokenCaption = ""
-    private var history: [(user: String, assistant: String)] = []
+    /// One exchange of this session. `lesson`: what the teacher said and showed for it, once that ended (`TeacherLog`).
+    private struct Said { var user: String; var assistant: String; var turn: Int?; var lesson: String? = nil }
+    private var history: [Said] = []
     // Keeping long sessions light: every question adds a screenshot (~2,500 tokens) to the talker's
     // conversation, and nothing removes it. After `talkerRotateAfter` questions a fresh talker is started
     // in the background (so it's warm), and the next question switches to it with a short recap.
     private var quitting = false   // the app is quitting: no time for a model to write the daily note
-    private var sessionExchanges: [(user: String, assistant: String)] = []
+    private var sessionExchanges: [Said] = []
+    /// The teacher's lessons this session, and how each ended: they go into the record with their question.
+    private let lessons = TeacherLog()
+    /// A question whose lesson is still going: its summary update and conversation log line wait for the lesson's end.
+    private var heldLogs: [Int: (you: String, poinky: String, note: String?, app: String?, window: String?)] = [:]
+    private var loggedTurns: Set<Int> = []
     private var frontContext = AppContext()
     private var receiptID: String?            // this turn's receipt (Receipts), so a lookup or the teacher adds to it
     private var receiptTurn = -1
@@ -94,6 +101,7 @@ final class CallController: NSObject, NSMenuDelegate {
     private var reminderTimer: Timer?
     private var stuckTimer: Timer?   // the stuck detector, also while a session is still starting (no watchers yet)
     private var dueLines: [String] = []          // reminders that came due, waiting for a moment you're free
+    private var dueFired: [Reminder] = []        // (the reminders themselves: marked as gone off once said)
     private var reminderCheckPending = false
     private var reminderActivity: NSObjectProtocol?   // keeps macOS from napping Poinky when one is minutes away
     static let reminderTick: TimeInterval = ProcessInfo.processInfo.environment["POINKY_REMINDER_TICK"].flatMap(Double.init) ?? 20   // the front app when the question was asked (selection, document, page)   // all of this session, for its daily note
@@ -111,7 +119,10 @@ final class CallController: NSObject, NSMenuDelegate {
     /// recap after a swap, and the daily note, are built from it plus the last exchanges.
     private lazy var summary = SessionSummary { [weak self] in self.flatMap { Self.makeSummarizer($0.config) } }
 
-    private struct ArtistJob { let text: String; let snapshot: Snapshot; var aside: String? = nil; var quiet = false }
+    private struct ArtistJob {
+        let text: String; let snapshot: Snapshot; var aside: String? = nil; var quiet = false
+        var turn = -1; var question = ""   // the question it answers (its lesson goes into the record with it)
+    }
     /// The teacher started alongside the talker: what it writes waits here until the talker's hand-over line
     /// is in the voice queue (a quick teacher was heard before "Sure, let me show you."). Nil: not holding.
     private var heldTeacher: [() -> Void]?
@@ -246,8 +257,10 @@ final class CallController: NSObject, NSMenuDelegate {
             if let tag {
                 self.startedTags.insert(tag)
                 for step in self.pendingSteps.removeValue(forKey: tag) ?? [] { self.play(step, paced: true) }
+                self.lessons.heard(tag: tag)
             }
         }
+        lessons.onEnd = { [weak self] lesson in self?.lessonEnded(lesson) }
         overlay.onCardError = { [weak self] id, type, message in self?.cardFailed(id: id, type: type, message: message) }
         overlay.onClear = { [weak self] in self?.clearAll() }
         // Take the close-up of what you circled right away, so it still works if you scroll before asking.
@@ -583,11 +596,17 @@ final class CallController: NSObject, NSMenuDelegate {
         guard state != .idle else { return }
         Timeline.log("session.end", ["quietly": quietly])
         askedAt = nil
+        lessons.endSession()   // a lesson still going goes into the record as cut off
+        flushLessons()
         if config.memoryEnabled, !sessionExchanges.isEmpty {
-            if quitting { DailyNotes.append(DailyNotes.plainNote(sessionExchanges)) }
-            else { Self.writeDailyNote(sessionExchanges, config: config, summary: summary.full) }
+            let exchanges = sessionExchanges.map(Self.noteExchange)
+            if quitting { DailyNotes.append(DailyNotes.plainNote(exchanges)) }
+            else { Self.writeDailyNote(exchanges, config: config, summary: summary.full) }
         }
         sessionExchanges.removeAll()
+        lessons.reset()
+        heldLogs.removeAll()
+        loggedTurns.removeAll()
         summary.stop()
         callID += 1
         turn += 1
@@ -1107,6 +1126,7 @@ final class CallController: NSObject, NSMenuDelegate {
                 }
             }
             dueLines.append(Reminders.spoken(r, late: late))
+            dueFired.append(r)
         }
         // One coming up soon: don't let App Nap make it late.
         let soon = Reminders.all().first.map { $0.at.timeIntervalSince(now) < 15 * 60 } ?? false
@@ -1147,6 +1167,12 @@ final class CallController: NSObject, NSMenuDelegate {
         dueLines.removeAll()
         playSound(.open)
         sayWhenFree(line)
+        // Into the record: the talker's reminder list ("already went off"), this session's exchanges and the log.
+        let fired = dueFired
+        dueFired.removeAll()
+        for r in fired { Reminders.markFired(r) }
+        sentOnce["reminders"] = nil
+        logExchange("", line, note: "reminder went off: " + fired.map { Recall.clip($0.text, 80) }.joined(separator: "; "))
     }
 
     /// A session ended: a cheap model writes 1–4 lines about it into today's notes (in the background;
@@ -1214,21 +1240,28 @@ final class CallController: NSObject, NSMenuDelegate {
         let recent = gist.isEmpty ? history : Array(history.suffix(5))
         if !gist.isEmpty { lines.append("The session so far, in short (what the user told you here still holds: answer with it):\n" + gist) }
         lines.append(recent.count < history.count || !gist.isEmpty ? "The last exchanges, oldest first:" : "What was said, oldest first:")
-        for h in recent { lines.append("- User: \(Recall.clip(h.user, 500)) / You: \(Recall.clip(h.assistant, 1000))") }
+        for h in recent {
+            lines.append("- User: \(Recall.clip(h.user, 500)) / You: \(Recall.clip(h.assistant, 1000))" + (h.lesson.map { " / Then your sketch: \($0)" } ?? ""))
+        }
         Timeline.log("talker.recap", ["summary": gist.count, "exchanges": recent.count])
         return lines
     }
 
     /// After each answer: the summary takes in the exchange, in the background (see `SessionSummary`).
-    private func updateSummary(_ you: String, _ poinky: String, note: String?) {
+    private func updateSummary(_ you: String, _ poinky: String, note: String?, lesson: String? = nil) {
         summary.pin(from: you)
+        summary.add(SessionSummary.exchange(user: you, poinky: poinky, also: note, lesson: lesson), context: summaryContext())
+    }
+
+    /// What's drawn and which helpers run, for the summarizer.
+    private func summaryContext() -> String {
         var now: [String] = []
         let drawn = overlay.sceneDescription(scale: 1)
             .replacingOccurrences(of: #" at x=-?\d+ y=-?\d+ w=\d+ h=\d+"#, with: "", options: .regularExpression)
         if !drawn.hasPrefix("Nothing") { now.append(drawn) }
         let helpers = agents.agents.suffix(6).map { "\($0.name) \"\($0.title)\" (\($0.status.rawValue))" }
         if !helpers.isEmpty { now.append("Helpers: " + helpers.joined(separator: "; ")) }
-        summary.add(SessionSummary.exchange(user: you, poinky: poinky, also: note), context: now.joined(separator: "\n"))
+        return now.joined(separator: "\n")
     }
 
     /// The summarizer: the talker's model with its default (fast) effort, no tools, its own small session.
@@ -1294,9 +1327,12 @@ final class CallController: NSObject, NSMenuDelegate {
         if guide == nil { overlay.fadeAnnotations() }
     }
 
-    /// You talked over a lesson: stop drawing (what's drawn stays) and free the artist for your next question.
+    /// You talked over a lesson: stop drawing (what's drawn stays, the step being drawn is finished at once) and
+    /// free the artist for your next question. The same teacher session goes on (its reply is interrupted, not
+    /// its process): it still knows what's on the paper, and its next brief says where you stopped hearing it.
     private func stopLesson() {
         heldTeacher = nil
+        lessons.interrupt()   // whatever it hadn't finished saying goes into the record as cut off, at the line you heard last
         guard lessonOpen || narrationOpen || !pendingSteps.isEmpty || artistBusy else { return }
         lessonToken += 1
         lessonOpen = false
@@ -1304,18 +1340,16 @@ final class CallController: NSObject, NSMenuDelegate {
         pendingSteps.removeAll()
         currentTag = nil
         overlay.lessonStop()
-        if artistBusy, let old = artist {
-            // Restart the artist so it doesn't keep writing a lesson nobody is listening to.
+        if artistBusy, let teacher = artist {
+            // Stop writing a lesson nobody is listening to. (A turn that doesn't end when asked is restarted by the
+            // brain itself after 4 s: the next brief then still says where the user stopped.)
             artistGen += 1
             artistBusy = false
             artistWaiting = nil
             artistAside = nil   // (its job won't finish: what it showed goes back once you've been answered)
             overlay.setArtistBusy(false)
-            old.stop()
-            if let fresh = try? BrainFactory.make(config: config, role: .artist) {
-                artist = fresh
-                Task { @MainActor in try? await fresh.warmUp() }
-            }
+            Timeline.log("teacher.cancel", [:])
+            teacher.cancelCurrent()
         }
     }
 
@@ -1338,6 +1372,7 @@ final class CallController: NSObject, NSMenuDelegate {
         swapTalkerIfReady()
         guard let talker, let screen = overlay.screen else { return }
         releaseTeacher()   // an older teacher's lines aren't waiting for this talker
+        flushLessons()     // lessons of questions whose answer was cut off go into the record by themselves
         releaseReports()   // a new question cut a report short
         pendingOffer = nil   // its reply may make a new one
         talker.cancelCurrent()   // an older reply still being written is dropped anyway; don't queue behind it
@@ -1444,7 +1479,7 @@ final class CallController: NSObject, NSMenuDelegate {
                     said = [said, self.parser.sayPreview].filter { !$0.isEmpty }.joined(separator: " ")
                     note = [note, Self.logNote(ev2.onlySpeech())].compactMap { $0 }.joined(separator: "; ")
                 }
-                self.logExchange(proactive ? "" : question, said, note: note?.isEmpty == true ? nil : note, history: !proactive)
+                self.logExchange(proactive ? "" : question, said, note: note?.isEmpty == true ? nil : note, history: !proactive, turn: myTurn)
                 self.talkerTurns += 1
                 if self.talkerTurns >= Self.talkerRotateAfter || talker.contextTokens >= Self.talkerRotateTokens {
                     self.prepareFreshTalker()
@@ -1503,6 +1538,8 @@ final class CallController: NSObject, NSMenuDelegate {
         lines.append(contentsOf: snap.notes)
         lines.append(contentsOf: BrainQuestion.focusNotes(snap))
         lines.append(overlay.sceneDescription(scale: snap.scale))
+        // What the sketch (the teacher) said since the last question: the talker builds on it, never contradicts it silently.
+        if !proactive, let news = lessons.talkerNews() { lines.append(news) }
         // After a swap: what the user told this session (exam dates, deadlines, names…), right before the question,
         // so the fresh talker answers with it (in the recap block alone it was often ignored). Again when it changes.
         if swappedTalker, !proactive, case let key = summary.keyFacts, !key.isEmpty, sendOnce("keyFacts", key) {
@@ -1516,10 +1553,15 @@ final class CallController: NSObject, NSMenuDelegate {
         if !carriedOver, !proactive {
             carriedOver = true
             if config.conversationLog, history.isEmpty {
+                // Labeled as another moment (with what was in front then), and left out when the front app or
+                // window changed and the question doesn't refer back (it was taken for the screen now).
                 let last = ConversationLog.recent(3, within: 3 * 3600)
                 if let first = last.first {
-                    lines.append("The end of your previous session with the user (\(Self.ago(first.date))), in case they pick up from there:")
-                    for e in last { lines.append("- User: \(Recall.clip(e.you, 200)) / You: \(Recall.clip(e.poinky, 300))") }
+                    let now = frontContext.app.isEmpty ? (NSWorkspace.shared.frontmostApplication?.localizedName ?? "") : frontContext.app
+                    let carried = CarryOver.lines(last.map { CarryOver.Item(you: $0.you, poinky: $0.poinky, app: $0.app, window: $0.window, lesson: $0.lesson) },
+                                                  ago: Self.ago(first.date), question: question, app: now, window: frontContext.window)
+                    lines.append(contentsOf: carried)
+                    Timeline.log("carriedOver", ["kept": !carried.isEmpty, "exchanges": last.count])
                 }
             }
         }
@@ -1680,17 +1722,78 @@ final class CallController: NSObject, NSMenuDelegate {
     }
 
     /// Keeps an exchange for this session (`history`) and, if the setting is on, in the conversation log.
-    private func logExchange(_ you: String, _ poinky: String, note: String? = nil, history keep: Bool = true) {
-        if !poinky.isEmpty || keep { updateSummary(you, poinky, note: note) }
+    /// `turn`: the question it answers. If the teacher is still showing something for it, its summary update and
+    /// log line wait for the lesson to end (`lessonEnded`), so they say what it really showed and how it ended
+    /// (they said "about to show…" / "not drawn yet" for lessons that did finish). A lesson that already ended goes in now.
+    private func logExchange(_ you: String, _ poinky: String, note: String? = nil, history keep: Bool = true, turn t: Int? = nil) {
+        let ended = t.flatMap { t in lessons.lessons.last { $0.turn == t && $0.end != nil } }
+        let lesson = ended?.digest()
         if keep {
-            history.append((you, poinky))
+            history.append(Said(user: you, assistant: poinky, turn: t, lesson: lesson))
             if history.count > 8 { history.removeFirst() }
-            sessionExchanges.append((Recall.clip(you, 300), Recall.clip(poinky, 400)))
+            sessionExchanges.append(Said(user: Recall.clip(you, 300), assistant: Recall.clip(poinky, 400), turn: t, lesson: lesson))
             if sessionExchanges.count > 40 { sessionExchanges.removeFirst() }
         }
+        // The front app when it was asked (the log is read back as "what was on screen then").
+        let front = t != nil && !frontContext.app.isEmpty ? frontContext.app
+            : NSWorkspace.shared.frontmostApplication.flatMap { $0.bundleIdentifier == Bundle.main.bundleIdentifier ? nil : $0.localizedName }
+        let window = t != nil && !frontContext.window.isEmpty ? frontContext.window : nil
+        if let t {
+            loggedTurns.insert(t)
+            if lessons.isOpen(turn: t) { heldLogs[t] = (you, poinky, note, front, window); return }
+        }
+        if !poinky.isEmpty || keep || lesson != nil { updateSummary(you, poinky, note: note, lesson: lesson) }
         guard config.conversationLog else { return }
-        let app = NSWorkspace.shared.frontmostApplication.flatMap { $0.bundleIdentifier == Bundle.main.bundleIdentifier ? nil : $0.localizedName }
-        ConversationLog.append(.init(at: Date().timeIntervalSince1970, you: you, poinky: poinky, app: app, note: note))
+        ConversationLog.append(.init(at: Date().timeIntervalSince1970, you: you, poinky: poinky, app: front, note: note, window: window, lesson: lesson))
+    }
+
+    /// A lesson ended (finished, cut off, failed, or the session ended): it joins its question's exchange
+    /// everywhere it's kept. If that question hasn't been logged yet, `logExchange` takes it (or `flushLessons`).
+    private func lessonEnded(_ l: TeacherLesson) {
+        let digest = l.digest()
+        Timeline.log("lesson.end", ["how": l.end?.rawValue ?? "", "lines": l.lines.count, "heard": l.heard.count, "steps": l.stepsShown])
+        if let i = history.lastIndex(where: { $0.turn == l.turn }) { history[i].lesson = digest }
+        if let i = sessionExchanges.lastIndex(where: { $0.turn == l.turn }) { sessionExchanges[i].lesson = digest }
+        if let h = heldLogs.removeValue(forKey: l.turn) {
+            updateSummary(h.you, h.poinky, note: h.note, lesson: digest)
+            if config.conversationLog {
+                ConversationLog.append(.init(at: Date().timeIntervalSince1970, you: h.you, poinky: h.poinky, app: h.app, note: h.note, window: h.window, lesson: digest))
+            }
+        } else if loggedTurns.contains(l.turn) {
+            logLessonAlone(l, digest)   // its question was logged before the lesson began (it waited for an earlier one)
+        }
+        // (Otherwise its question is still being answered: `logExchange` picks the lesson up.)
+    }
+
+    /// A lesson whose question has no exchange of its own in the record (the talker's answer was cut off).
+    private func logLessonAlone(_ l: TeacherLesson, _ digest: String) {
+        if !sessionExchanges.contains(where: { $0.turn == l.turn }) {
+            sessionExchanges.append(Said(user: Recall.clip(l.question, 300), assistant: "", turn: l.turn, lesson: digest))
+            if sessionExchanges.count > 40 { sessionExchanges.removeFirst() }
+        }
+        summary.add(SessionSummary.exchange(user: l.question, poinky: "", also: nil, lesson: digest), context: summaryContext())
+        guard config.conversationLog else { return }
+        ConversationLog.append(.init(at: Date().timeIntervalSince1970, you: l.question, poinky: "", app: nil, note: nil, lesson: digest))
+    }
+
+    /// Lessons that ended while their question never got an answer of its own (cut off, failed): logged alone.
+    /// Held exchanges whose lesson is gone (the session ends) are written as they are.
+    private func flushLessons() {
+        for l in lessons.lessons where l.end != nil && !loggedTurns.contains(l.turn) {
+            loggedTurns.insert(l.turn)
+            logLessonAlone(l, l.digest())
+        }
+        for (t, h) in heldLogs where !lessons.isOpen(turn: t) {
+            heldLogs[t] = nil
+            updateSummary(h.you, h.poinky, note: h.note, lesson: nil)
+            if config.conversationLog { ConversationLog.append(.init(at: Date().timeIntervalSince1970, you: h.you, poinky: h.poinky, app: h.app, note: h.note, window: h.window)) }
+        }
+    }
+
+    /// An exchange as the daily note gets it: what was said, then what the sketch showed and how it ended.
+    private static func noteExchange(_ s: Said) -> (user: String, assistant: String) {
+        let lesson = s.lesson.map { "[Sketch: \($0)]" }
+        return (s.user, [s.assistant, lesson ?? ""].filter { !$0.isEmpty }.joined(separator: " "))
     }
 
     /// What else a reply did, in a few words, for the conversation log.
@@ -1877,6 +1980,7 @@ final class CallController: NSObject, NSMenuDelegate {
             for step in pendingSteps[tag] ?? [] { play(step) }
         }
         pendingSteps.removeAll()
+        lessons.speechDone()   // a lesson that's all written and said is finished (into the record)
         lastActivity = ProcessInfo.processInfo.systemUptime
         maybeEndAside()
         releaseReports()   // the helpers that were reported merge into the buddy
@@ -1924,9 +2028,12 @@ final class CallController: NSObject, NSMenuDelegate {
     private func requestVisual(_ brief: String, aside: String? = nil) {
         guard artist != nil, let snap = lastSnapshot else { return }
         var lines = ["Brief from the talker: \(brief)",
-                     "User said: \"\(lastQuestion)\"",
-                     "Talker said: \"\(parser.sayPreview)\"",
-                     "Screenshot size: \(snap.width)x\(snap.height) px (coordinates use this size)."]
+                     "User said: \"\(lastQuestion)\""]
+        let talkerSaid = parser.sayPreview
+        if !talkerSaid.isEmpty { lines.append("Talker said: \"\(talkerSaid)\"") }
+        // Its last lesson was cut off (you talked over it) or failed: where the user stopped hearing it.
+        if let news = lessons.teacherNews() { lines.append(news) }
+        lines.append("Screenshot size: \(snap.width)x\(snap.height) px (coordinates use this size).")
         lines.append(contentsOf: snap.notes)
         lines.append(contentsOf: BrainQuestion.focusNotes(snap))
         lines.append(overlay.sceneDescription(scale: snap.scale))
@@ -1935,9 +2042,9 @@ final class CallController: NSObject, NSMenuDelegate {
         lines.append("Paper room: 800 units wide, about \(max(300, units)) units tall before it runs out of space. Keep the lesson within that (use newpage for more).")
         if history.count > 0 {
             lines.append("Earlier in the conversation:")
-            for h in history.suffix(3) { lines.append("- User: \(h.user) / Talker: \(h.assistant)") }
+            for h in history.suffix(3) { lines.append("- User: \(Recall.clip(h.user, 400)) / Talker: \(Recall.clip(h.assistant, 700))") }
         }
-        runArtist(ArtistJob(text: lines.joined(separator: "\n"), snapshot: snap, aside: aside))
+        runArtist(ArtistJob(text: lines.joined(separator: "\n"), snapshot: snap, aside: aside, turn: turn, question: lastQuestion))
     }
 
     private func runArtist(_ job: ArtistJob) {
@@ -1950,16 +2057,19 @@ final class CallController: NSObject, NSMenuDelegate {
         artistAside = job.aside
         if job.aside != nil { asideGen += 1; asideNoted = false }
         let myCall = callID, myGen = artistGen, myLesson = lessonToken
+        // What it says and shows goes into the record with its question (a fix for a broken card doesn't).
+        let rec: Int? = job.quiet ? nil : lessons.begin(turn: job.turn, question: job.question)
         final class Box { var stream = ArtistStream(); var said = false }
         let box = Box()
         Task { @MainActor in
             do {
                 _ = try await artist.ask(BrainQuestion(text: job.text, snapshot: job.snapshot)) { delta in
                     guard myCall == self.callID, myGen == self.artistGen, myLesson == self.lessonToken else { return }
-                    for ev in box.stream.feed(delta) { if case .say = ev { box.said = true }; self.teacherDo { self.handleArtist(ev, snapshot: job.snapshot) } }
+                    for ev in box.stream.feed(delta) { if case .say = ev { box.said = true }; self.teacherDo { self.handleArtist(ev, snapshot: job.snapshot, lesson: rec) } }
                 }
                 if myCall == self.callID, myGen == self.artistGen, myLesson == self.lessonToken {
-                    for ev in box.stream.finish() { if case .say = ev { box.said = true }; self.teacherDo { self.handleArtist(ev, snapshot: job.snapshot) } }
+                    for ev in box.stream.finish() { if case .say = ev { box.said = true }; self.teacherDo { self.handleArtist(ev, snapshot: job.snapshot, lesson: rec) } }
+                    self.teacherDo { self.lessons.written(rec, ok: true) }
                 }
             } catch {
                 if myCall == self.callID, myGen == self.artistGen, !(error is CancellationError) {
@@ -1968,6 +2078,7 @@ final class CallController: NSObject, NSMenuDelegate {
                     if !box.said, !job.quiet, myLesson == self.lessonToken {
                         self.teacherDo { self.says("Sorry, I couldn't make the drawing this time.") }
                     }
+                    self.teacherDo { self.lessons.written(rec, ok: false) }
                 }
             }
             guard myCall == self.callID, myGen == self.artistGen else { return }
@@ -1995,32 +2106,37 @@ final class CallController: NSObject, NSMenuDelegate {
         held.forEach { $0() }
     }
 
-    private func handleArtist(_ ev: ArtistEvent, snapshot: Snapshot) {
+    private func handleArtist(_ ev: ArtistEvent, snapshot: Snapshot, lesson rec: Int? = nil) {
         guard state != .idle else { return }
         lessonScale = snapshot.scale
         switch ev {
         case .lessonStart(let title, let continuing):
             openPaper(title: title, continuing: continuing)
+            lessons.title(rec, title)
         case .say(let line):
             openNarration()
             nextTag += 1
             currentTag = nextTag
             pendingSteps[nextTag] = []
             lineForTag[nextTag] = line
+            lessons.line(rec, line, tag: nextTag)
             speaker.enqueue(line, tag: nextTag)
             state = .speaking
         case .step(let json):
             if !lessonOpen { openPaper(title: "", continuing: true) }
+            lessons.step(rec)
             schedule(.paper(snapScreenMarks(json, snapshot: snapshot)))
         case .step3d(let id, let code, let note):
             // An answer about a clicked part is one line in the notes (its first step's), however many sentences.
             let aside = id == artistAside
             var n = stepNote(note)
             if aside { if asideNoted { n = nil } else if n != nil { asideNoted = true } }
+            lessons.step(rec, model: id, note: n)
             schedule(.model(id: id, code: code, note: n, aside: aside))
         case .lessonEnd:
             lessonOpen = false
         case .card(let spec):
+            for m in Self.cardModels(spec) { lessons.model(rec, m) }
             overlay.apply(placeCards(spec, scale: snapshot.scale), scale: snapshot.scale)
         case .sceneCode(let id, let code):
             overlay.feed3d(id: id, code: code)
@@ -2051,6 +2167,16 @@ final class CallController: NSObject, NSMenuDelegate {
         obj["items"] = items
         guard let data = try? JSONSerialization.data(withJSONObject: obj), let out = String(data: data, encoding: .utf8) else { return json }
         return out
+    }
+
+    /// The 3D models (and panels) in a card spec, by title or id, for the record.
+    static func cardModels(_ json: String) -> [String] {
+        guard let obj = (try? JSONSerialization.jsonObject(with: Data(json.utf8))) as? [String: Any],
+              let items = obj["items"] as? [[String: Any]] else { return [] }
+        return items.compactMap { i in
+            let t = (i["title"] as? String) ?? (i["label"] as? String) ?? (i["id"] as? String) ?? ""
+            return t.isEmpty ? nil : t
+        }
     }
 
     private func openPaper(title: String, continuing: Bool) {

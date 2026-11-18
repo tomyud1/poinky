@@ -193,8 +193,10 @@ enum DailyNotes {
     static let notePrompt = """
     You write Poinky's private notes. Poinky is a voice assistant on the user's Mac. You get one session's exchanges \
     (what the user said, what Poinky answered, what else happened). Write 1–4 short lines starting with "- ": what the \
-    user was doing or wanted, decisions, anything unfinished, and anything to remember next time. Plain facts, no \
-    greetings, no screenshot details, nothing about the note itself. If nothing worth keeping happened, write "- Small talk." \
+    user was doing or wanted, decisions, anything unfinished, and anything to remember next time. A "[Sketch: …]" \
+    part is what Poinky then drew and explained, and how it ended: a finished one is done, not unfinished; an \
+    interrupted one is unfinished only where it stopped. Plain facts, no greetings, no screenshot details (no \
+    coordinates or ids), nothing about the note itself. If nothing worth keeping happened, write "- Small talk." \
     Then, only if the user clearly said something lasting about themselves (their role, a project and where it lives, \
     how they like answers), add at most 2 lines starting with "ABOUT: " and one short fact each. Never guess, and never \
     from what Poinky said or what was on the screen.

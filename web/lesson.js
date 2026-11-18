@@ -101,6 +101,7 @@
   document.body.appendChild(pen);
 
   let paper = null, svg = null, defs = null, frame = null, H = 260, scale = 1;
+  let rush = false;   // the rest of the step being drawn is drawn at once (SB.lessonStop)
   let queue = [], running = false, token = 0, penPos = null, penHide = null, uid = 0, screenMarks = 0;
   // Draw faster when steps are waiting, so the drawing catches up with the voice.
   let pace = 1;
@@ -138,7 +139,7 @@
       const my = token, t0 = performance.now();
       function f(now) {
         if (my !== token) return res(false);
-        const u = Math.min(1, (now - t0) / (dur * 1000));
+        const u = rush ? 1 : Math.min(1, (now - t0) / (dur * 1000));
         fn(u);
         if (u < 1) requestAnimationFrame(f); else res(true);
       }
@@ -150,7 +151,7 @@
   function setPen(x, y) {
     penPos = [x, y];
     pen.style.transform = `translate(${x - 3}px, ${y - 3}px)`;
-    pen.style.opacity = 1;
+    pen.style.opacity = rush ? 0 : 1;
     clearTimeout(penHide);
   }
   async function penTo(x, y) {
@@ -1270,6 +1271,7 @@
         try { await doOp(o, k); } catch (e) {}
       }
     }
+    rush = false;
     if (my === token) {
       running = false;
       penHide = setTimeout(() => { pen.style.opacity = 0; }, 2500);
@@ -1282,6 +1284,7 @@
 
   SB.lessonBegin = (f, title, continuing) => {
     token++;
+    rush = false;
     queue = [];
     running = false;
     // A follow-up keeps drawing below what's on the current paper.
@@ -1298,11 +1301,14 @@
   /** Still drawing (for tests and tools). */
   SB.lessonBusy = () => running || queue.length > 0;
   SB._lessonTest = { compileFn, parseTex, items, tables, replayStep, focusStep };
+  // Stopped mid-step (you talked over it): the step being drawn finishes at once, so the paper never keeps a
+  // half-drawn stroke or a half-written line; the steps after it are dropped.
   SB.lessonStop = () => {
+    queue = [];
+    pen.style.opacity = 0;
+    if (running && paper && paper.isConnected) { rush = true; return; }   // run() ends after this step and keeps the page
     if (paper && paper.isConnected) keepPage(paper);
     token++;
-    queue = [];
     running = false;
-    pen.style.opacity = 0;
   };
 })();
