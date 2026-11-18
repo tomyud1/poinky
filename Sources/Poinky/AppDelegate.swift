@@ -112,8 +112,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Several `--ask`s are asked one after another, `POINKY_ASK_GAP` seconds apart (default 5).
         let gap = ProcessInfo.processInfo.environment["POINKY_ASK_GAP"].flatMap(Double.init) ?? 5
         let asks = args.indices.filter { args[$0] == "--ask" && $0 + 1 < args.count }.map { args[$0 + 1] }
-        for (n, q) in asks.enumerated() {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1 + Double(n) * gap) { c.askTyped(q) }
+        if let wait = ProcessInfo.processInfo.environment["POINKY_ASK_WAIT"].flatMap(Double.init), asks.count > 1 {
+            // Each question after the first waits until the last answer is done (spoken and sketched) plus `wait` s.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { c.askTyped(asks[0]) }
+            var next = 1, quietSince: Double?
+            Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { t in
+                MainActor.assumeIsolated {
+                    guard next < asks.count else { t.invalidate(); return }
+                    let now = ProcessInfo.processInfo.systemUptime
+                    if !c.quietForTests { quietSince = nil; return }
+                    if quietSince == nil { quietSince = now }
+                    if now - quietSince! >= wait { c.askTyped(asks[next]); next += 1; quietSince = nil }
+                }
+            }
+        } else {
+            for (n, q) in asks.enumerated() {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1 + Double(n) * gap) { c.askTyped(q) }
+            }
         }
         if let i = args.firstIndex(of: "--end-after"), i + 1 < args.count, let secs = Double(args[i + 1]) {
             DispatchQueue.main.asyncAfter(deadline: .now() + secs) { c.endCall(quietly: true) }   // tests: the session ends (daily note)
