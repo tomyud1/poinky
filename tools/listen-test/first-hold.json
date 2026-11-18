@@ -1,4 +1,5 @@
 {"about": "The first hold of a session: live words show next to the buddy, the question replaces them as you let go, and a late result after that (the live model's final can come after the main one) neither shows again nor cuts off the answer.",
+ "env": {"FAKE_FIRST_TOKEN_SECS": "0.5"},
  "steps": [
   {"at": 1.5, "keys": "down"},
   {"at": 2.3, "words": "what is", "live": true},

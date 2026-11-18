@@ -216,6 +216,7 @@ final class CallController: NSObject, NSMenuDelegate {
     private var stateSince: TimeInterval = 0
     private var askedAt: TimeInterval?        // you finished asking (keys released, or the pause ended): for the wait time
     private var firstTokenTurn = -1
+    private var firstSentenceTurn = -1
     /// Longer than this in one state means Poinky is stuck (nothing legitimate takes this long:
     /// replies have their own 75 s watchdog, captures 6 s, web searches 30 s).
     /// Tests: the session takes this long to start (a speech engine that doesn't come up).
@@ -615,6 +616,7 @@ final class CallController: NSObject, NSMenuDelegate {
             else { Self.writeDailyNote(exchanges, config: config, summary: summary.full) }
         }
         sessionExchanges.removeAll()
+        releaseShot = nil
         lessons.reset()
         heldLogs.removeAll()
         loggedTurns.removeAll()
@@ -753,6 +755,12 @@ final class CallController: NSObject, NSMenuDelegate {
     // MARK: - Hold to talk
 
     private var finishingPush = false   // a released question is still being turned into text
+    /// The screenshot (and the front app's reading) taken the moment the keys go up, while the last words are still
+    /// being settled (~0.3 s), instead of after: `ask` uses it for the question of that hold. What the screen showed
+    /// as you let go is what you asked about; Poinky's own windows are never in it either way.
+    private var releaseShot: (push: Int, at: TimeInterval, screen: NSScreen, marks: Int, task: Task<(Snapshot, AppContext), Error>)?
+    /// `POINKY_CAPTURE_AT_RELEASE=0`: capture after the words are settled, as before 2026-11-18.
+    static let captureAtRelease = ProcessInfo.processInfo.environment["POINKY_CAPTURE_AT_RELEASE"] != "0"
     private var holdHeard: (count: Int, first: TimeInterval?) = (0, nil)   // live words during this hold (Timeline)
     private var holdStart: TimeInterval = 0
 
@@ -897,6 +905,12 @@ final class CallController: NSObject, NSMenuDelegate {
         }
         finishingPush = true
         askedAt = ProcessInfo.processInfo.systemUptime
+        releaseShot = nil
+        if Self.captureAtRelease, talkTarget == nil, state != .starting, let screen = overlay.screen {
+            let marks = overlay.marks
+            releaseShot = (myPush, askedAt!, screen, marks.count,
+                           startCapture(screen: screen, marks: marks, cursor: localCursor(on: screen), focus: pendingFocus))
+        }
         // How the live words did during the hold (no words): did any show, and how soon.
         var up: [String: Any] = ["partials": holdHeard.count]
         if let first = holdHeard.first { up["firstMs"] = Int((first - holdStart) * 1000) }
@@ -927,6 +941,7 @@ final class CallController: NSObject, NSMenuDelegate {
                 self.endHelperListen()
                 return
             }
+            Timeline.log("heard", ["ms": Int((ProcessInfo.processInfo.systemUptime - (self.askedAt ?? 0)) * 1000)])   // keys up → final words
             self.playSound(.send)
             self.overlay.setYouCaption(text)   // the final words (the live ones can lag or differ)
             self.heard(utterance: text)
@@ -1463,17 +1478,18 @@ final class CallController: NSObject, NSMenuDelegate {
         }
         if partQ != nil { overlay.markPickAsked() }
         let marked = !marks.isEmpty || focusCrop != nil
+        // The keys just went up for this question: its screenshot is already being taken (same screen, same marks).
+        let early = releaseShot.flatMap { r in
+            !proactive && r.push == pushGen && r.screen == screen && r.marks == marks.count
+                && ProcessInfo.processInfo.systemUptime - r.at < 3 ? r : nil
+        }
+        releaseShot = nil
         talkTask = Task { @MainActor in
             do {
-                let capStart = ProcessInfo.processInfo.systemUptime
-                // The front app's selection, document and page, read while the screenshot is taken (no extra wait).
-                let front = NSWorkspace.shared.frontmostApplication, excluded = ScreenCapture.excludedBundleIDs
-                let reading = Task.detached(priority: .userInitiated) { () -> AppContext in
-                    (try? await Deadline.run(0.5, "Reading the front app") { AppContextReader.read(app: front, excluded: excluded) }) ?? AppContext()
-                }
-                let snap = try await ScreenCapture.capture(screen: screen, marks: marks, cursor: cursor, focus: focusCrop)
-                self.frontContext = self.config.frontAppContext ? await reading.value : AppContext()
-                Timeline.log("capture", ["ms": Int((ProcessInfo.processInfo.systemUptime - capStart) * 1000), "turn": myTurn])
+                let capStart = early?.at ?? ProcessInfo.processInfo.systemUptime
+                let (snap, front) = try await (early?.task ?? self.startCapture(screen: screen, marks: marks, cursor: cursor, focus: focusCrop)).value
+                self.frontContext = front
+                Timeline.log("capture", ["ms": Int((ProcessInfo.processInfo.systemUptime - capStart) * 1000), "turn": myTurn, "atRelease": early != nil])
                 guard myTurn == self.turn else { return }
                 self.lastSnapshot = snap
                 self.replyScale = snap.scale
@@ -1552,6 +1568,20 @@ final class CallController: NSObject, NSMenuDelegate {
             guard myTurn == self.turn else { return }
             self.overlay.clearMarks()   // your marks were for this question
             self.speaker.endTurn()      // → finishedSpeaking() once the audio is done
+        }
+    }
+
+    /// The screenshot and, at the same time, the front app's selection, document and page (no extra wait).
+    private func startCapture(screen: NSScreen, marks: [Mark], cursor: CGPoint?, focus: FocusCrop?) -> Task<(Snapshot, AppContext), Error> {
+        let front = NSWorkspace.shared.frontmostApplication, excluded = ScreenCapture.excludedBundleIDs
+        let wantsContext = config.frontAppContext
+        return Task { @MainActor in
+            let reading = Task.detached(priority: .userInitiated) { () -> AppContext in
+                guard wantsContext else { return AppContext() }
+                return (try? await Deadline.run(0.5, "Reading the front app") { AppContextReader.read(app: front, excluded: excluded) }) ?? AppContext()
+            }
+            let snap = try await ScreenCapture.capture(screen: screen, marks: marks, cursor: cursor, focus: focus)
+            return (snap, await reading.value)
         }
     }
 
@@ -1919,6 +1949,10 @@ final class CallController: NSObject, NSMenuDelegate {
     private func handle(_ ev: TalkEvents) {
         // Answering from web pages or old transcripts: they can't make Poinky do anything.
         let ev = lookupReply ? ev.onlySpeech() : ev
+        if !ev.sentences.isEmpty, firstSentenceTurn != turn {
+            firstSentenceTurn = turn
+            Timeline.log("firstSentence", ["turn": turn, "chars": ev.sentences[0].count])   // handed to the voice
+        }
         for s in ev.sentences {
             var s = s
             // The teacher is explaining it: the talker's part is one short hand-over (`TalkerRoute.handOver`).
