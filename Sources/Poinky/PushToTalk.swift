@@ -85,8 +85,9 @@ final class PushToTalk {
     private var lastPoll: TimeInterval = 0
 
     private func poll() {
-        let flags = fakeFlags ?? NSEvent.modifierFlags.intersection([.control, .option, .command, .shift])
-        let otherKeyDown = fakeFlags == nil && Self.otherKeyDown()
+        // (A test copy only hears scripted keys: `AppConfig.ignoresRealKeys`.)
+        let flags = fakeFlags ?? (AppConfig.ignoresRealKeys ? [] : NSEvent.modifierFlags.intersection([.control, .option, .command, .shift]))
+        let otherKeyDown = fakeFlags == nil && !AppConfig.ignoresRealKeys && Self.otherKeyDown()
         let now = ProcessInfo.processInfo.systemUptime
         let gap = now - lastPoll
         lastPoll = now
