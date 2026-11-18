@@ -465,6 +465,8 @@ extension CallController {
             sheet = s.sheet ?? sheet
             let tag = sheet.tag(sheet.current, sheet.part)
             let newPaper = !self.studyPaperOpen || s.paperTag != tag
+            // The "your turn" line has done its job: it doesn't go into the PDF.
+            if !newPaper { self.overlay.lessonStep(#"{"ops":[{"op":"erase","ids":["\#(tag)-turn"]}]}"#, scale: snap.scale) }
             self.studyTag(tag)
             s.paperTag = tag
             var text = StudyBrief.message(kind, sheet: sheet, said: said, newPaper: newPaper, note: note)
