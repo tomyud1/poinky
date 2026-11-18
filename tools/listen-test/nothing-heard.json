@@ -1,0 +1,12 @@
+{"about": "A hold where nothing was recognized says so quietly in your bubble (no sound at all from the mic, or sound but no words), and the note goes away by itself.",
+ "steps": [
+  {"at": 1.5, "keys": "down"},
+  {"at": 2.5, "keys": "up"},
+  {"at": 3.1, "probe": "no sound from the mic", "expect": {"kind": "you", "miss": true, "text": "No sound from the mic"}},
+  {"at": 4.0, "keys": "down"},
+  {"at": 4.4, "words": "", "live": true},
+  {"at": 5.0, "keys": "up"},
+  {"at": 5.6, "probe": "sound but no words", "expect": {"kind": "you", "miss": true, "text": "Didn't catch that"}},
+  {"at": 8.0, "probe": "the note goes away", "expect": {"kind": "none", "state": "ready"}},
+  {"at": 8.2, "quit": true}
+ ]}

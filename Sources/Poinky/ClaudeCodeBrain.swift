@@ -12,6 +12,10 @@ final class ClaudeCodeBrain: Brain {
 
     private var process: Process?
     private var stdin: FileHandle?
+    /// Writes to Claude Code's input happen here, never on the main thread: a message with a screenshot is
+    /// bigger than the pipe holds, and a Claude Code that isn't reading (hung while starting) blocked the
+    /// main thread forever, with the watchdog and the stuck detector frozen too. One queue per process.
+    private var writer: DispatchQueue?
     private var buffer = Data()
     private var stderrTail = ""
 
@@ -123,24 +127,57 @@ final class ClaudeCodeBrain: Brain {
             pending = Pending(cont: cont, onText: onText, id: nextID)
             lastOutputAt = ProcessInfo.processInfo.systemUptime
             startWatchdog()
-            do {
-                try stdin?.write(contentsOf: line)
-            } catch {
-                pending = nil
-                cont.resume(throwing: BrainError("Couldn't talk to Claude Code: \(error.localizedDescription)"))
+            send(line, failing: nextID)
+        }
+    }
+
+    /// Writes a line to Claude Code off the main thread. If it can't be written, the question `failing`
+    /// (if it's still the one waiting) fails; a write that never finishes is caught by the watchdog.
+    private func send(_ line: Data, failing id: Int? = nil) {
+        guard let h = stdin, let q = writer else {
+            if let id { fail(id, BrainError("Couldn't talk to Claude Code: it isn't running.")) }
+            return
+        }
+        q.async {
+            do { try h.write(contentsOf: line) } catch {
+                guard let id else { return }
+                let why = error.localizedDescription
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated { self.fail(id, BrainError("Couldn't talk to Claude Code: \(why)")) }
+                }
             }
         }
     }
 
+    private func fail(_ id: Int, _ error: Error) {
+        guard let p = pending, p.id == id else { return }
+        pending = nil
+        p.cont.resume(throwing: error)
+    }
+
+    /// Ends the process and its input. The input is closed on its writer queue (after any write still
+    /// in progress, which ends once the process is gone); one that ignores SIGTERM is killed.
+    private func endProcess() {
+        let h = stdin, p = process
+        stdin = nil
+        process = nil
+        if let h { (writer ?? DispatchQueue.global()).async { try? h.close() } }
+        writer = nil
+        guard let p, p.isRunning else { return }
+        p.terminate()
+        let pid = p.processIdentifier
+        DispatchQueue.global().asyncAfter(deadline: .now() + 3) { if p.isRunning { kill(pid, SIGKILL) } }
+    }
+
     /// Interrupt the turn in progress (Claude Code ends it with a result); if it doesn't end soon, restart.
     func cancelCurrent() {
-        guard let id = pending?.id, cancelledID != id, let stdin else { return }
+        guard let id = pending?.id, cancelledID != id, stdin != nil else { return }
         cancelledID = id
         Timeline.log("brain.cancel", ["model": model])
         let req: [String: Any] = ["type": "control_request", "request_id": "cancel-\(id)", "request": ["subtype": "interrupt"]]
         if var line = try? JSONSerialization.data(withJSONObject: req) {
             line.append(0x0A)
-            try? stdin.write(contentsOf: line)
+            send(line)
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in
             MainActor.assumeIsolated {
@@ -171,10 +208,7 @@ final class ClaudeCodeBrain: Brain {
             pending = nil
             p.cont.resume(throwing: error)
         }
-        try? stdin?.close()
-        stdin = nil
-        if let p = process, p.isRunning { p.terminate() }
-        process = nil
+        endProcess()
     }
 
     func stop() {
@@ -184,10 +218,7 @@ final class ClaudeCodeBrain: Brain {
             p.cont.resume(throwing: CancellationError())
         }
         wakeWaiters()
-        try? stdin?.close()
-        stdin = nil
-        if let p = process, p.isRunning { p.terminate() }
-        process = nil
+        endProcess()
     }
 
     // MARK: - Process
@@ -262,12 +293,12 @@ final class ClaudeCodeBrain: Brain {
         try p.run()
         process = p
         stdin = inPipe.fileHandleForWriting
+        writer = DispatchQueue(label: "poinky.claude.stdin")
     }
 
     private func processEnded(_ p: Process) {
         guard p === process else { return }
-        process = nil
-        stdin = nil
+        endProcess()
         if let pend = pending {
             pending = nil
             let detail = stderrTail.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -356,14 +387,11 @@ final class ClaudeCodeBrain: Brain {
         retriedID = pend.id
         Timeline.log("brain.thinking", ["model": model, "why": String(error.prefix(160))])
         NSLog("Poinky: no-thinking request refused (\(error.prefix(160))); retrying with thinking")
-        try? stdin?.close()
-        stdin = nil
-        if let p = process, p.isRunning { p.terminate() }
-        process = nil
+        endProcess()
         pending = Pending(cont: pend.cont, onText: pend.onText, id: pend.id)
         do {
             try launchIfNeeded()
-            try stdin?.write(contentsOf: line)
+            send(line, failing: pend.id)
         } catch {
             pending = nil
             pend.cont.resume(throwing: BrainError("Couldn't talk to Claude Code: \(error.localizedDescription)"))
@@ -385,19 +413,32 @@ final class ClaudeCodeBrain: Brain {
                           "/usr/local/bin/claude"].filter { !$0.isEmpty }
         if let hit = candidates.first(where: { fm.isExecutableFile(atPath: $0) }) { return hit }
 
-        // Last resort: ask a login shell where it is.
+        // Last resort: ask a login shell where it is (e.g. an npm install under nvm). This runs on the main
+        // thread for every Claude Code session started, and a login shell can be slow or hang: so a found
+        // path is kept, and the shell gets a few seconds at most.
+        if let p = shellFound, fm.isExecutableFile(atPath: p) { return p }
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/bin/zsh")
         p.arguments = ["-lc", "command -v claude"]
         let out = Pipe()
         p.standardOutput = out
-        p.standardError = Pipe()
+        p.standardError = FileHandle.nullDevice
+        p.standardInput = FileHandle.nullDevice
+        let done = DispatchSemaphore(value: 0)
+        p.terminationHandler = { _ in done.signal() }
         guard (try? p.run()) != nil else { return nil }
-        p.waitUntilExit()
+        if done.wait(timeout: .now() + 5) == .timedOut {
+            p.terminate()
+            Timeline.log("timeout", ["what": "Finding claude with a login shell", "secs": 5])
+            return bundledClaude(home: home)
+        }
         let path = String(decoding: out.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        return fm.isExecutableFile(atPath: path) ? path : bundledClaude(home: home)
+        guard fm.isExecutableFile(atPath: path) else { return bundledClaude(home: home) }
+        shellFound = path
+        return path
     }
+    private static var shellFound: String?
 
     /// No `claude` on the PATH: the copy that comes with the Claude desktop app, or with the Claude Code
     /// extension in Cursor / VS Code (newest version first). Same CLI, same sign-in (~/.claude).

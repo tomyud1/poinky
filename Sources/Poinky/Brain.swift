@@ -302,6 +302,8 @@ struct TalkParser {
             for tag in ["<draw>", "<visual>", "<guide>", "<do>", "<act", "<ask>", "<done>", "<end", "<set>", "<remember", "<forget", "<agent", "<tell", "<stop", "<undo", "<video", "<recall", "<search", "<remind", "<offer"] {
                 if let r = s.range(of: tag) { s = String(s[..<r.lowerBound]) }
             }
+            // (A reply cut off inside its first tag: "<sa" isn't speech.)
+            if let r = s.range(of: #"<[A-Za-z/][A-Za-z0-9-]*$"#, options: .regularExpression) { s = String(s[..<r.lowerBound]) }
             s = s.trimmingCharacters(in: .whitespacesAndNewlines)
             if !s.isEmpty { ev.sentences = [s] }
             sayEmitted = 1
@@ -411,19 +413,59 @@ struct TalkParser {
         while let open = rest.range(of: "<say>") {
             let after = rest[open.upperBound...]
             if let close = after.range(of: "</say>") {
-                parts.append(String(after[..<close.lowerBound]))
+                parts.append(Self.spokenPart(String(after[..<close.lowerBound]), complete: true))
                 rest = after[close.upperBound...]
                 closed = true
             } else {
-                var body = String(after)
-                // Don't speak half of a closing tag that's still arriving.
-                if let lt = body.lastIndex(of: "<"), !body[lt...].contains(">") { body = String(body[..<lt]) }
-                parts.append(body)
+                parts.append(Self.spokenPart(String(after), complete: false))
                 closed = false
                 break
             }
         }
         return (parts.joined(separator: " "), closed)
+    }
+
+    /// Tags whose contents are never spoken (an unclosed `<say>` runs into them, or a model puts one inside).
+    private static let actionTags: Set<String> = ["draw", "visual", "guide", "do", "act", "ask", "done", "end", "set",
+        "remember", "forget", "agent", "tell", "stop", "undo", "video", "video-cancel", "video-close", "video-play",
+        "recall", "search", "remind", "remind-cancel", "offer", "save-lesson", "step", "step3d", "scene3d", "lesson", "panel"]
+    private static let tagRegex = try! NSRegularExpression(pattern: #"^<(/?)([A-Za-z][A-Za-z0-9-]{0,15})((?:\s+[A-Za-z-]+\s*=\s*"[^"]*")*)\s*(/?)>"#)
+
+    /// What of a `<say>` body is speech: other tags (and an action tag's contents) taken out. The haiku
+    /// talker sometimes forgets `</say>`, so `<draw>{…JSON…}</draw>` was read out, and `<b>`, a nested `<say>`
+    /// were spoken too. Only ever cuts at or removes whole tags, so what's already spoken stays a prefix while
+    /// the reply streams in. `complete`: the body won't grow (otherwise a tag still arriving is held back).
+    static func spokenPart(_ body: String, complete: Bool) -> String {
+        guard body.contains("<") else { return body }
+        var out = ""
+        var rest = Substring(body)
+        while let lt = rest.firstIndex(of: "<") {
+            out += rest[..<lt]
+            let tail = rest[lt...]
+            let ns = String(tail) as NSString
+            if let m = tagRegex.firstMatch(in: String(tail), range: NSRange(location: 0, length: min(ns.length, 400))) {
+                let closing = ns.substring(with: m.range(at: 1)) == "/"
+                let name = ns.substring(with: m.range(at: 2)).lowercased()
+                let selfClosing = ns.substring(with: m.range(at: 4)) == "/"
+                let tagEnd = tail.index(tail.startIndex, offsetBy: ns.substring(to: m.range.upperBound).count)
+                if actionTags.contains(name), !closing, !selfClosing, !["end", "video-cancel", "video-close", "video-play", "save-lesson"].contains(name) {
+                    // Its contents aren't speech: skip to its end, or stop here until it comes.
+                    guard let close = tail[tagEnd...].range(of: "</\(name)>") else { return out }
+                    rest = tail[close.upperBound...]
+                    if out.last == " ", rest.first == " " { rest = rest.dropFirst() }
+                } else {
+                    rest = tail[tagEnd...]   // a nested <say>, </say>, <b>, <end/>: the tag goes, the words stay
+                }
+                continue
+            }
+            // Not a whole tag. While the body is still arriving, a "<" followed by letters may be one
+            // (or the closing </say>): hold it back. Otherwise it's just text ("x < 5").
+            let next = tail.dropFirst().first
+            if !complete, !tail.contains(">"), next == nil || next!.isLetter || next == "/" { return out }
+            out += "<"
+            rest = tail.dropFirst()
+        }
+        return out + rest
     }
 
     private mutating func takeSentences(final: Bool) -> [String] {
@@ -637,7 +679,7 @@ struct ArtistStream {
             } else if tail.hasPrefix("<say>") {
                 guard let close = tail.range(of: "</say>") else { break }
                 let inner = tail[tail.index(tail.startIndex, offsetBy: 5)..<close.lowerBound]
-                let s = inner.trimmingCharacters(in: .whitespacesAndNewlines)
+                let s = TalkParser.spokenPart(String(inner), complete: true).trimmingCharacters(in: .whitespacesAndNewlines)
                 if !s.isEmpty { out.append(.say(s)) }
                 pos = lt.location + (tail[tail.startIndex..<close.upperBound] as Substring).utf16.count
             } else if tail.hasPrefix("<step>") {

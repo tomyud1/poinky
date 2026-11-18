@@ -64,15 +64,13 @@
   style.textContent = FACES + `
     #pen{position:absolute;left:0;top:0;width:26px;height:26px;pointer-events:none;opacity:0;transition:opacity .4s;z-index:50;
       filter:drop-shadow(0 1px 2px rgba(0,0,0,.35))}
-    .card.lpaper{border-radius:14px;overflow:hidden;background-color:#fbf8f0;
+    .card.lpaper{isolation:isolate;border-radius:14px;overflow:hidden;background-color:#fbf8f0;
       background-image:linear-gradient(rgba(0,0,0,.035) 1px,transparent 1px),linear-gradient(90deg,rgba(0,0,0,.035) 1px,transparent 1px);
       background-size:22px 22px;box-shadow:0 22px 60px rgba(0,0,0,.35),0 0 0 1px rgba(0,0,0,.08);animation:lp-in .5s cubic-bezier(.2,.9,.3,1.1)}
     .lpaper .lsvg{display:block;width:100%;overflow:hidden}
     .lpaper .lsvg text{font-family:${FONT};white-space:pre;paint-order:stroke;stroke:var(--halo,${PAPER});stroke-width:5px;stroke-linejoin:round}
     .lpaper .lsvg text.nohalo{stroke:none}
-    .lpaper .lsvg > g[data-step]{transition:opacity .45s cubic-bezier(.3,.7,.3,1);cursor:pointer}
-    .lpaper .lsvg > g.past{opacity:.55}
-    @media (prefers-reduced-motion: reduce){.lpaper .lsvg > g[data-step]{transition:none}}
+    .lpaper .lsvg > g[data-step]{cursor:pointer}
     .lpaper .saves{position:absolute;right:40px;top:5px;display:flex;gap:6px;z-index:3}
     .lpaper .save{height:28px;border-radius:14px;border:0;padding:0 11px;cursor:pointer;white-space:nowrap;
       background:rgba(30,32,38,.08);color:#5d584c;font:600 12.5px -apple-system,system-ui;transition:background .15s,color .15s,opacity .2s}
@@ -107,19 +105,23 @@
   const items = {};
   // Areas already used on the paper, so new shapes and text don't land on top of old ones.
   let used = [];
+  // Points along the arrows and lines on the paper: an arrow's label keeps off all of them, not just its own.
+  let strokes = [];
   const overlap = (a, b) => Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x)) * Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y));
   /** How far down to move rectangle r so it doesn't collide with what's drawn. */
   function freeShift(r) {
     let dy = 0;
+    // Something placed inside a graph's plot area is a note on the graph, not a collision with it.
+    const within = (c, s) => c.x + c.w / 2 > s.x && c.x + c.w / 2 < s.x + s.w && c.y + c.h / 2 > s.y && c.y + c.h / 2 < s.y + s.h;
     for (let k = 0; k < 8; k++) {
       const c = { x: r.x, y: r.y + dy, w: r.w, h: r.h };
-      const hit = used.find(b => overlap(c, b) > 0.2 * Math.min(c.w * c.h, b.w * b.h));
+      const hit = used.find(b => !(b.plot && within(c, b.plot)) && overlap(c, b) > 0.2 * Math.min(c.w * c.h, b.w * b.h));
       if (!hit) return dy;
       dy = hit.y + hit.h + 8 - r.y;
     }
     return dy;
   }
-  const claim = (r, id) => used.push({ ...r, id });
+  const claim = (r, id, plot) => used.push({ ...r, id, plot });
 
   // ---------- small helpers ----------
   function el(tag, attrs, parent) {
@@ -133,13 +135,19 @@
   const ease = u => u < .5 ? 2 * u * u : 1 - Math.pow(-2 * u + 2, 2) / 2;
   const jit = a => (Math.random() * 2 - 1) * a;
 
+  // An interrupt (lessonStop), a new lesson or a new step over a replay changes `token`: the tween running then
+  // rejects with CANCELLED, so the op it belongs to stops there (its later parts are never drawn).
+  const CANCELLED = new Error('cancelled');
   function tween(dur, fn) {
-    return new Promise(res => {
+    return new Promise((res, rej) => {
       const my = token, t0 = performance.now();
+      if (!(dur >= 0)) dur = 0;
       function f(now) {
-        if (my !== token) return res(false);
+        if (my !== token) return rej(CANCELLED);
         const u = Math.min(1, (now - t0) / (dur * 1000));
-        fn(u);
+        // A frame that throws (the paper taken off the screen under the pen…) ends the op instead of leaving it
+        // waiting forever, which kept the paper "busy" and the pen on screen.
+        try { fn(u); } catch (e) { return rej(e); }
         if (u < 1) requestAnimationFrame(f); else res(true);
       }
       requestAnimationFrame(f);
@@ -148,9 +156,11 @@
   const wait = s => tween(s, () => {});
 
   function setPen(x, y) {
+    if (!isFinite(x) || !isFinite(y)) return;
     penPos = [x, y];
     pen.style.transform = `translate(${x - 3}px, ${y - 3}px)`;
-    pen.style.opacity = 1;
+    // While the drawings are hidden (their window is covered or minimized) the pen keeps drawing, unseen.
+    pen.style.opacity = X.cards.classList.contains('hidden-content') ? 0 : 1;
     clearTimeout(penHide);
   }
   async function penTo(x, y) {
@@ -161,8 +171,10 @@
   }
   // Paper units → screen points.
   function onScreen(x, y) {
+    const m = svg.getScreenCTM();
+    if (!m || !svg.isConnected) throw CANCELLED;   // the paper is gone
     const p = svg.createSVGPoint(); p.x = x; p.y = y;
-    const q = p.matrixTransform(svg.getScreenCTM());
+    const q = p.matrixTransform(m);
     return [q.x, q.y];
   }
   const same = (x, y) => [x, y];
@@ -174,13 +186,14 @@
     path.style.strokeDasharray = L;
     path.style.strokeDashoffset = L;
     const p0 = path.getPointAtLength(0);
-    await penTo(...toScreen(p0.x, p0.y));
-    const ok = await tween(Math.max(.12, L / speed) / pace, u => {
-      path.style.strokeDashoffset = L * (1 - u);
-      const p = path.getPointAtLength(L * u);
-      setPen(...toScreen(p.x, p.y));
-    });
-    if (ok) { path.style.strokeDasharray = ''; path.style.strokeDashoffset = ''; }
+    try {
+      await penTo(...toScreen(p0.x, p0.y));
+      await tween(Math.max(.12, L / speed) / pace, u => {
+        path.style.strokeDashoffset = L * (1 - u);
+        const p = path.getPointAtLength(L * u);
+        setPen(...toScreen(p.x, p.y));
+      });
+    } finally { path.style.strokeDasharray = ''; path.style.strokeDashoffset = ''; }   // stopped: the stroke stays whole
   }
 
   // ---------- paper ----------
@@ -220,17 +233,20 @@
     }
     label();
   }
-  function applyView(v) {
-    svg.style.height = v.h + 'px';
-    svg.setAttribute('viewBox', `0 ${v.y.toFixed(1)} ${UNITS} ${v.vh.toFixed(1)}`);
+  function applyView(v, s = svg) {
+    s.style.height = v.h + 'px';
+    s.setAttribute('viewBox', `0 ${v.y.toFixed(1)} ${UNITS} ${v.vh.toFixed(1)}`);
   }
+  // One view animation at a time, on the paper it started on (a new paper or a newer target ends it).
+  let viewAnim = 0;
   function animateView(target) {
-    const from = { ...view }, t0 = performance.now();
+    const from = { ...view }, t0 = performance.now(), my = ++viewAnim, s = svg;
     if (!from.vh) { view = target; applyView(view); return; }
     const step = now => {
+      if (my !== viewAnim || s !== svg) return;
       const u = Math.min(1, (now - t0) / 380), e = ease(u);
       view = { h: from.h + (target.h - from.h) * e, y: from.y + (target.y - from.y) * e, vh: from.vh + (target.vh - from.vh) * e };
-      applyView(view);
+      applyView(view, s);
       if (u < 1) requestAnimationFrame(step);
     };
     requestAnimationFrame(step);
@@ -319,7 +335,14 @@
     toTop = false; yShift = 0; contentBottom = 0;
     c.innerHTML = '<div class="bar"><span></span><div class="saves"><button class="save" title="Save a picture of this page">Save</button>' +
       '<button class="save all" hidden title="Save every page of this session as one PDF">Save all</button></div><button class="x" title="Close">✕</button></div>';
-    c.querySelector('.bar span').textContent = title || '';
+    const name = c.querySelector('.bar span');
+    name.textContent = title || '';
+    // Hebrew, Arabic, CJK… in the bar's monospace font get spaced apart letter by letter: use the system font.
+    if (/[^\u0000-\u024F\u2000-\u206F]/.test(title || '')) { name.style.font = '500 13px -apple-system, system-ui'; name.dir = 'auto'; }
+    // The title stays clear of the Save buttons (it's centered, so it gives up as much room on the left).
+    const saves = c.querySelector('.saves');
+    const fitTitle = () => { const room = c.clientWidth - 2 * (saves.offsetWidth + 48); name.style.maxWidth = Math.max(40, room) + 'px'; };
+    try { new ResizeObserver(fitTitle).observe(saves); } catch (e) {}
     svg = el('svg', { class: 'lsvg', preserveAspectRatio: 'xMidYMin meet' }, c);
     view = { h: 0, y: 0, vh: 0 };
     defs = el('defs', {}, svg);
@@ -340,17 +363,18 @@
     });
     setHeight(f.h0 || 240);
     X.cards.appendChild(c);
+    fitTitle();
     for (const k in items) delete items[k];
     for (const k in graphs) delete graphs[k];
     for (const k in tables) delete tables[k];
-    used = [];
+    used = []; strokes = [];
     notebook.push({ c, page: null });
     saveAllButton();
     paperSound();
     X.report();
   }
   // ---------- keeping a page: a picture of the paper (for revising later) ----------
-  /** The drawing on paper `c` as standalone SVG text (every step in focus), its height in units, its look.
+  /** The drawing on paper `c` as standalone SVG text, its height in units, its look.
       Needs the paper on screen (it measures what's drawn). Null when nothing is drawn. */
   function pageOf(c) {
     const s = c && c.isConnected && c.querySelector('svg.lsvg');
@@ -365,7 +389,6 @@
       if (t && s.contains(t) && !(window.CSSTransition && a instanceof CSSTransition)) { try { a.commitStyles(); } catch (e) {} }
     }
     const copy = s.cloneNode(true);
-    copy.querySelectorAll('g.past').forEach(g => g.classList.remove('past'));   // the picture shows every step in focus
     copy.querySelectorAll('[clip-path]').forEach(n => n.removeAttribute('clip-path'));   // anything still being written
     copy.querySelectorAll('text[opacity="0"]').forEach(n => n.remove());
     copy.querySelectorAll('[style*="stroke-dash"]').forEach(n => { n.style.strokeDasharray = ''; n.style.strokeDashoffset = ''; });
@@ -530,8 +553,11 @@
     sin: 'sin', cos: 'cos', tan: 'tan', ln: 'ln', log: 'log', exp: 'exp', lim: 'lim', max: 'max', min: 'min',
     left: '', right: '', displaystyle: '', '{': '{', '}': '}', '%': '%', '$': '$', '#': '#', '_': '_', '&': '&',
   };
+  const OPNAMES = new Set(['sin', 'cos', 'tan', 'ln', 'log', 'exp', 'lim', 'max', 'min']);
+  const BINOPS = new Set(['cdot', 'times', 'div', 'pm', 'mp', 'to', 'rightarrow', 'Rightarrow', 'implies', 'leftarrow', 'leftrightarrow',
+    'iff', 'le', 'leq', 'ge', 'geq', 'ne', 'neq', 'approx', 'equiv', 'propto']);
   /** Mathy text: a hint to draw it as math even without "math": true. */
-  const looksMath = s => /\\(frac|sqrt|cdot|times|pi|theta|alpha|Delta|int|sum|le|ge|to)\b|\^[{(\d]|_\{/.test(s);
+  const looksMath = s => /\\(frac|sqrt|cdot|times|pi|theta|alpha|Delta|int|sum|le|ge|to)\b|\^[{(\d]|_\{|[\d)]\s*·\s*[-−(\d]/.test(s);   // 5·2 too: its dot gets drawn
   // Chemical formulas in plain text (H2O, CO2, C6H12O6) get their numbers written small and low.
   const ELEMENTS = new Set('H He Li Be B C N O F Ne Na Mg Al Si P S Cl Ar K Ca Ti Cr Mn Fe Co Ni Cu Zn Br Ag Sn I Au Hg Pb U'.split(' '));
   const NOT_CHEM = new Set(['PS2', 'PS3', 'PS4', 'PS5', 'CS2', 'K2', 'B12', 'F35', 'F16', 'C4', 'U2']);
@@ -571,7 +597,7 @@
   function parseTex(src) {
     let i = 0;
     const s = chemTex(unescapeTex(src)).replace(/->/g, '→').replace(/-/g, '−').replace(/<=/g, '≤').replace(/>=/g, '≥').replace(/!=/g, '≠')
-      .replace(/(\S)\s*\*\s*(?=\S)/g, '$1 · ').replace(/'/g, '′');
+      .replace(/(\S)\s*\*\s*(?=\S)/g, '$1\\cdot ').replace(/·/g, '\\cdot ').replace(/'/g, '′');
     function group(stop) {
       const out = [];
       while (i < s.length && s[i] !== stop) {
@@ -583,7 +609,11 @@
           if (base.t !== 'script') base = { t: 'script', base, sup: null, sub: null };
           base[c === '^' ? 'sup' : 'sub'] = arg;
           out.push(base);
-        } else out.push(atom());
+        } else {
+          const a = atom(), last = out[out.length - 1];
+          if (a.bin && last && last.t === 'text') last.s = last.s.replace(/ +$/, '');
+          out.push(a);
+        }
       }
       if (stop && s[i] === stop) i++;
       return out;
@@ -610,8 +640,10 @@
       if (c === '\\') {
         i++;
         let name = '';
-        if (/[a-zA-Z]/.test(s[i] || '')) while (/[a-zA-Z]/.test(s[i] || '')) name += s[i++];
-        else name = s[i++] || '';
+        if (/[a-zA-Z]/.test(s[i] || '')) {
+          while (/[a-zA-Z]/.test(s[i] || '')) name += s[i++];
+          while (s[i] === ' ') i++;   // as in TeX, a space after a command only ends it
+        } else name = s[i++] || '';
         if (name === 'frac' || name === 'dfrac' || name === 'tfrac') { const num = argument(), den = argument(); return { t: 'frac', num, den }; }
         if (name === 'sqrt') { let idx = null; if (s[i] === '[') { const e = s.indexOf(']', i); idx = s.slice(i + 1, e); i = e + 1; } return { t: 'sqrt', body: argument(), idx }; }
         if (name === 'text' || name === 'mathrm' || name === 'textbf' || name === 'mathbf' || name === 'operatorname') {
@@ -619,6 +651,10 @@
           return { t: 'text', s: '' };
         }
         if (name === 'overline' || name === 'bar' || name === 'vec' || name === 'hat') return { t: 'over', body: argument(), kind: name };
+        if (OPNAMES.has(name)) return { t: 'text', s: '\u2009' + name + '\u2009' };
+        // The handwriting's middle dot is a speck ("5·2" read as "52"): it's drawn as a real dot.
+        if (name === 'cdot') return { t: 'cdot', bin: true };
+        if (BINOPS.has(name)) return { t: 'text', s: ' ' + SYM[name] + ' ', bin: true };   // the same room on both sides
         return { t: 'text', s: name in SYM ? SYM[name] : name };
       }
       // A run of plain characters (a script attaches after it, which looks the same as after its last letter).
@@ -642,6 +678,10 @@
     function row(list, sz) { return layoutTex(list, sz, color, measure); }
     const boxes = nodes.map(n => {
       if (n.t === 'text') return text(n.s);
+      if (n.t === 'cdot') {
+        const w = size * .62, r = Math.max(1.7, size * .075);
+        return { w, a: size * .74, d: size * .24, draw(p, x, y) { el('circle', { cx: x + w / 2, cy: y - size * .3, r, fill: color }, p); } };
+      }
       if (n.t === 'row') return row(n.items, size);
       if (n.t === 'script') {
         const b = layoutTex([n.base], size, color, measure);
@@ -707,6 +747,12 @@
     measurer.textContent = str;
     return str ? measurer.getComputedTextLength() : 0;
   }
+  /** The box the handwriting really takes: width, height and how far above the baseline it starts. */
+  function inkBox(str, size) {
+    measure(str, size);
+    const b = measurer.getBBox();
+    return { w: b.width, h: b.height, up: -9999 - b.y };
+  }
 
   /** Draws math at baseline (x, y) in group g; returns the group holding it. */
   function drawMath(g, src, x, y, size, color, align, bold) {
@@ -721,15 +767,19 @@
   async function reveal(node, bb, size, baseY) {
     const id = 'clip' + (++uid);
     const cp = el('clipPath', { id }, defs);
-    const r = el('rect', { x: bb.x - 3, y: bb.y - 6, width: 0, height: bb.height + 12 }, cp);
+    // Hebrew and Arabic are written from the right.
+    const rtl = /[\u0590-\u08FF]/.test(node.textContent || '') && !/[A-Za-z]/.test(node.textContent || '');
+    const r = el('rect', { x: rtl ? bb.x + bb.width + 3 : bb.x - 3, y: bb.y - 6, width: 0, height: bb.height + 12 }, cp);
     node.setAttribute('clip-path', `url(#${id})`);
-    await penTo(...onScreen(bb.x, baseY));
+    try { await penTo(...onScreen(rtl ? bb.x + bb.width : bb.x, baseY)); } catch (e) { node.removeAttribute('clip-path'); cp.remove(); throw e; }
     const chars = Math.max(1, bb.width / (size * .5));
-    const ok = await tween(Math.max(.2, chars / 26) / pace, u => {
-      r.setAttribute('width', (bb.width + 6) * u);
-      setPen(...onScreen(bb.x + bb.width * u, baseY + Math.sin(u * 50) * size * .1));
-    });
-    if (ok) { node.removeAttribute('clip-path'); cp.remove(); } else { r.setAttribute('width', bb.width + 6); }
+    try {
+      await tween(Math.max(.2, chars / 26) / pace, u => {
+        r.setAttribute('width', (bb.width + 6) * u);
+        if (rtl) r.setAttribute('x', bb.x + bb.width + 3 - (bb.width + 6) * u);
+        setPen(...onScreen(rtl ? bb.x + bb.width * (1 - u) : bb.x + bb.width * u, baseY + Math.sin(u * 50) * size * .1));
+      });
+    } finally { node.removeAttribute('clip-path'); cp.remove(); }   // stopped: the words stay whole
   }
 
   async function writeText(g, o) {
@@ -750,12 +800,23 @@
     if (o.halo) node.style.setProperty('--halo', o.halo);
     let bb = node.getBBox();
     // Too wide for the paper: shrink it to fit (never past the right margin).
-    const maxW = o.maxWidth || (UNITS - 24 - (o.align === 'center' ? 0 : Math.max(0, bb.x)));
-    if ((o.fit !== false || o.maxWidth) && bb.width > maxW + 1 && (bb.x >= 0 || o.maxWidth) && (o.fitTries || 0) < 3) {
+    const left = o.align !== 'center' && o.align !== 'right';
+    const maxW = o.maxWidth || (UNITS - 24 - (left ? Math.max(0, bb.x) : 0));
+    if ((o.fit !== false || o.maxWidth) && bb.width > maxW + 1 && (o.fitTries || 0) < 3) {
       // Math with sub- and superscripts doesn't shrink in proportion: check again after shrinking.
-      const k = Math.max(o.maxWidth ? .35 : .55, maxW / bb.width * (o.fitTries ? .97 : 1));
+      const k = Math.max(o.maxWidth || !left ? .35 : .55, maxW / bb.width * (o.fitTries ? .97 : 1));
       node.remove();
-      return writeText(g, { ...o, size: size * k, fit: false, maxWidth: o.maxWidth && isMath ? o.maxWidth : undefined, fitTries: (o.fitTries || 0) + 1 });
+      return writeText(g, { ...o, size: size * k, fit: o.maxWidth ? false : 'shrunk', maxWidth: o.maxWidth && isMath ? o.maxWidth : undefined, fitTries: (o.fitTries || 0) + 1 });
+    }
+    // Still over an edge (centered too close to it, or starting near the right): move it onto the paper.
+    if (o.fit !== false && !o.maxWidth) {
+      const dx = bb.x < 12 ? 12 - bb.x : bb.x + bb.width > UNITS - 12 ? Math.max(12 - bb.x, UNITS - 12 - bb.x - bb.width) : 0;
+      if (Math.abs(dx) > .5) {
+        o = { ...o, x: o.x + dx };
+        if (isMath) { node.remove(); node = drawMath(g, o.text || o.tex || '', o.x, o.y, size, color, o.align, o.bold); }
+        else node.setAttribute('x', o.x);
+        bb = node.getBBox();
+      }
     }
     if (o.free !== false) {
       const dy = freeShift({ x: bb.x, y: bb.y, w: bb.width, h: bb.height });
@@ -806,7 +867,10 @@
     const cx = (x1 + x2) / 2 - (y2 - y1) / len * bend, cy = (y1 + y2) / 2 + (x2 - x1) / len * bend;
     const col = theme(o.color) ? theme(o.color)[0] : legible(o.color || colorDefault);
     const wdt = o.width || 2.2;
-    if (parent === svg || !parent) grow(Math.max(y1, y2, cy) + 10);
+    if (parent === svg || !parent) {
+      grow(Math.max(y1, y2, cy) + 10);
+      for (let i = 0; i <= 24; i++) { const t = i / 24, u = 1 - t; strokes.push([u * u * x1 + 2 * u * t * cx + t * t * x2, u * u * y1 + 2 * u * t * cy + t * t * y2, o.id]); }
+    }
     const shaft = el('path', { d: `M${x1},${y1} Q${cx},${cy} ${x2},${y2}`, fill: 'none', stroke: col, 'stroke-width': wdt, 'stroke-linecap': 'round' }, g);
     await drawPath(shaft, toScreen);
     const a = Math.atan2(y2 - cy, x2 - cx), s = 13;
@@ -826,17 +890,24 @@
     const L = Math.hypot(tx, ty) || 1; tx /= L; ty /= L;
     let nx = -ty, ny = tx;                      // a normal; make it point up (or left for vertical arrows)
     if (ny > 0 || (Math.abs(ny) < .2 && nx > 0)) { nx = -nx; ny = -ny; }
-    const w = measure(label, size) + 6, h = size * 1.1;
-    const spot = side => {
+    const ink = inkBox(label, size), w = ink.w + 6, h = ink.h;
+    // Points along the arrow itself: a label must not sit on them (a curved arrow bulges toward one side).
+    const along = Array.from({ length: 25 }, (_, i) => {
+      const t = i / 24, u = 1 - t;
+      return [u * u * p0[0] + 2 * u * t * c[0] + t * t * p2[0], u * u * p0[1] + 2 * u * t * c[1] + t * t * p2[1]];
+    });
+    const spot = (side, far) => {
       // How far out the label's center must be so its box clears the line: half its extent along the normal.
-      const reach = Math.abs(nx) * w / 2 + Math.abs(ny) * h / 2 + 6;
+      const reach = (Math.abs(nx) * w / 2 + Math.abs(ny) * h / 2 + 6) * far;
       const cx = mx + side * nx * reach, cy = my + side * ny * reach;
-      return { x: cx - w / 2, y: cy - h / 2, w, h };
+      return { x: cx - w / 2, y: cy - h / 2, w, h, side, far };
     };
-    const cost = r => used.reduce((t, b) => t + overlap(r, b), 0) + (r.x < 4 || r.x + r.w > UNITS - 4 || r.y < 4 ? 1e6 : 0);
-    const a = spot(1), b = spot(-1), r = cost(b) < cost(a) * .6 ? b : a;
+    const cost = r => used.reduce((t, b) => t + overlap(r, b), 0)
+      + along.concat(strokes).filter(([px, py]) => px > r.x - 3 && px < r.x + r.w + 3 && py > r.y - 3 && py < r.y + r.h + 3).length * 1e4
+      + (r.x < 4 || r.x + r.w > UNITS - 4 || r.y < 4 ? 1e6 : 0) + (r.far - 1) * 60 + (r.side < 0 ? 40 : 0);
+    const r = [1, -1].flatMap(side => [1, 1.6, 2.3].map(far => spot(side, far))).reduce((best, q) => cost(q) < cost(best) ? q : best);
     claim(r, id);
-    await writeText(g, { x: r.x + r.w / 2, y: r.y + r.h / 2 + size * .33, text: label, size, align: 'center', color: 'gray', free: false, fit: false });
+    await writeText(g, { x: r.x + r.w / 2, y: r.y + ink.up, text: label, size, align: 'center', color: 'gray', free: false, fit: false });
   }
 
   async function line(o) {
@@ -844,6 +915,7 @@
     const pts = o.points || [];
     if (pts.length < 2) return;
     grow(Math.max(...pts.map(p => p[1])) + 10);
+    for (const q of densify(pts)) strokes.push([q[0], q[1], o.id]);
     const col = theme(o.color) ? theme(o.color)[0] : legible(o.color);
     const p = el('path', {
       d: pts.map((q, i) => (i ? 'L' : 'M') + q[0] + ',' + q[1]).join(' '), fill: 'none', stroke: col,
@@ -897,8 +969,12 @@
   // ---------- graphs: axes, curves and points ----------
   /** A function of x from text like "x^2 - 2x + 1", "sin(x)", "2^x", "sqrt(x)/2" (no code is run, only this math). */
   function compileFn(src) {
-    const s = String(src).replace(/\s+/g, '').replace(/\*\*/g, '^').replace(/·|×/g, '*').replace(/−/g, '-').replace(/^y=|^f\(x\)=/, '');
+    const s = String(src).replace(/\s+/g, '').replace(/\*\*/g, '^').replace(/·|×/g, '*').replace(/−/g, '-').replace(/²/g, '^2').replace(/³/g, '^3')
+      .replace(/^(y|[a-zA-Z]\([a-zθ]\))=/, '');
     let i = 0;
+    // A function of t or n (decay over time, a sequence) is drawn the same way when there's no x in it.
+    const letters = s.toLowerCase().replace(/asin|acos|atan|sqrt|sign|round|floor|exp|max|min|sin|cos|tan|abs|log|ln|pi/g, '');
+    const alias = /x/.test(letters) ? 'x' : (['t', 'n', 'θ'].find(v => letters.includes(v)) || 'x');
     const F = { sin: Math.sin, cos: Math.cos, tan: Math.tan, exp: Math.exp, ln: Math.log, log: Math.log10, sqrt: Math.sqrt, abs: Math.abs,
       asin: Math.asin, acos: Math.acos, atan: Math.atan, floor: Math.floor, round: Math.round, sign: Math.sign };
     const C = { pi: Math.PI, e: Math.E, 'π': Math.PI };
@@ -907,7 +983,7 @@
       let f = unary();
       for (;;) {
         if (s[i] === '*' || s[i] === '/') { const op = s[i++], a = f, b = unary(); f = op === '*' ? x => a(x) * b(x) : x => a(x) / b(x); }
-        else if (i < s.length && /[0-9a-zπ.(]/i.test(s[i])) { const a = f, b = power(); f = x => a(x) * b(x); }   // 2x, 3(x+1), x sin(x)
+        else if (i < s.length && /[0-9a-zπθ.(]/i.test(s[i])) { const a = f, b = power(); f = x => a(x) * b(x); }   // 2x, 3(x+1), x sin(x)
         else return f;
       }
     }
@@ -917,9 +993,17 @@
       const c = s[i];
       if (c === '(') { i++; const f = expr(); if (s[i] === ')') i++; return f; }
       if (/[0-9.]/.test(c)) { let n = ''; while (/[0-9.]/.test(s[i] || '')) n += s[i++]; const v = parseFloat(n); return () => v; }
-      if (c === 'x' && !/[a-z]/i.test(s[i + 1] || '')) { i++; return x => x; }
+      if (c === '|') { i++; const f = expr(); if (s[i] === '|') i++; return x => Math.abs(f(x)); }   // |x|
+      if ((c === 'x' || c === alias) && !/[a-z]/i.test(s[i + 1] || '')) { i++; return x => x; }
       let name = '';
-      while (/[a-zπ]/i.test(s[i] || '')) name += s[i++];
+      while (/[a-zπθ]/i.test(s[i] || '')) name += s[i++];
+      // A function or constant run into what follows ("sinx", "sqrtx", "pix"): take the longest name that fits.
+      if (!F[name.toLowerCase()] && !(name.toLowerCase() in C)) {
+        for (let L = name.length - 1; L >= 2; L--) {
+          const p = name.slice(0, L).toLowerCase();
+          if (F[p] || p in C) { i -= name.length - L; name = name.slice(0, L); break; }
+        }
+      }
       if (F[name.toLowerCase()]) { const fn = F[name.toLowerCase()], a = s[i] === '(' ? atom() : power(); return x => fn(a(x)); }
       if (name.toLowerCase() in C) { const v = C[name.toLowerCase()]; return () => v; }
       if (name === 'x') return x => x;
@@ -927,7 +1011,7 @@
       if (name) { i -= name.length - 1; return atomOf(name[0]); }
       throw new Error('bad expression at ' + i);
     }
-    const atomOf = ch => ch === 'x' ? (x => x) : ch in C ? (() => C[ch]) : (() => { throw new Error('unknown ' + ch); });
+    const atomOf = ch => ch === 'x' || ch === alias ? (x => x) : ch in C ? (() => C[ch]) : (() => { throw new Error('unknown ' + ch); });
     const f = expr();
     if (i < s.length) throw new Error('bad expression at ' + i);
     return f;
@@ -993,26 +1077,63 @@
 
   const graphs = {};
   /** A nice tick step for a range: 1, 2 or 5 × a power of ten, about 4–8 ticks. */
+  /** [lo, hi] with lo < hi, whatever the model wrote ([5, 1] is turned round, [2, 2] widened). */
+  function range(r, d) {
+    if (!r) return d;
+    let [a, b] = r;
+    if (a > b) [a, b] = [b, a];
+    if (a === b) { a -= 1; b += 1; }
+    return [a, b];
+  }
+  /** The tick step the teacher asked for, unless it would draw a forest of ticks (or never end). */
+  const tickStep = (given, span) => given > 0 && span / given <= 24 ? given : niceStep(span);
   function niceStep(span) { const raw = span / 5, p = Math.pow(10, Math.floor(Math.log10(raw))), m = raw / p; return (m < 1.5 ? 1 : m < 3.5 ? 2 : m < 7.5 ? 5 : 10) * p; }
-  const fmtTick = v => { const r = Math.round(v * 1000) / 1000; return (r < 0 ? '−' : '') + Math.abs(r); };
+  const fmtTick = v => {
+    const a = Math.abs(v), r = x => Math.round(x * 1000) / 1000;
+    const s = a >= 1e9 ? r(a / 1e9) + 'B' : a >= 1e6 ? r(a / 1e6) + 'M' : a >= 1e4 ? r(a / 1e3) + 'k' : String(r(a));
+    return (v < 0 && s !== '0' ? '−' : '') + s;
+  };
+
+  /** How category names fit under a graph: as big as fits in each one's slot, else tilted (depth: room below the graph). */
+  function catLayout(cats, x, w) {
+    const slot = w / cats.length, widest = sz => Math.max(0, ...cats.map(c => measure(c, sz)));
+    let size = 17;
+    if (widest(17) > slot - 8) size = Math.max(12, 17 * (slot - 8) / widest(17));
+    if (widest(size) <= slot - 4) return { size, tilt: 0, depth: 30 };
+    // Tilted 35°: each name ends under its tick and runs down to the left (the first must stay on the paper).
+    const cos = Math.cos(TILT), sin = Math.sin(TILT);
+    size = 15;
+    const w0 = measure(cats[0], size), room0 = x + slot / 2 - 4;
+    if (w0 * cos > room0) size = Math.max(10, size * room0 / (w0 * cos));
+    return { size, tilt: 1, depth: widest(size) * sin + size + 16 };
+  }
+  const TILT = 35 * Math.PI / 180;
 
   async function graph(o) {
     const g = group(o);
     const x = o.x ?? 60, w = Math.min(o.w || 320, UNITS - 20 - x), h = o.h || 220;
-    const xr = o.xrange || o.x_range || [-5, 5], yr = o.yrange || o.y_range || [-5, 5];
-    const y = o.y + freeShift({ x: x - 30, y: o.y - 14, w: w + 50, h: h + 44 });
-    claim({ x: x - 30, y: y - 14, w: w + 50, h: h + 44 }, o.id);
-    grow(y + h + 34);
+    // Categories (labs, countries, months…): one slot each along x, named under the axis, no numbers.
+    const catList = o.categories || o.cats;
+    const cats = Array.isArray(catList) && catList.length ? catList.map(c => String(c ?? '').trim()) : null;
+    const xr = cats ? [-.5, cats.length - .5] : range(o.xrange || o.x_range, [-5, 5]);
+    const yr = range(o.yrange || o.y_range, cats ? [0, 10] : [-5, 5]);
+    const names = cats ? catLayout(cats, x, w) : null;
+    // An x label goes at the end of the axis, or under the graph when there's no room there (or names are there).
+    const xlabUnder = !!o.xlabel && (!!cats || x + w + 14 + measure(o.xlabel, 20) > UNITS - 8);
+    const under = Math.max(34, names ? names.depth : 0) + (xlabUnder ? 30 : 0);
+    const y = o.y + freeShift({ x: x - 30, y: o.y - 14, w: w + 50, h: h + 10 + under });
+    claim({ x: x - 30, y: y - 14, w: w + 50, h: h + 10 + under }, o.id, { x, y, w, h });
+    grow(y + h + under);
     const X = v => x + (v - xr[0]) / (xr[1] - xr[0]) * w, Y = v => y + h - (v - yr[0]) / (yr[1] - yr[0]) * h;
-    graphs[o.id || '_'] = { X, Y, xr, yr, x, y, w, h, g, id: o.id };
+    graphs[o.id || '_'] = { X, Y, xr, yr, x, y, w, h, g, id: o.id, cats };
     graphs._last = graphs[o.id || '_'];
     const col = MUTED;
-    // Axes cross at 0 when 0 is in range, otherwise sit on the edge.
-    const ax = Math.max(xr[0], Math.min(xr[1], 0)), ay = Math.max(yr[0], Math.min(yr[1], 0));
+    // Axes cross at 0 when 0 is in range, otherwise sit on the edge (with categories, the y axis is on the left).
+    const ax = cats ? xr[0] : Math.max(xr[0], Math.min(xr[1], 0)), ay = Math.max(yr[0], Math.min(yr[1], 0));
     if (o.grid) {
-      const sx = niceStep(xr[1] - xr[0]), sy = niceStep(yr[1] - yr[0]);
+      const sx = tickStep(o.xstep, xr[1] - xr[0]), sy = tickStep(o.ystep, yr[1] - yr[0]);
       let d = '';
-      for (let v = Math.ceil(xr[0] / sx) * sx; v <= xr[1] + 1e-9; v += sx) d += `M${X(v)},${y} L${X(v)},${y + h} `;
+      if (!cats) for (let v = Math.ceil(xr[0] / sx) * sx; v <= xr[1] + 1e-9; v += sx) d += `M${X(v)},${y} L${X(v)},${y + h} `;
       for (let v = Math.ceil(yr[0] / sy) * sy; v <= yr[1] + 1e-9; v += sy) d += `M${x},${Y(v)} L${x + w},${Y(v)} `;
       el('path', { d, stroke: look.grid, 'stroke-width': 1, fill: 'none' }, g).animate([{ opacity: 0 }, { opacity: 1 }], { duration: 300, fill: 'forwards' });
     }
@@ -1020,10 +1141,10 @@
     await drawPath(axis(`M${x - 6},${Y(ay)} L${x + w + 8},${Y(ay) + jit(.8)} M${x + w},${Y(ay) - 5} L${x + w + 8},${Y(ay)} L${x + w},${Y(ay) + 5}`), onScreen, 1600);
     await drawPath(axis(`M${X(ax)},${y + h + 6} L${X(ax) + jit(.8)},${y - 8} M${X(ax) - 5},${y} L${X(ax)},${y - 8} L${X(ax) + 5},${y}`), onScreen, 1600);
     if (o.ticks !== false) {
-      const sx = o.xstep || niceStep(xr[1] - xr[0]), sy = o.ystep || niceStep(yr[1] - yr[0]);
+      const sx = tickStep(o.xstep, xr[1] - xr[0]), sy = tickStep(o.ystep, yr[1] - yr[0]);
       const tg = el('g', {}, g);
       let d = '';
-      for (let v = Math.ceil(xr[0] / sx) * sx; v <= xr[1] + 1e-9; v += sx) {
+      if (!cats) for (let v = Math.ceil(xr[0] / sx) * sx; v <= xr[1] + 1e-9; v += sx) {
         if (Math.abs(v - ax) < sx / 2 && ax !== xr[0]) continue;
         d += `M${X(v)},${Y(ay) - 4} L${X(v)},${Y(ay) + 4} `;
         const t = el('text', { x: X(v), y: Math.min(y + h + 26, Y(ay) + 21), 'font-size': 14, fill: col, 'text-anchor': 'middle' }, tg); t.textContent = fmtTick(v);
@@ -1036,19 +1157,64 @@
       el('path', { d, stroke: col, 'stroke-width': 1.6, fill: 'none', 'stroke-linecap': 'round' }, tg);
       tg.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 350, fill: 'forwards' });
     }
-    if (o.xlabel) await writeText(g, { x: x + w + 14, y: Y(ay) + 6, text: o.xlabel, size: 20, color: 'gray', free: false, fit: false });
-    if (o.ylabel) await writeText(g, { x: X(ax) + 10, y: y - 6, text: o.ylabel, size: 20, color: 'gray', free: false, fit: false });
+    if (cats) {
+      const ng = el('g', { class: 'cats' }, g);
+      let d = '';
+      cats.forEach((c, i) => {
+        d += `M${X(i)},${Y(ay) - 4} L${X(i)},${Y(ay) + 4} `;
+        const tx = names.tilt ? X(i) + 4 : X(i), ty = names.tilt ? y + h + 16 : y + h + 22;
+        const t = el('text', { x: tx, y: ty, 'font-size': names.size, fill: INK, 'text-anchor': names.tilt ? 'end' : 'middle',
+          transform: names.tilt ? `rotate(-35 ${tx} ${ty})` : undefined }, ng);
+        t.textContent = c;
+      });
+      el('path', { d, stroke: col, 'stroke-width': 1.6, fill: 'none', 'stroke-linecap': 'round' }, ng);
+      ng.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 350, fill: 'forwards' });
+    }
+    if (o.xlabel && xlabUnder) await writeText(g, { x: x + w / 2, y: y + h + under - 8, text: o.xlabel, size: 20, color: 'gray', align: 'center', free: false, fit: false });
+    else if (o.xlabel) await writeText(g, { x: x + w + 14, y: Y(ay) + 6, text: o.xlabel, size: 20, color: 'gray', free: false, fit: false });
+    if (o.ylabel) graphs._last.ylab = await writeText(g, { x: X(ax) + 10, y: y - 6, text: o.ylabel, size: 20, color: 'gray', free: false, fit: false });
   }
 
-  /** A curve on a graph: "fn" (a function of x) or "points" (data, joined). */
+  /** An x on graph gr: a number, or a category's name ("Meta", or its start "Anthro"). */
+  function xOf(gr, v) {
+    if (gr.cats && typeof v === 'string' && !isFinite(+v)) {
+      const k = v.trim().toLowerCase();
+      let i = gr.cats.findIndex(c => c.toLowerCase() === k);
+      if (i < 0 && k) i = gr.cats.findIndex(c => c.toLowerCase().startsWith(k) || k.startsWith(c.toLowerCase()));
+      return i < 0 ? NaN : i;
+    }
+    return num(v) ?? NaN;
+  }
+  /** An op's data as [x, y] pairs: "values" (one y per category, in order; on a plain graph x = 1, 2, 3…) or "points". */
+  function dataOf(o, gr) {
+    if (Array.isArray(o.values)) return o.values.map((v, i) => [gr.cats ? i : i + 1, num(v) ?? NaN]);
+    if (Array.isArray(o.points)) return o.points.filter(Array.isArray).map(p => [xOf(gr, p[0]), num(p[1]) ?? NaN]).filter(([xv]) => isFinite(xv));
+    return [];
+  }
+  /** Points every few units along a polyline (labels check what they'd cover against these). */
+  function densify(seg) {
+    const out = [];
+    for (let k = 0; k < seg.length; k++) {
+      out.push(seg[k]);
+      if (k + 1 < seg.length) {
+        const [ax, ay] = seg[k], [bx, by] = seg[k + 1], n = Math.min(60, Math.floor(Math.hypot(bx - ax, by - ay) / 6));
+        for (let j = 1; j < n; j++) out.push([ax + (bx - ax) * j / n, ay + (by - ay) * j / n]);
+      }
+    }
+    return out;
+  }
+
+  /** A curve on a graph: "fn" (a function of x), or data ("points" or "values"), joined. */
   async function plot(o) {
     const gr = graphs[o.graph] || graphs._last;
     if (!gr) return;
     const g = group(o, gr.g.parentNode === svg ? svg : svg);
     const col = theme(o.color) ? theme(o.color)[0] : (o.color ? legible(o.color) : THEME.blue[0]);
     let pts = [];
-    const from = (o.from ?? gr.xr[0]), to = (o.to ?? gr.xr[1]);
-    if (Array.isArray(o.points)) pts = o.points.map(p => [+p[0], +p[1]]);
+    const from = Math.max(gr.xr[0], o.from ?? gr.xr[0]), to = Math.min(gr.xr[1], o.to ?? gr.xr[1]);
+    const xspan = gr.xr[1] - gr.xr[0];
+    if (Array.isArray(o.points) || Array.isArray(o.values)) pts = dataOf(o, gr)
+      .filter(([xv]) => xv >= gr.xr[0] - xspan * .02 && xv <= gr.xr[1] + xspan * .02);
     else if (o.fn) {
       let f; try { f = compileFn(o.fn); } catch (e) { return; }
       const n = 160;
@@ -1062,7 +1228,7 @@
       cur.push([gr.X(xv), gr.Y(yv)]);
     }
     if (cur.length > 1) segs.push(cur);
-    gr.pts = (gr.pts || []).concat(...segs);
+    gr.pts = (gr.pts || []).concat(...segs.map(densify));
     for (const seg of segs) {
       const p = el('path', { d: seg.map((q, k) => (k ? 'L' : 'M') + q[0].toFixed(1) + ',' + q[1].toFixed(1)).join(' '), fill: 'none', stroke: col,
         'stroke-width': o.width || 2.8, 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'stroke-dasharray': o.dashed ? '7 7' : undefined }, g);
@@ -1082,29 +1248,71 @@
   async function point(o) {
     const gr = graphs[o.graph] || graphs._last;
     if (!gr || !Array.isArray(o.at)) return;
+    const ax = xOf(gr, o.at[0]), ay = num(o.at[1]) ?? NaN, sx = (gr.xr[1] - gr.xr[0]) * .02, sy = (gr.yr[1] - gr.yr[0]) * .02;
+    if (!(ax >= gr.xr[0] - sx && ax <= gr.xr[1] + sx && ay >= gr.yr[0] - sy && ay <= gr.yr[1] + sy)) return;   // off the graph
     const g = group(o);
     const [stroke] = theme(o.color) || THEME.red;
-    const px = gr.X(+o.at[0]), py = gr.Y(+o.at[1]);
+    const px = gr.X(ax), py = gr.Y(ay);
     if (o.guides) {
       const d = `M${px},${py} L${px},${gr.Y(Math.max(gr.yr[0], Math.min(gr.yr[1], 0)))} M${px},${py} L${gr.X(Math.max(gr.xr[0], Math.min(gr.xr[1], 0)))},${py}`;
       el('path', { d, stroke: stroke, 'stroke-width': 1.6, 'stroke-dasharray': '5 6', fill: 'none', opacity: .7 }, g);
     }
-    const p = el('path', { d: circlePath(px, py, 5), fill: stroke, stroke, 'stroke-width': 2 }, g);
+    const p = el('path', { d: circlePath(px, py, 5), fill: stroke, stroke, 'stroke-width': 2, 'data-core': 1 }, g);
     await drawPath(p, onScreen, 300);
     if (o.label) {
       // Of the four corners around the dot, the one that covers the least of the curves and other labels.
       const size = 18, lw = measure(o.label, size), lh = size;
-      const spots = [[px + 10, py - 10], [px - 10 - lw, py - 10], [px + 10, py + 10 + lh * .8], [px - 10 - lw, py + 10 + lh * .8]];
+      const spots = [[px + 10, py - 10], [px - 10 - lw, py - 10], [px + 10, py + 10 + lh * .8], [px - 10 - lw, py + 10 + lh * .8],
+        [px - lw / 2, py - 14], [px - lw / 2, py + 14 + lh * .8], [px + 12, py + lh * .3], [px - 12 - lw, py + lh * .3]];
       const cost = ([x, y]) => {
         const r = { x: x - 2, y: y - lh * .8, w: lw + 4, h: lh };
         let c = (gr.pts || []).filter(([qx, qy]) => qx > r.x && qx < r.x + r.w && qy > r.y && qy < r.y + r.h).length * 40;
         c += used.reduce((t, b) => t + (b.id === gr.id ? 0 : overlap(r, b)), 0);
         if (r.x < 4 || r.x + r.w > UNITS - 4) c += 1e6;
+        if (r.x < gr.x + 2 || r.y + r.h > gr.y + gr.h - 2) c += 5000;   // over the axes and their numbers
         return c;
       };
       const [x, y] = spots.reduce((best, sp) => cost(sp) < cost(best) ? sp : best);
       await writeText(g, { x, y, text: o.label, size, color: o.color || 'red', free: false, fit: false, math: o.math });
+      if (g.lastElementChild) g.lastElementChild.setAttribute('data-core', 1);
       claim({ x, y: y - lh * .8, w: lw, h: lh }, o.id);
+    }
+  }
+
+  /** Bars on a graph, one per value: "values" (one per category) or "points"; "labels": true writes each value
+      above its bar, or a list gives the words ("5 GW"). */
+  async function bars(o) {
+    const gr = graphs[o.graph] || graphs._last;
+    if (!gr) return;
+    // Values like [0, 0, 340, 0] add or recolor one bar: those zeros are placeholders, not bars of zero.
+    const all = dataOf(o, gr), mixed = all.some(d => d[1] === 0) && all.some(d => d[1] !== 0 && isFinite(d[1]));
+    const said = i => Array.isArray(o.labels) && o.labels[i] != null && o.labels[i] !== '';
+    const data = all.map((d, i) => [...d, i]).filter(([xv, yv, i]) => isFinite(yv) && xv >= gr.xr[0] && xv <= gr.xr[1] && !(mixed && yv === 0 && !said(i)));
+    if (!data.length) return;
+    const g = group(o);
+    const [stroke, fill] = theme(o.color) || THEME.blue;
+    const unit = gr.w / (gr.xr[1] - gr.xr[0]), xs = data.map(d => d[0]).sort((a, b) => a - b);
+    const gap = gr.cats ? 1 : Math.min(gr.xr[1] - gr.xr[0], ...xs.slice(1).map((v, i) => v - xs[i]).filter(v => v > 0));
+    const bw = Math.max(6, Math.min(90, gap * unit * .62));
+    const base = Math.max(gr.yr[0], Math.min(gr.yr[1], 0)), yb = gr.Y(base);
+    for (const [xv, yv, i] of data) {
+      const cx = gr.X(xv), yt = gr.Y(Math.max(gr.yr[0], Math.min(gr.yr[1], yv)));
+      const bg = el('rect', { x: cx - bw / 2, y: Math.min(yt, yb), width: bw, height: Math.max(1.5, Math.abs(yb - yt)), fill, opacity: 0 }, g);
+      const p = el('path', { d: `M${cx - bw / 2},${yb} L${cx - bw / 2 + jit(.6)},${yt} L${cx + bw / 2 + jit(.6)},${yt} L${cx + bw / 2},${yb}`,
+        fill: 'none', stroke, 'stroke-width': 2.2, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }, g);
+      gr.pts = (gr.pts || []).concat(densify([[cx - bw / 2, yb], [cx - bw / 2, yt], [cx + bw / 2, yt], [cx + bw / 2, yb]]));
+      await drawPath(p, onScreen, 1800);
+      bg.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 200, fill: 'forwards' });
+      const txt = Array.isArray(o.labels) ? o.labels[i] : o.labels === true ? String(Math.round(yv * 1000) / 1000) : null;
+      if (txt != null && txt !== '') {
+        // Above the bar (below it for a negative one); inside its top when that would leave the graph (or meet its y label).
+        const up = yv >= base, outside = up ? yt - 7 : yt + 20, inside = up ? yt + 20 : yt - 7, lw = measure(String(txt), 16);
+        const yl = gr.ylab, meetsLabel = yl && cx + lw / 2 > yl.x && cx - lw / 2 < yl.x + yl.width && outside - 16 < yl.y + yl.height && outside > yl.y;
+        const ly = (meetsLabel || (up ? outside - 16 < gr.y - 12 : outside > gr.y + gr.h + 10)) && Math.abs(yb - yt) > 30 ? inside : outside;
+        const bb = await writeText(g, { x: cx, y: ly, text: String(txt), size: 16, align: 'center', color: o.color || 'blue',
+          free: false, fit: false, maxWidth: Math.max(28, gap * unit - 4) });
+        if (bb) claim({ x: bb.x, y: bb.y, w: bb.width, h: bb.height }, o.id);   // a point's label keeps off it
+      }
     }
   }
 
@@ -1112,14 +1320,26 @@
   async function mark(o) {
     const target = items[o.target];
     if (!target) return;
-    const bb = target.getBBox();
+    // A point is circled round its dot and label (its group also holds the dashed guides down to the axes).
+    const cores = [...target.querySelectorAll(':scope > [data-core]')].map(n => n.getBBox());
+    const bb = cores.length ? cores.reduce((a, b) => {
+      const x = Math.min(a.x, b.x), y = Math.min(a.y, b.y);
+      return { x, y, width: Math.max(a.x + a.width, b.x + b.width) - x, height: Math.max(a.y + a.height, b.y + b.height) - y };
+    }) : target.getBBox();
     const g = group(o);
     let d;
     if (o.style === 'underline') d = `M${bb.x - 4},${bb.y + bb.height + 6} Q${bb.x + bb.width / 2},${bb.y + bb.height + 8} ${bb.x + bb.width + 4},${bb.y + bb.height + 5}`;
     else {
-      const cx = bb.x + bb.width / 2, cy = bb.y + bb.height / 2, rx = bb.width / 2 + 14, ry = bb.height / 2 + 12;
-      const a0 = Math.random() * 6.28; d = '';
-      for (let i = 0; i <= 50; i++) { const a = a0 + Math.PI * 2 * 1.06 * i / 50; d += (i ? 'L' : 'M') + (cx + Math.cos(a) * rx).toFixed(1) + ',' + (cy + Math.sin(a) * ry).toFixed(1); }
+      // A loop around it that clears its corners: an ellipse for squarish things, squarer for wide ones
+      // (a plain ellipse round a wide box cut through all four corners).
+      const cx = bb.x + bb.width / 2, cy = bb.y + bb.height / 2, hw = bb.width / 2, hh = bb.height / 2;
+      const aspect = hw / Math.max(1, hh), p = aspect < 1.6 ? 2 : aspect < 4 ? 4 : 6;
+      let rx = hw + 14, ry = hh + 12;
+      const k = Math.pow(Math.pow(hw / rx, p) + Math.pow(hh / ry, p), 1 / p);
+      if (k > .97) { rx *= k / .97; ry *= k / .97; }
+      const a0 = Math.random() * 6.28, e = 2 / p, sp = v => Math.sign(v) * Math.pow(Math.abs(v), e);
+      d = '';
+      for (let i = 0; i <= 60; i++) { const a = a0 + Math.PI * 2 * 1.06 * i / 60; d += (i ? 'L' : 'M') + (cx + sp(Math.cos(a)) * rx).toFixed(1) + ',' + (cy + sp(Math.sin(a)) * ry).toFixed(1); }
     }
     const p = el('path', { d, fill: 'none', stroke: look.pen, 'stroke-width': 3, 'stroke-linecap': 'round', opacity: .9 }, g);
     await drawPath(p, onScreen, 800);
@@ -1166,8 +1386,9 @@
     if (o.all) {
       // Also what was drawn without an id.
       [...svg.children].forEach(ch => { if (ch.tagName !== 'defs') { ch.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 250, fill: 'forwards' }); setTimeout(() => ch.remove(), 260); } });
-      used = [];
+      used = []; strokes = [];
     }
+    strokes = strokes.filter(q => !ids.includes(q[2]));
     await wait(.28);
     const left = o.all ? 0 : fit();
     contentBottom = Math.max(0, left);
@@ -1177,8 +1398,47 @@
     label();
   }
 
+  // ---------- ops as the model writes them: numbers as strings, missing fields ----------
+  const num = v => typeof v === 'number' ? (isFinite(v) ? v : undefined)
+    : (typeof v === 'string' && v.trim() !== '' && isFinite(+v) ? +v : undefined);
+  const pair = v => Array.isArray(v) && v.length >= 2 && num(v[0]) != null && num(v[1]) != null ? [num(v[0]), num(v[1])] : undefined;
+  /** Where something with no y goes: under what's drawn. */
+  const below = () => (contentBottom ? contentBottom + 30 : 40);
+  /** The op with its numbers as numbers and what it can't do without filled in, or null when it can't be drawn. */
+  function clean(o) {
+    const c = { ...o };
+    const nums = ['x', 'y', 'w', 'h', 'r', 'size', 'n', 's', 'curve', 'width', 'xstep', 'ystep'].concat(c.op === 'plot' ? ['from', 'to'] : []);
+    for (const key of nums) if (key in c) { const v = num(c[key]); if (v == null) delete c[key]; else c[key] = v; }
+    if (c.op !== 'plot') for (const key of ['from', 'to']) if (key in c) c[key] = pair(c[key]);
+    for (const key of ['xrange', 'yrange', 'x_range', 'y_range']) if (key in c) c[key] = pair(c[key]);
+    if (Array.isArray(c.at)) c.at = c.at.map(v => num(v) ?? v);   // a category's name stays a name
+    if (Array.isArray(c.points) && c.op !== 'plot' && c.op !== 'bars' && c.op !== 'bar') c.points = c.points.map(pair).filter(Boolean);
+    for (const key of ['text', 'tex', 'label', 'id', 'target', 'graph', 'table']) if (c[key] != null && typeof c[key] !== 'string') c[key] = String(c[key]);
+    if (typeof c.ids === 'string') c.ids = [c.ids];
+    switch (c.op) {
+      case 'text': case 'math':
+        if (!c.text && !c.tex) return null;
+        if (c.x == null) c.x = c.align === 'center' ? UNITS / 2 : 40;
+        if (c.y == null) c.y = below() + (c.size || 22);
+        break;
+      case 'box':
+        if (c.x == null) c.x = 40;
+        if (c.y == null) c.y = below();
+        if (c.h == null) c.h = 64;
+        if (c.w == null) c.w = Math.max(120, Math.min(UNITS - 40 - c.x, (c.text ? measure(c.text, c.size || 26) : 0) + 40));
+        break;
+      case 'graph': case 'axes': case 'table': if (c.y == null) c.y = below() + 14; break;
+      case 'arrow': if (!c.from || !c.to) return null; break;
+      case 'line': if (!c.points || c.points.length < 2) return null; break;
+      case 'dot': case 'circle': case 'check': case 'number': if (c.x == null || c.y == null) return null; break;
+    }
+    return c;
+  }
+
   async function doOp(o, k) {
     if (!paper || !paper.isConnected) return;
+    o = clean(o);
+    if (!o) return;
     if (['text', 'math', 'graph', 'axes', 'table', 'box', 'arrow', 'line', 'dot', 'circle', 'check', 'number'].includes(o.op)) {
       const t = opTop(o);
       if (toTop && t != null) { yShift = t > 80 ? 40 - t : 0; toTop = false; }
@@ -1193,6 +1453,7 @@
       case 'row': case 'rows': return addRows(o);
       case 'plot': return plot(o);
       case 'point': return point(o);
+      case 'bars': case 'bar': return bars(o);
       case 'box': return box(o);
       case 'arrow': return arrow(o, svg, onScreen);
       case 'line': return line(o);
@@ -1214,24 +1475,15 @@
     }
   }
 
-  // ---------- following the voice: the step being spoken is in focus; click a past step to see it again ----------
-  let stepNo = 0, curStep = 0, unfocusTimer = null, replaying = 0;
-  /** Dims everything but step n and what it refers to (marks, rows, curves on earlier drawings). n = 0: all in focus. */
-  function focusStep(n, refs) {
-    if (!svg) return;
-    clearTimeout(unfocusTimer);
-    for (const g of svg.querySelectorAll(':scope > g[data-step]')) {
-      const on = !n || +g.dataset.step === n || (refs && refs.has(g.dataset.id));
-      g.classList.toggle('past', !on);
-    }
-  }
-  const refsOf = ops => new Set(ops.flatMap(o => [o.target, o.table, o.graph]).filter(Boolean));
-  /** Draws a past step again (its strokes and words, in order), with the rest dimmed. */
+  // ---------- steps: each lessonStep is numbered; click a past step to see it drawn again ----------
+  // Nothing already drawn ever fades while something else is drawn or replayed (dimming the rest confused people).
+  let stepNo = 0, curStep = 0, replaying = 0, replayBusy = false;
+  /** Draws a past step again (its strokes and words, in order); everything else stays as it is. */
   async function replayStep(n) {
-    if (running || !svg) return;
+    if (running || replayBusy || !svg) return;
     const my = ++replaying, groups = [...svg.querySelectorAll(`:scope > g[data-step="${n}"]`)];
     if (!groups.length) return;
-    focusStep(n);
+    replayBusy = true;
     X.post({ kind: 'lessonReplay', step: n });
     const pieces = [];
     for (const g of groups) {
@@ -1244,49 +1496,63 @@
       })(g);
     }
     // Hide what's coming, then ink it back in.
-    for (const p of pieces) p.style.opacity = 0;
-    for (const p of pieces) {
-      if (running || my !== replaying) { p.style.opacity = ''; continue; }
-      p.style.opacity = '';
-      if (p.tagName === 'path') await drawPath(p, onScreen, 1500);
-      else {
-        const bb = p.getBBox(), size = +(p.getAttribute('font-size') || (p.querySelector('text') || p).getAttribute('font-size') || 22);
-        await reveal(p, bb, size, bb.y + bb.height * .7);
+    try {
+      for (const p of pieces) p.style.opacity = 0;
+      for (const p of pieces) {
+        p.style.opacity = '';
+        if (running || my !== replaying) continue;
+        if (p.tagName === 'path') await drawPath(p, onScreen, 1500);
+        else {
+          const bb = p.getBBox(), size = +(p.getAttribute('font-size') || (p.querySelector('text') || p).getAttribute('font-size') || 22);
+          await reveal(p, bb, size, bb.y + bb.height * .7);
+        }
       }
+    } catch (e) {   // a new step, a new lesson or an interrupt: everything shows at once
+    } finally {
+      for (const p of pieces) p.style.opacity = '';
+      replayBusy = false;
     }
-    for (const p of pieces) p.style.opacity = '';
-    if (my === replaying && !running) { unfocusTimer = setTimeout(() => focusStep(0), 1800); penHide = setTimeout(() => { pen.style.opacity = 0; }, 1500); }
+    if (my === replaying && !running) penHide = setTimeout(() => { pen.style.opacity = 0; }, 1500);
   }
 
   async function run() {
     if (running) return;
     running = true;
-    replaying++;   // a new step stops a replay
+    if (replayBusy) token++;   // a new step stops a replay at once
+    replaying++;
     const my = token;
-    while (queue.length && my === token) {
-      const { ops, k } = queue.shift();
-      pace = 1 + .7 * queue.length;
-      curStep = ++stepNo;
-      if (stepNo > 1) focusStep(curStep, refsOf(ops));
-      for (const o of ops) {
-        if (my !== token) break;
-        try { await doOp(o, k); } catch (e) {}
+    try {
+      while (queue.length && my === token) {
+        const { ops, k } = queue.shift();
+        pace = 1 + .7 * queue.length;
+        curStep = ++stepNo;
+        for (const o of ops) {
+          if (my !== token) break;
+          try { await doOp(o, k); } catch (e) {}   // a bad op never stops the rest
+        }
+      }
+    } finally {
+      if (my === token) {
+        running = false;
+        penHide = setTimeout(() => { pen.style.opacity = 0; }, 2500);
+        keepPage(paper);
+        X.report();
       }
     }
-    if (my === token) {
-      running = false;
-      penHide = setTimeout(() => { pen.style.opacity = 0; }, 2500);
-      // Everything comes back into focus when the drawing has been still for a while (the lesson is over).
-      unfocusTimer = setTimeout(() => focusStep(0), 4500);
-      keepPage(paper);
-      X.report();
-    }
+  }
+  /** What a step's ops can arrive as: a list, one op on its own, lists inside the list, junk mixed in. */
+  function opsOf(spec) {
+    const raw = spec && spec.ops !== undefined ? spec.ops : spec;
+    const list = Array.isArray(raw) ? raw.flat(2) : [raw];
+    return list.filter(o => o && typeof o === 'object' && !Array.isArray(o) && typeof o.op === 'string');
   }
 
   SB.lessonBegin = (f, title, continuing) => {
     token++;
     queue = [];
     running = false;
+    // An op cut off by this lesson leaves the pen where it was: hide it unless the new lesson picks it up.
+    clearTimeout(penHide); penHide = setTimeout(() => { pen.style.opacity = 0; }, 2500);
     // A follow-up keeps drawing below what's on the current paper.
     if (continuing && paper && paper.isConnected) { X.report(); return; }
     const old = paper && paper.isConnected ? paper : null;
@@ -1295,7 +1561,7 @@
   };
   SB.lessonStep = (spec, k) => {
     if (!paper || !paper.isConnected) return;
-    queue.push({ ops: (spec && spec.ops) || [], k: k || 1 });
+    queue.push({ ops: opsOf(spec), k: +k > 0 ? +k : 1 });
     run();
   };
   /** The app moves the open paper off what the next question is about (same width); one you dragged stays. */
@@ -1310,7 +1576,7 @@
   };
   /** Still drawing (for tests and tools). */
   SB.lessonBusy = () => running || queue.length > 0;
-  SB._lessonTest = { compileFn, parseTex, items, tables, replayStep, focusStep };
+  SB._lessonTest = { compileFn, parseTex, items, tables, graphs, replayStep };
   SB.lessonStop = () => {
     if (paper && paper.isConnected) keepPage(paper);
     token++;

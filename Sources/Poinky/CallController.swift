@@ -92,6 +92,7 @@ final class CallController: NSObject, NSMenuDelegate {
     private var receiptTurn = -1
     private var guideReceiptID: String?
     private var reminderTimer: Timer?
+    private var stuckTimer: Timer?   // the stuck detector, also while a session is still starting (no watchers yet)
     private var dueLines: [String] = []          // reminders that came due, waiting for a moment you're free
     private var reminderCheckPending = false
     private var reminderActivity: NSObjectProtocol?   // keeps macOS from napping Poinky when one is minutes away
@@ -110,7 +111,10 @@ final class CallController: NSObject, NSMenuDelegate {
     /// recap after a swap, and the daily note, are built from it plus the last exchanges.
     private lazy var summary = SessionSummary { [weak self] in self.flatMap { Self.makeSummarizer($0.config) } }
 
-    private struct ArtistJob { let text: String; let snapshot: Snapshot; var aside: String? = nil }
+    private struct ArtistJob { let text: String; let snapshot: Snapshot; var aside: String? = nil; var quiet = false }
+    /// The teacher started alongside the talker: what it writes waits here until the talker's hand-over line
+    /// is in the voice queue (a quick teacher was heard before "Sure, let me show you."). Nil: not holding.
+    private var heldTeacher: [() -> Void]?
     // A question about a part you clicked on a 3D model: the teacher's steps on that model are an aside
     // (the model goes back to the lesson's view once they've been heard). See PartQuestion.
     private var partTurn = -1                // the talker only names the part this turn
@@ -170,6 +174,8 @@ final class CallController: NSObject, NSMenuDelegate {
         var handover = false          // it just took over from showing you: resend what you asked about
     }
     private var handsWatch: Timer?
+    /// Doing it for you and not waiting for an answer: its acts run, then it looks again.
+    private var doerWorking: Bool { guide?.acting == true && guide?.waiting == false }
     private var guide: Guide?
     private var guideBrain: Brain?
     private var doerBrain: Brain?
@@ -196,6 +202,8 @@ final class CallController: NSObject, NSMenuDelegate {
     private var firstTokenTurn = -1
     /// Longer than this in one state means Poinky is stuck (nothing legitimate takes this long:
     /// replies have their own 75 s watchdog, captures 6 s, web searches 30 s).
+    /// Tests: the session takes this long to start (a speech engine that doesn't come up).
+    static let testStallStart = ProcessInfo.processInfo.environment["POINKY_TEST_STALL_START"].flatMap(Double.init)
     static let stuckAfter: [State: TimeInterval] = {
         if let s = ProcessInfo.processInfo.environment["POINKY_STUCK_SECS"].flatMap(Double.init) { return [.thinking: s, .starting: s] }   // tests
         return [.thinking: 150, .starting: 300]
@@ -213,8 +221,14 @@ final class CallController: NSObject, NSMenuDelegate {
     // MARK: - Setup
 
     func setup() {
+        // A session with no "session.end" before the next "app.start" (and no "app.quit") means Poinky was
+        // killed, crashed, froze or lost power: the timeline couldn't tell those from a hang before.
+        Timeline.log("app.start", ["commit": String(Updater.running.commit.prefix(7))])
         reminderTimer = Timer.scheduledTimer(withTimeInterval: Self.reminderTick, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.checkReminders() }
+        }
+        stuckTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.checkStuck() }
         }
         NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.checkReminders() }
@@ -450,6 +464,7 @@ final class CallController: NSObject, NSMenuDelegate {
 
     /// Quitting: stop background agents too (nothing would hear their results).
     func shutdown() {
+        Timeline.log("app.quit", ["inSession": state != .idle])
         quitting = true
         agents.stopAll()
         endCall(quietly: true)
@@ -470,17 +485,22 @@ final class CallController: NSObject, NSMenuDelegate {
         Task { @MainActor in
             // Missing permissions open the permissions page (one at a time, with Allow / Open Settings
             // and a Restart button for Screen Recording) instead of an alert.
+            // (After each wait: a session reset meanwhile (stuck, Start Fresh) must not be set up by this one.)
             guard await SpeechListener.requestPermissions() else {
+                guard myCall == callID else { return }
                 state = .idle
                 WelcomeWindowController.shared.offerFix(.permissions)
                 return
             }
+            guard myCall == callID else { return }
             guard await ScreenCapture.hasPermission() else {
+                guard myCall == callID else { return }
                 state = .idle
                 ScreenCapture.requestPermission()
                 WelcomeWindowController.shared.offerFix(.permissions, askedScreen: true)
                 return
             }
+            guard myCall == callID else { return }
 
             config = AppConfig.load()
             goodVoice = speaker.configure(language: config.language, voiceName: config.voice, rate: config.speechRate)
@@ -517,8 +537,10 @@ final class CallController: NSObject, NSMenuDelegate {
             listener.autoEnd = startedWithMic
             do {
                 try audio.start(mic: startedWithMic)
+                if let s = Self.testStallStart { try? await Task.sleep(nanoseconds: UInt64(s * 1e9)) }
                 try await listener.start(audio: audio, language: config.language)
             } catch {
+                guard myCall == callID else { return }
                 endCall()
                 showAlert("Couldn't start listening.", info: error.localizedDescription)
                 return
@@ -602,6 +624,7 @@ final class CallController: NSObject, NSMenuDelegate {
         sentOnce.removeAll()
         artistBusy = false
         artistWaiting = nil
+        heldTeacher = nil
         artistRetries.removeAll()
         artistAside = nil
         asideToEnd = nil
@@ -704,13 +727,20 @@ final class CallController: NSObject, NSMenuDelegate {
     // MARK: - Hold to talk
 
     private var finishingPush = false   // a released question is still being turned into text
+    private var holdHeard: (count: Int, first: TimeInterval?) = (0, nil)   // live words during this hold (Timeline)
+    private var holdStart: TimeInterval = 0
+
+    // Tests (`--listen-test`, ListenTest.swift): the talk keys and the words, scripted.
+    func testKeys(down: Bool) { ptt.fakeFlags = down ? ptt.combo : [] }
+    func testWords(_ text: String, final: Bool, live: Bool) { listener.fakeResult(text, isFinal: final, live: live) }
+    var testState: String { "\(state)" }
 
     /// The talk keys went down: open the mic right away (so your first word isn't cut off).
     private func pushDown() {
         videoKeysDown()   // a playing video pauses right away
         // In a hands-free call the mic is already on (⌥ still marks).
         guard !(mode == .handsFree && state != .idle) else { return }
-        guard AVCaptureDevice.authorizationStatus(for: .audio) == .authorized else {
+        guard AVCaptureDevice.authorizationStatus(for: .audio) == .authorized || SpeechListener.fake else {
             // First time: ask for the permissions instead of recording.
             if state == .idle { startSession(.push) }
             return
@@ -777,6 +807,11 @@ final class CallController: NSObject, NSMenuDelegate {
         if buddyHidden { setBuddyHidden(false) }
         playSound(.open)
         stopActing(pause: true)
+        holdHeard = (0, nil)
+        holdStart = ProcessInfo.processInfo.systemUptime
+        // A lesson still being written would start talking over you (its next line sets "speaking"): it stops,
+        // as when you talk over it.
+        stopLesson()
         switch state {
         case .speaking:
             interrupt(maybeMore: false)
@@ -822,7 +857,10 @@ final class CallController: NSObject, NSMenuDelegate {
         }
         finishingPush = true
         askedAt = ProcessInfo.processInfo.systemUptime
-        Timeline.log("keys.up")
+        // How the live words did during the hold (no words): did any show, and how soon.
+        var up: [String: Any] = ["partials": holdHeard.count]
+        if let first = holdHeard.first { up["firstMs"] = Int((first - holdStart) * 1000) }
+        Timeline.log("keys.up", up)
         Task { @MainActor in
             defer { self.finishingPush = false }
             // Keep the mic a moment longer so the end of your last word isn't clipped.
@@ -834,19 +872,23 @@ final class CallController: NSObject, NSMenuDelegate {
                 try? await Task.sleep(nanoseconds: 100_000_000); waited += 1
             }
             guard self.state != .idle, self.mode == .push else { return }
+            let gotAudio = self.listener.heardAudio
             let text = await self.listener.finishUtterance()
             guard self.state != .idle, self.mode == .push else { return }
             if self.state == .listening, !self.pushCommitted { self.state = self.restingState }
             if text.trimmingCharacters(in: .whitespaces).isEmpty {
                 self.askedAt = nil
-                Timeline.log("heard.nothing")
+                Timeline.log("heard.nothing", ["audio": gotAudio])
                 self.playSound(.cancel)
-                self.overlay.setYouCaption(nil)
+                // Say so, quietly, where your words would have been (otherwise it reads as "it didn't hear me").
+                if self.pushCommitted { self.overlay.setYouCaption(nil) }   // already holding again
+                else { self.overlay.youMissed(gotAudio ? "Didn't catch that" : "No sound from the mic") }
                 self.mergeNext = false   // nothing was said: don't glue the next question to the last one
                 self.endHelperListen()
                 return
             }
             self.playSound(.send)
+            self.overlay.setYouCaption(text)   // the final words (the live ones can lag or differ)
             self.heard(utterance: text)
         }
     }
@@ -855,7 +897,14 @@ final class CallController: NSObject, NSMenuDelegate {
 
     private func heard(partial text: String) {
         guard state != .idle, state != .starting else { return }
-        if state == .speaking && isEcho(text) { return }
+        // Hold to talk: words count while you hold the keys and while the hold is settled. A result after
+        // that is old words: it must not show again, or cut off the answer as if you'd kept talking.
+        if mode == .push, !pushCommitted, !finishingPush { return }
+        // The echo check is for calls (the mic is open while Claude talks). Holding the keys, Claude was
+        // stopped first, so overlap with what it said is your own words ("what does mitochondria mean").
+        if mode == .handsFree, state == .speaking, isEcho(text) { return }
+        if pushCommitted, holdHeard.first == nil { holdHeard.first = ProcessInfo.processInfo.systemUptime }
+        holdHeard.count += 1
         // You started talking while it's clicking for you: pause and listen.
         if guide?.acting == true, guide?.waiting == false, text.split(whereSeparator: \.isWhitespace).count >= 2 { stopActing(pause: true) }
         overlay.setYouCaption(text)
@@ -881,7 +930,7 @@ final class CallController: NSObject, NSMenuDelegate {
         guard state != .idle, state != .starting else { return }
         if askedAt == nil { askedAt = ProcessInfo.processInfo.systemUptime }
         if state == .speaking {
-            if isEcho(text) { return }
+            if mode == .handsFree, isEcho(text) { return }
             interrupt()
         } else if state == .thinking {
             turn += 1
@@ -1257,6 +1306,7 @@ final class CallController: NSObject, NSMenuDelegate {
     /// You talked over a lesson: stop drawing (what's drawn stays) and free the artist for your next question.
     private func stopLesson() {
         pendingPaper = nil
+        heldTeacher = nil
         guard lessonOpen || narrationOpen || !pendingSteps.isEmpty || artistBusy else { return }
         lessonToken += 1
         lessonOpen = false
@@ -1297,6 +1347,7 @@ final class CallController: NSObject, NSMenuDelegate {
     private func ask(_ question: String, proactive: Bool = false) {
         swapTalkerIfReady()
         guard let talker, let screen = overlay.screen else { return }
+        releaseTeacher()   // an older teacher's lines aren't waiting for this talker
         releaseReports()   // a new question cut a report short
         pendingOffer = nil   // its reply may make a new one
         talker.cancelCurrent()   // an older reply still being written is dropped anyway; don't queue behind it
@@ -1364,6 +1415,7 @@ final class CallController: NSObject, NSMenuDelegate {
                 // talker answers without a thinking step and can get a check wrong).
                 let checkNow = !sketchNow && partQ == nil && !proactive && self.artist != nil
                     && Self.wantsWorkChecked(question, work: self.frontContext.selection + "\n" + (snap.focus?.text ?? ""))
+                if partQ != nil || sketchNow || checkNow { self.heldTeacher = [] }
                 if let p = partQ {
                     self.teacherStartedTurn = myTurn
                     self.partTurn = myTurn
@@ -1383,6 +1435,7 @@ final class CallController: NSObject, NSMenuDelegate {
                 guard myTurn == self.turn else { return }
                 let ev = self.parser.finish()
                 self.handle(ev)
+                self.releaseTeacher()
                 var said = self.parser.sayPreview
                 var note = Self.logNote(ev)
                 // `<recall>` / `<search>`: look it up, then the talker answers from what was found.
@@ -1412,10 +1465,14 @@ final class CallController: NSObject, NSMenuDelegate {
                 }
             } catch {
                 guard myTurn == self.turn, !(error is CancellationError) else { return }
+                self.releaseTeacher()
                 Timeline.log("error", ["what": error.localizedDescription, "turn": myTurn])
                 self.askedAt = nil   // an error line isn't an answer: keep it out of the wait times
                 self.overlay.setClaudeCaption("⚠️ \(error.localizedDescription)")
                 self.speaker.enqueue(SpokenError.line(for: error))
+                // It's talking now: not "thinking" (the stuck detector, and a key press that would glue the
+                // next question onto this failed one, both go by that).
+                if self.speaker.isSpeaking { self.state = .speaking }
                 WelcomeWindowController.shared.offerFix(for: error)
             }
             guard myTurn == self.turn else { return }
@@ -1667,7 +1724,9 @@ final class CallController: NSObject, NSMenuDelegate {
         guard myTurn == turn, state != .idle else { return }
         if firstTokenTurn != myTurn {
             firstTokenTurn = myTurn
-            Timeline.log("firstToken", ["turn": myTurn, "after": askedAt.map { ((ProcessInfo.processInfo.systemUptime - $0) * 1000).rounded() / 1000 } ?? -1])
+            // (No "after" when nobody asked: a helper's report or a reminder Poinky started itself.)
+            Timeline.log("firstToken", askedAt.map { ["turn": myTurn, "after": ((ProcessInfo.processInfo.systemUptime - $0) * 1000).rounded() / 1000] }
+                                       ?? ["turn": myTurn, "unasked": true])
         }
         handle(parser.feed(delta))
         speaker.prepareVoices(for: delta)   // another script is coming: load its voice now
@@ -1837,6 +1896,9 @@ final class CallController: NSObject, NSMenuDelegate {
         maybeEndAside()
         releaseReports()   // the helpers that were reported merge into the buddy
         guard state == .speaking || state == .thinking else { return }
+        // A walkthrough's next step is still being prepared: that's thinking, not "ready" (it flipped
+        // ready → speaking between steps, and a report or reminder could start in that gap).
+        if guide != nil, guideBusy || doerWorking { state = .thinking; return }
         state = restingState
         if endAfterSpeaking {
             endAfterSpeaking = false
@@ -1908,24 +1970,28 @@ final class CallController: NSObject, NSMenuDelegate {
         artistAside = job.aside
         if job.aside != nil { asideGen += 1; asideNoted = false }
         let myCall = callID, myGen = artistGen, myLesson = lessonToken
-        final class Box { var stream = ArtistStream() }
+        final class Box { var stream = ArtistStream(); var said = false }
         let box = Box()
         Task { @MainActor in
             do {
                 _ = try await artist.ask(BrainQuestion(text: job.text, snapshot: job.snapshot)) { delta in
                     guard myCall == self.callID, myGen == self.artistGen, myLesson == self.lessonToken else { return }
-                    for ev in box.stream.feed(delta) { self.handleArtist(ev, snapshot: job.snapshot) }
+                    for ev in box.stream.feed(delta) { if case .say = ev { box.said = true }; self.teacherDo { self.handleArtist(ev, snapshot: job.snapshot) } }
                 }
                 if myCall == self.callID, myGen == self.artistGen, myLesson == self.lessonToken {
-                    for ev in box.stream.finish() { self.handleArtist(ev, snapshot: job.snapshot) }
+                    for ev in box.stream.finish() { if case .say = ev { box.said = true }; self.teacherDo { self.handleArtist(ev, snapshot: job.snapshot) } }
                 }
             } catch {
                 if myCall == self.callID, myGen == self.artistGen, !(error is CancellationError) {
                     self.overlay.setClaudeCaption("⚠️ Artist: \(error.localizedDescription)")
+                    // The talker said "let me show you": don't leave that hanging in silence.
+                    if !box.said, !job.quiet, myLesson == self.lessonToken {
+                        self.teacherDo { self.says("Sorry, I couldn't make the drawing this time.") }
+                    }
                 }
             }
             guard myCall == self.callID, myGen == self.artistGen else { return }
-            self.finishTeacherOutput()   // closes the paper/narration even if it forgot to
+            self.teacherDo { self.finishTeacherOutput() }   // closes the paper/narration even if it forgot to
             self.artistBusy = false
             self.artistAside = nil
             self.maybeEndAside()
@@ -1936,6 +2002,17 @@ final class CallController: NSObject, NSMenuDelegate {
                 self.overlay.setArtistBusy(false)
             }
         }
+    }
+
+    /// Runs what the teacher sent now, or after the talker's hand-over line (see `heldTeacher`).
+    private func teacherDo(_ f: @escaping () -> Void) {
+        if heldTeacher != nil { heldTeacher!.append(f) } else { f() }
+    }
+
+    private func releaseTeacher() {
+        guard let held = heldTeacher else { return }
+        heldTeacher = nil
+        held.forEach { $0() }
     }
 
     private func handleArtist(_ ev: ArtistEvent, snapshot: Snapshot) {
@@ -2340,7 +2417,10 @@ final class CallController: NSObject, NSMenuDelegate {
         guideBusy = true
         guideLine = ""
         let myCall = callID
-        state = .thinking
+        // Still saying the last step: it stays "speaking" (finishedSpeaking turns it to "thinking" if this
+        // step isn't ready by then), so the notch doesn't flip to thinking mid-sentence.
+        if !speaker.isSpeaking { state = .thinking }
+        stateSince = ProcessInfo.processInfo.systemUptime   // each step is progress: a long walkthrough isn't "stuck"
         Task { @MainActor in
             do {
                 let snap = try await ScreenCapture.capture(screen: screen, marks: [], cursor: self.localCursor(on: screen))
@@ -2379,7 +2459,8 @@ final class CallController: NSObject, NSMenuDelegate {
                 self.speaker.endTurn()
             }
             self.guideBusy = false
-            if self.state == .thinking { self.state = self.restingState }
+            // (Poinky is about to click and type for this step: still working, not "ready".)
+            if self.state == .thinking, !(self.doerWorking && myCall == self.callID) { self.state = self.restingState }
             if let next = self.guideRerun, self.guide != nil {
                 self.guideRerun = nil
                 self.guideStep(action: next)
@@ -2611,7 +2692,7 @@ final class CallController: NSObject, NSMenuDelegate {
         let text = type == "scene3d"
             ? "Part of your 3D model id=\"\(id)\" failed: \(message)\nThe rest of the model is on screen. Reply with only a <step3d id=\"\(id)\"> that does that part correctly (no <say>)."
             : "Your <\(type)> with id=\"\(id)\" failed with this error: \(message)\nReply with a corrected block that uses the same id."
-        runArtist(ArtistJob(text: text, snapshot: snap))
+        runArtist(ArtistJob(text: text, snapshot: snap, quiet: true))
     }
 
     // MARK: - Mouse: ⌥ marking, hovering cards, scrolling
@@ -2621,7 +2702,7 @@ final class CallController: NSObject, NSMenuDelegate {
         mouseTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self, self.state != .idle else { return }
-                let f = NSEvent.modifierFlags
+                let f: NSEvent.ModifierFlags = AppConfig.ignoresRealKeys ? [] : NSEvent.modifierFlags
                 // ⌥ alone marks; ⌃⌥ (holding to talk) marks too, so you can point while you talk.
                 self.overlay.setMarking(f.contains(.option) && !f.contains(.command))
                 self.overlay.trackMouse()
@@ -2639,7 +2720,7 @@ final class CallController: NSObject, NSMenuDelegate {
                 }
                 self.anchorTick += 1
                 if self.anchorTick % 6 == 0 { self.followAnchor() }
-                if self.anchorTick % 60 == 0 { self.checkIdle(); self.checkStuck() }
+                if self.anchorTick % 60 == 0 { self.checkIdle() }
                 // Auto-hide: idle time counts from when Poinky finished (not from your question),
                 // and never while it's listening, talking, guiding you or acting for you.
                 if self.state != self.restingState || self.guide != nil || self.speaker.isSpeaking {

@@ -132,7 +132,9 @@ final class Updater: ObservableObject {
                 case .success(let found):
                     self.target = found.target
                     self.changes = found.changes
-                    self.state = found.newer ? .available : .upToDate
+                    // Newer, but this folder can't take it (uncommitted changes): say why, and don't offer it.
+                    if found.newer, let why = found.blocked { self.state = .unavailable(why) }
+                    else { self.state = found.newer ? .available : .upToDate }
                 }
                 Timeline.log("update.check", ["state": "\(self.state)", "changes": "\(self.changes.count)"])
                 then?()
@@ -140,7 +142,7 @@ final class Updater: ObservableObject {
         }
     }
 
-    struct Found { var target: String; var newer: Bool; var changes: [String] }
+    struct Found { var target: String; var newer: Bool; var changes: [String]; var blocked: String? = nil }
 
     /// Asks GitHub for the branch this copy follows. Runs off the main thread.
     nonisolated static func findUpdate(src: URL, running: String) -> Result<Found, Failure> {
@@ -160,7 +162,16 @@ final class Updater: ObservableObject {
         var log = git(src, ["log", "--format=%s", "-n", "30", "\(base)..\(target)"])
         if !log.ok { log = git(src, ["log", "--format=%s", "-n", "30", "\(head)..\(target)"]) }
         let changes = log.ok ? log.out.split(separator: "\n").map(String.init).filter { !$0.isEmpty } : []
-        return .success(Found(target: target, newer: true, changes: changes))
+        return .success(Found(target: target, newer: true, changes: changes, blocked: uncommitted(src)))
+    }
+
+    /// A folder of your own with changes that aren't committed is never touched: why, or nil. Checked
+    /// when looking too, so the notch doesn't offer an update that can only fail.
+    nonisolated static func uncommitted(_ src: URL) -> String? {
+        guard !isInstallerCopy(src) else { return nil }
+        let st = git(src, ["status", "--porcelain", "--untracked-files=no"])
+        guard st.ok, !st.out.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        return "There's a new version, but \(AppContext.tilde(src.path)) has changes that aren't committed, so Poinky leaves it alone. Commit or stash them, then click Check Now."
     }
 
     /// "origin" + "main" for the branch the folder follows.
@@ -194,7 +205,7 @@ final class Updater: ObservableObject {
                 switch r {
                 case .failure(let why):
                     self.state = .failed(why.message)
-                    Timeline.log("update.failed")
+                    Timeline.log("update.failed", ["why": String(why.message.prefix(100))])
                 case .success(let new):
                     self.newApp = new
                     self.progress = 1
@@ -219,9 +230,9 @@ final class Updater: ObservableObject {
             appendLog("reset: \(r.out)")
             guard r.ok else { return .failure(Failure("Couldn't get the new version: \(lastLine(r.out))")) }
         } else {
-            let st = git(src, ["status", "--porcelain", "--untracked-files=no"])
-            if st.ok, !st.out.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                return .failure(Failure("\(AppContext.tilde(src.path)) has changes that aren't committed. Commit or stash them, then update again."))
+            if let why = uncommitted(src) {
+                appendLog(why)
+                return .failure(Failure(why))
             }
             let r = git(src, ["merge", "--quiet", "--ff-only", target])
             appendLog("merge: \(r.out)")
