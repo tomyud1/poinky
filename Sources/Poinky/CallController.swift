@@ -525,6 +525,7 @@ final class CallController: NSObject, NSMenuDelegate {
             overlay.show(on: screenWithMouse())
             overlay.setBuddy(config.buddy)
             overlay.setCaption(you: nil, claude: nil)
+            if let m = pendingMiss { pendingMiss = nil; overlay.youMissed(m) }
             updateUI()
             speaker.attach(audio)
             let startedWithMic = mode == .handsFree
@@ -603,6 +604,7 @@ final class CallController: NSObject, NSMenuDelegate {
         askAfterStart = false
         typedAfterStart = nil
         pendingLine = nil
+        pendingMiss = nil
         // Per question or per hold: none of it may reach the next session ("start fresh" said while pointing at
         // a helper sent the next session's first question to that helper).
         endHelperListen()
@@ -748,8 +750,34 @@ final class CallController: NSObject, NSMenuDelegate {
         }
         pushGen += 1
         if !finishingPush { listener.clearText() }
+        micError = nil
         do { try audio.startMic() } catch {
             NSLog("Poinky: mic failed: \(error.localizedDescription)")
+            micError = error.localizedDescription
+        }
+    }
+
+    private var micError: String?       // why the mic didn't open for this hold
+    private var pendingMiss: String?     // a note for your bubble once the session that's starting is on screen
+
+    /// Held to talk, but the mic didn't open (no input device, one that's busy, access turned off meanwhile):
+    /// say so where your words would be, instead of nothing at all.
+    private func micFailed() {
+        let denied = !SpeechListener.fake && AVCaptureDevice.authorizationStatus(for: .audio) != .authorized
+        Timeline.log("mic.fail", ["denied": denied, "state": "\(state)", "why": micError ?? ""])
+        let note = denied ? "Poinky can't use the mic" : "Couldn't open the mic"
+        playSound(.cancel)
+        if denied {
+            if state != .starting { WelcomeWindowController.shared.offerFix(.permissions) }   // (starting: the session asks)
+            return
+        }
+        if state == .idle {
+            pendingMiss = note
+            startSession(.push)
+        } else if state == .starting {
+            pendingMiss = note
+        } else {
+            overlay.youMissed(note)
         }
     }
 
@@ -795,7 +823,7 @@ final class CallController: NSObject, NSMenuDelegate {
 
     /// Held on purpose (no other key): show that we're listening, and stop Claude if it was talking.
     private func pushCommit() {
-        guard audio.micOn else { return }
+        guard audio.micOn else { micFailed(); return }
         lastActivity = ProcessInfo.processInfo.systemUptime
         if state == .idle { startSession(.push) }
         guard mode == .push, state != .idle else { return }
@@ -848,7 +876,8 @@ final class CallController: NSObject, NSMenuDelegate {
         if mode == .handsFree && state != .idle { return }   // a hands-free call hears you anyway
         let myPush = pushGen
         pushCommitted = false
-        guard send, mode == .push, state != .idle else {
+        // (The mic never opened: its note is already showing, there's nothing to send.)
+        guard send, mode == .push, state != .idle, micError == nil else {
             audio.stopMic()
             // Settle and throw away whatever was heard (it was a shortcut, not a question).
             if !finishingPush, listener.running { Task { _ = await self.listener.finishUtterance() } }
