@@ -27,6 +27,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             Task { @MainActor in await StudyEval.run(rest) }
             return
         }
+        // `Poinky --study-pdf <state.json> <out.pdf>`: the solved PDF of a saved study session (its files beside state.json).
+        if let i = args.firstIndex(of: "--study-pdf"), i + 2 < args.count {
+            let state = URL(fileURLWithPath: args[i + 1]), dec = JSONDecoder()
+            dec.dateDecodingStrategy = .iso8601
+            if let data = try? Data(contentsOf: state), let sheet = try? dec.decode(StudySheet.self, from: data) {
+                setenv("POINKY_STUDY_DIR", state.deletingLastPathComponent().deletingLastPathComponent().path, 1)
+                print(StudyPDF.build(sheet, to: URL(fileURLWithPath: args[i + 2]))?.path ?? "failed")
+            } else { print("can't read \(state.path)") }
+            exit(0)
+        }
         // `Poinky --read-context out.txt`: what AppContextReader sees in the front app (as the signed app).
         if let i = args.firstIndex(of: "--read-context"), i + 1 < args.count {
             let out = args[i + 1]
