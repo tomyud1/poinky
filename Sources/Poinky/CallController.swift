@@ -1202,6 +1202,8 @@ final class CallController: NSObject, NSMenuDelegate {
 
     /// A typed question, as if from the type box (`--ask` tests).
     func askTyped(_ text: String) { typed(text, helper: nil) }
+    /// Tests (`POINKY_ASK_WAIT`): nothing is being thought, said or sketched, so the next typed question can go.
+    var quietForTests: Bool { state == .ready && !speaker.isSpeaking && !artistBusy }
 
     private func typed(_ text: String, helper: Int?) {
         lastActivity = ProcessInfo.processInfo.systemUptime

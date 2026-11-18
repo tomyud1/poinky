@@ -68,6 +68,19 @@ final class ClaudeCodeBrain: Brain {
     private static var thinkingBodyBroken: Set<String> = []
     private static let keepThinking = ProcessInfo.processInfo.environment["POINKY_KEEP_THINKING"] != nil
     private var lastLine: Data?
+    private var lastQuestion = ""
+    /// Tests: `POINKY_RAW_LOG=file` appends every finished reply (model, which prompt, the question's text, the raw reply).
+    private static let rawLog = ProcessInfo.processInfo.environment["POINKY_RAW_LOG"]
+    private func logRaw(_ reply: String, error: String? = nil) {
+        guard let path = Self.rawLog else { return }
+        var o: [String: Any] = ["t": Date().timeIntervalSince1970, "model": model,
+                                "prompt": String(systemPrompt.prefix(60)), "q": lastQuestion, "reply": reply]
+        if let error { o["error"] = error }
+        guard var d = try? JSONSerialization.data(withJSONObject: o) else { return }
+        d.append(0x0A)
+        if !FileManager.default.fileExists(atPath: path) { FileManager.default.createFile(atPath: path, contents: nil) }
+        if let h = FileHandle(forWritingAtPath: path) { h.seekToEndOfFile(); h.write(d); try? h.close() }
+    }
     private var retriedID: Int?
     /// Claude Code tools it may use (none for the talker, teacher, guide and doer; WebSearch and WebFetch
     /// for the web searcher). Each one is also pre-approved, since nobody is there to say yes.
@@ -103,6 +116,7 @@ final class ClaudeCodeBrain: Brain {
         var line = try JSONSerialization.data(withJSONObject: msg)
         line.append(0x0A)
         lastLine = line
+        lastQuestion = question.text
 
         return try await withCheckedThrowingContinuation { cont in
             nextID += 1
@@ -307,6 +321,7 @@ final class ClaudeCodeBrain: Brain {
             }
             guard let pend = pending else { return }
             pending = nil
+            logRaw(pend.text, error: pend.id == cancelledID ? "cancelled" : obj["is_error"] as? Bool == true ? ((obj["result"] as? String) ?? "error") : nil)
             if pend.id == cancelledID {
                 pend.cont.resume(throwing: CancellationError())
             } else if obj["is_error"] as? Bool == true, retryWithThinking(pend, error: (obj["result"] as? String) ?? "") {
