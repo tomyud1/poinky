@@ -88,6 +88,8 @@ final class MicCheckModel: ObservableObject {
             let lang = s.language == "he" ? "he-IL" : "en-US"
             var heard: [MicCheckModel.Heard] = []
             for e in engines {
+                // A model that doesn't speak the sentence's language isn't asked (Parakeet has no Hebrew).
+                if e.id != "apple", LocalModels.installed.first(where: { $0.id == e.id })?.languages.contains(s.language) != true { continue }
                 let t0 = ProcessInfo.processInfo.systemUptime
                 let text = await SpeechRun.transcribe(engineID: e.id, samples: audio, rate: 16_000, language: lang) ?? "(can't hear \(s.language == "he" ? "Hebrew" : "English"))"
                 let ms = Int((ProcessInfo.processInfo.systemUptime - t0) * 1000)
@@ -123,16 +125,19 @@ final class MicCheckModel: ObservableObject {
         if room > -50 { lines.append(String(format: "The room is noisy for the mic (%.0f dBFS between words): a fan, music or a laptop fan close by makes words harder to hear.", room)) }
         if median - room < 15 { lines.append(String(format: "Your voice is only %.0f dB above the room: move closer to the mic, or try AirPods.", median - room)) }
         // Engines: how many sentences each got right (no word wrong), English and Hebrew apart.
-        let names = takes.first?.heard.map(\.engine) ?? []
+        var names: [String] = []
+        for t in takes { for h in t.heard where !names.contains(h.engine) { names.append(h.engine) } }
         var scores: [(String, Int, Int)] = []
+        var asked: [String: Int] = [:]
         for n in names {
-            let right = takes.filter { t in t.heard.first { $0.engine == n }?.errors == 0 }.count
-            let close = takes.filter { t in (t.heard.first { $0.engine == n }?.errors ?? 99) <= 1 }.count
-            scores.append((n, right, close))
+            let mine = takes.compactMap { t in t.heard.first { $0.engine == n } }
+            asked[n] = mine.count
+            scores.append((n, mine.filter { $0.errors == 0 }.count, mine.filter { $0.errors <= 1 }.count))
         }
-        let sentence = scores.map { "\($0.0) got \($0.1) of \(takes.count) exactly right (\($0.2) with at most one word wrong)" }
+        let sentence = scores.map { "\($0.0) got \($0.1) of \(asked[$0.0] ?? 0) exactly right (\($0.2) with at most one word wrong)" }
         if !sentence.isEmpty { lines.append(sentence.joined(separator: "; ") + ".") }
-        if let best = scores.max(by: { ($0.1, $0.2) < ($1.1, $1.2) }), scores.count > 1, best.1 > (scores.map(\.1).min() ?? 0) {
+        func share(_ x: (String, Int, Int)) -> Double { Double(x.1) / Double(max(1, asked[x.0] ?? 0)) }
+        if let best = scores.max(by: { share($0) < share($1) }), scores.count > 1, share(best) > (scores.map(share).min() ?? 0) {
             lines.append("\(best.0) heard you best: choose it in Settings → Voice → Speech recognition.")
         }
         let hebrew = takes.filter { $0.language == "he" }
