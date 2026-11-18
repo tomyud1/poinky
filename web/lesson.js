@@ -743,14 +743,17 @@
   async function reveal(node, bb, size, baseY) {
     const id = 'clip' + (++uid);
     const cp = el('clipPath', { id }, defs);
-    const r = el('rect', { x: bb.x - 3, y: bb.y - 6, width: 0, height: bb.height + 12 }, cp);
+    // Hebrew and Arabic are written from the right.
+    const rtl = /[\u0590-\u08FF]/.test(node.textContent || '') && !/[A-Za-z]/.test(node.textContent || '');
+    const r = el('rect', { x: rtl ? bb.x + bb.width + 3 : bb.x - 3, y: bb.y - 6, width: 0, height: bb.height + 12 }, cp);
     node.setAttribute('clip-path', `url(#${id})`);
-    try { await penTo(...onScreen(bb.x, baseY)); } catch (e) { node.removeAttribute('clip-path'); cp.remove(); throw e; }
+    try { await penTo(...onScreen(rtl ? bb.x + bb.width : bb.x, baseY)); } catch (e) { node.removeAttribute('clip-path'); cp.remove(); throw e; }
     const chars = Math.max(1, bb.width / (size * .5));
     try {
       await tween(Math.max(.2, chars / 26) / pace, u => {
         r.setAttribute('width', (bb.width + 6) * u);
-        setPen(...onScreen(bb.x + bb.width * u, baseY + Math.sin(u * 50) * size * .1));
+        if (rtl) r.setAttribute('x', bb.x + bb.width + 3 - (bb.width + 6) * u);
+        setPen(...onScreen(rtl ? bb.x + bb.width * (1 - u) : bb.x + bb.width * u, baseY + Math.sin(u * 50) * size * .1));
       });
     } finally { node.removeAttribute('clip-path'); cp.remove(); }   // stopped: the words stay whole
   }

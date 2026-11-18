@@ -142,6 +142,15 @@
       const out = corners.filter(([x, y]) => !inside(x, y)).length;
       check(out === 0, `a circle mark round "${b}" keeps all four corners inside (${out} outside)`);
     }
+
+    // Hebrew is written from the right: halfway through, the right half shows and the pen is on the right.
+    SB.lessonBegin(frame, 'hebrew');
+    SB.lessonStep({ ops: [{ op: 'text', id: 'he', x: 40, y: 80, text: 'משפט פיתגורס במשולש ישר זווית', size: 34 }] }, 1);
+    let clipRect = null;
+    for (let i = 0; i < 60 && !clipRect; i++) { await wait(30); const n = item('he') && item('he').querySelector('[clip-path]'); if (n) { const id = n.getAttribute('clip-path').match(/#([^)]+)/)[1]; const r = W.document.getElementById(id).querySelector('rect'); if (+r.getAttribute('width') > 60) clipRect = r; } }
+    const hb = item('he').getBBox();
+    check(clipRect && +clipRect.getAttribute('x') > hb.x + 20, `Hebrew is revealed from the right (${clipRect && Math.round(+clipRect.getAttribute('x'))} vs left edge ${Math.round(hb.x)})`);
+    await done();
   } catch (e) { check(false, 'threw: ' + e.message + ' ' + (e.stack || '').split('\n')[1]); }
   window.testResults = { pass: !fail.length, lines: results };
 })();
