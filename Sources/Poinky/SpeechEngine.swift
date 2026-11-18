@@ -104,6 +104,8 @@ final class AppleSpeechEngine: SpeechEngine {
     var onResult: ((SpeechEngineResult) -> Void)?
     var onDied: (() -> Void)?
     private(set) var name = "Apple"
+    /// Did the mic hear a voice in this stretch? Set for calls: words outside any voice are dropped.
+    var wordFilter: ((CMTimeRange) -> Bool)?
 
     /// One analyzer and its modules, for one question.
     private final class Gen {
@@ -214,7 +216,7 @@ final class AppleSpeechEngine: SpeechEngine {
             var reporting: Set<SpeechTranscriber.ReportingOption> = [.volatileResults]
             if Self.legacy || env["POINKY_STT_FAST"] != "0" { reporting.insert(.fastResults) }
             return SpeechTranscriber(locale: spec.locale, transcriptionOptions: [], reportingOptions: reporting,
-                                     attributeOptions: Self.legacy ? [] : [.transcriptionConfidence])
+                                     attributeOptions: Self.legacy ? [] : [.transcriptionConfidence, .audioTimeRange])
         case .dictation where spec.live:
             return DictationTranscriber(locale: spec.locale, preset: .progressiveLongDictation)
         case .dictation:
@@ -291,9 +293,24 @@ final class AppleSpeechEngine: SpeechEngine {
 
     private func emit(_ gen: Gen, _ text: AttributedString, _ isFinal: Bool, _ live: Bool, _ range: CMTimeRange, _ track: Int) {
         guard running else { return }
-        let plain = String(text.characters)
+        var plain = String(text.characters)
         var confidences: [Double] = []
         for run in text.runs { if let c = run.transcriptionConfidence { confidences.append(c) } }
+        // Words about audio where the mic heard no voice (a call's long quiet stretch comes back as "Okay." or
+        // "you." in front of the next question) are dropped, word by word.
+        if let heard = wordFilter {
+            var kept = ""
+            var dropped = false
+            for run in text.runs {
+                let piece = String(text[run.range].characters)
+                if let r = run.audioTimeRange, piece.contains(where: \.isLetter) {
+                    let shiftedRun = CMTimeRange(start: r.start + CMTime(seconds: gen.base, preferredTimescale: 16_000), duration: r.duration)
+                    if !heard(shiftedRun) { dropped = true; continue }
+                }
+                kept += piece
+            }
+            if dropped { plain = kept }
+        }
         if plain.unicodeScalars.contains(where: { CharacterSet.alphanumerics.contains($0) }) {
             gen.lastResultAt = ProcessInfo.processInfo.systemUptime
         }

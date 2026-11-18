@@ -139,6 +139,10 @@ final class SpeechListener {
         }
         let feeder = MicFeeder(engines: [apple] + (local.map { [$0] } ?? []))
         self.feeder = feeder
+        apple.wordFilter = { [weak self, weak feeder] r in
+            guard let self, self.autoEnd, let feeder else { return true }
+            return feeder.hadVoice(in: r, margin: 0.1)
+        }
         tracks = Array(repeating: Track(), count: self.languages.count)
         liveCommitted = ""; liveVolatile = ""; ending = false
         running = true
@@ -359,8 +363,8 @@ final class MicFeeder: @unchecked Sendable {
     init(engines: [any SpeechEngine]) { self.engines = engines }
 
     /// Did any of this stretch of audio (± a quarter second) have a voice in it?
-    func hadVoice(in range: CMTimeRange) -> Bool {
-        let a = range.start.seconds - 0.25, b = range.end.seconds + 0.25
+    func hadVoice(in range: CMTimeRange, margin: Double = 0.25) -> Bool {
+        let a = range.start.seconds - margin, b = range.end.seconds + margin
         lock.lock(); defer { lock.unlock() }
         return voiced.contains { $0.start < b && $0.end > a }
     }
