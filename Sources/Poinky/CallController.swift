@@ -952,7 +952,9 @@ final class CallController: NSObject, NSMenuDelegate {
 
     private func heard(utterance text: String) {
         guard state != .idle, state != .starting else { return }
-        if askedAt == nil { askedAt = ProcessInfo.processInfo.systemUptime }
+        // Asked now, except after a hold (asked when the keys were released). An earlier question that was cut off
+        // before its first sound must not lend its time to this one (it made the wait look seconds longer).
+        if askedAt == nil || !finishingPush { askedAt = ProcessInfo.processInfo.systemUptime }
         if state == .speaking {
             if mode == .handsFree, isEcho(text) { return }
             interrupt()
