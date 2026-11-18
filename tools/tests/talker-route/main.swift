@@ -1,0 +1,50 @@
+import Foundation
+
+// TalkerRoute's phrase table: each row of cases.tsv is a question and what the router must make of it.
+//   talker-route cases.tsv     the table test (prints ok/FAIL per row, exits 1 on any failure)
+//   talker-route --json        reads [{"q":…, "marked":bool, "work":…}] on stdin, prints the routes (the eval uses it)
+
+func flags(_ r: TalkerRoute) -> [String] {
+    var f: [String] = []
+    if r.aboutApp { f.append("app") }
+    if r.aboutHelpers { f.append("helpers") }
+    if r.aboutTime { f.append("time") }
+    if r.aboutUsage { f.append("usage") }
+    if r.wantsVideo { f.append("video") }
+    if let s = r.shape { f.append(s.rawValue) }
+    return f
+}
+
+let args = CommandLine.arguments
+if args.count > 1, args[1] == "--json" {
+    let data = FileHandle.standardInput.readDataToEndOfFile()
+    let qs = (try? JSONSerialization.jsonObject(with: data)) as? [[String: Any]] ?? []
+    let out: [[String: Any]] = qs.map { q in
+        let r = TalkerRoute.classify(q["q"] as? String ?? "", marked: q["marked"] as? Bool ?? false, work: q["work"] as? String ?? "")
+        return ["teacher": r.teacher.rawValue, "reason": r.reason, "flags": flags(r), "hint": r.shapeHint ?? NSNull()]
+    }
+    let json = try! JSONSerialization.data(withJSONObject: out, options: [.sortedKeys])
+    FileHandle.standardOutput.write(json)
+    exit(0)
+}
+
+// Columns (tab-separated): question, marked (y/n), work (the selected/marked text, or -), teacher, flags (comma list or -).
+let path = args.count > 1 ? args[1] : "tools/tests/talker-route/cases.tsv"
+guard let text = try? String(contentsOfFile: path, encoding: .utf8) else { print("FAIL can't read \(path)"); exit(1) }
+var failed = 0, rows = 0
+for line in text.split(separator: "\n", omittingEmptySubsequences: true) where !line.hasPrefix("#") {
+    let c = line.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
+    guard c.count >= 5 else { print("FAIL bad row: \(line)"); failed += 1; continue }
+    rows += 1
+    let r = TalkerRoute.classify(c[0], marked: c[1] == "y", work: c[2] == "-" ? "" : c[2])
+    let want = c[4] == "-" ? [] : c[4].split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.sorted()
+    let got = flags(r).sorted()
+    if r.teacher.rawValue != c[3] || got != want {
+        failed += 1
+        print("FAIL \"\(c[0])\": teacher \(r.teacher.rawValue) (\(r.reason)), want \(c[3]); flags \(got.isEmpty ? "-" : got.joined(separator: ",")), want \(c[4])")
+    } else {
+        print("ok   \"\(c[0])\" → \(r.teacher.rawValue) (\(r.reason))\(got.isEmpty ? "" : " + " + got.joined(separator: ","))")
+    }
+}
+print("\(rows - failed)/\(rows) rows route as the table says")
+exit(failed == 0 ? 0 : 1)
