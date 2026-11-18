@@ -1,0 +1,14 @@
+{"about": "A walkthrough's next step arrives while you hold the keys to say something: its line is dropped (the speaker stopped for you), so it must not switch Poinky to speaking. It did, and after you let go it stayed 'speaking' with no sound until the next hold.",
+ "env": {"FAKE_CLAUDE_REPLY": "<say>Sure, I'll walk you through it.</say><guide>export this document as a PDF</guide>",
+         "FAKE_SLOW_ROLE": "guide", "FAKE_FIRST_TOKEN_SECS": "3.5",
+         "FAKE_GUIDE_REPLIES": "[\"<say>Click the File menu at the top.</say>\"]"},
+ "steps": [
+  {"at": 1.5, "keys": "down"},
+  {"at": 2.2, "words": "how do I export this as a PDF", "final": true},
+  {"at": 2.4, "keys": "up"},
+  {"at": 4.6, "keys": "down"},
+  {"at": 7.0, "probe": "still listening while the step's reply came in", "expect": {"state": "listening"}},
+  {"at": 7.3, "keys": "up"},
+  {"at": 9.0, "probe": "after letting go (nothing said) it's ready, not stuck speaking", "expect": {"state": "ready"}},
+  {"at": 9.5, "quit": true}
+ ]}
