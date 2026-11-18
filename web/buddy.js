@@ -351,12 +351,14 @@
       done = { copy, keep: false };
     }
     const f = document.createElement('div'); f.className = 'foot';
-    f.innerHTML = '<button class="copy">Copy</button><button class="x" title="Close" aria-label="Close">✕</button>';
+    // "Copy text": only the part to paste (a rewrite, a command), not the whole answer.
+    const label = keep && done.copy !== bubbleText ? 'Copy text' : 'Copy';
+    f.innerHTML = `<button class="copy" title="${keep && done.copy !== bubbleText ? 'Copy just the text to use' : 'Copy'}">${label}</button><button class="x" title="Close" aria-label="Close">✕</button>`;
     f.querySelector('.copy').onclick = e => {
       e.stopPropagation();
       if (done) post({ kind: 'copy', text: done.copy });
       const b = e.currentTarget; b.textContent = 'Copied ✓';
-      setTimeout(() => { if (b.isConnected) b.textContent = 'Copy'; }, 1400);
+      setTimeout(() => { if (b.isConnected) b.textContent = label; }, 1400);
     };
     f.querySelector('.x').onclick = e => { e.stopPropagation(); away(); };
     for (const b of f.querySelectorAll('button')) {

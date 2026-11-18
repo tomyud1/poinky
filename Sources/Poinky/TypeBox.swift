@@ -109,6 +109,14 @@ final class TypeBox: NSObject, NSTextViewDelegate, NSWindowDelegate {
         Self.log("done copy=\(String(reflecting: copyText ?? ""))")
     }
 
+    static func isRTL(_ s: String) -> Bool {
+        for u in s.unicodeScalars {
+            if (0x0590...0x08FF).contains(u.value) { return true }
+            if CharacterSet.letters.contains(u) { return false }
+        }
+        return false
+    }
+
     private func clearAnswer() {
         question = ""; answer = ""; copyText = nil; answerState = ""
         layoutAnswer()
@@ -117,9 +125,12 @@ final class TypeBox: NSObject, NSTextViewDelegate, NSWindowDelegate {
     @objc private func copyAnswer() {
         guard let t = copyText ?? (answer.isEmpty ? nil : answer) else { return }
         onCopy?(t)
+        let label = copyButton?.title ?? "Copy"
         copyButton?.title = "Copied ✓"
         Self.log("copied")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) { [weak self] in self?.copyButton?.title = "Copy" }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) { [weak self] in
+            if self?.copyButton?.title == "Copied ✓" { self?.copyButton?.title = label }
+        }
     }
 
     /// `POINKY_TYPEBOX_LOG=file` (tests): what the box showed, in order.
@@ -293,8 +304,13 @@ final class TypeBox: NSObject, NSTextViewDelegate, NSWindowDelegate {
         if av.string != answer {
             let atEnd = ascroll.contentView.bounds.maxY >= av.frame.height - 4
             av.string = answer
+            // A Hebrew or Arabic answer (or question) reads right to left, aligned right.
+            let rtl = Self.isRTL(answer.isEmpty ? question : answer)
+            av.baseWritingDirection = rtl ? .rightToLeft : .leftToRight
+            av.alignment = rtl ? .right : .left
             if atEnd { av.scrollToEndOfDocument(nil) }
         }
+        q.alignment = Self.isRTL(question) ? .right : .left
         tc.containerSize = NSSize(width: inner, height: .greatestFiniteMagnitude)
         lm.ensureLayout(for: tc)
         let line = av.font?.boundingRectForFont.height ?? 18
@@ -302,6 +318,7 @@ final class TypeBox: NSObject, NSTextViewDelegate, NSWindowDelegate {
         status.stringValue = answerState == "thinking" ? "Thinking…" : answerState == "writing" ? "Writing…" : "Esc closes"
         status.sizeToFit()
         copy.isHidden = answerState != "done"
+        if answerState != "done" || copy.title != "Copied ✓" { copy.title = copyText != nil && copyText != answer ? "Copy text" : "Copy" }
         copy.sizeToFit()
         let foot: CGFloat = 26, qH: CGFloat = 16
         // From the bottom up: footer, answer, question, separator.
@@ -353,7 +370,7 @@ extension TypeBox {
             try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: outDir + "/\(name).png"))
         }
         box.open()
-        if ProcessInfo.processInfo.environment["POINKY_SHOT_DARK"] == "1" { box.panel?.appearance = NSAppearance(named: .darkAqua) }
+        box.panel?.appearance = NSAppearance(named: ProcessInfo.processInfo.environment["POINKY_SHOT_DARK"] == "1" ? .darkAqua : .aqua)
         keepForTests = true
         log("open \(box.isOpen), key \(box.panel?.isKeyWindow == true), placeholder \(box.text?.placeholder ?? "")")
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
@@ -378,8 +395,11 @@ extension TypeBox {
             box.asked("make this shorter")
             box.showAnswer("Here's a shorter version: We ship Friday, tested and ready. Want me to swap it in?")
             box.answerDone(copy: "We ship Friday, tested and ready.")
-            box.copyButton?.performClick(nil)
             shot("answer-rewrite")
+            box.copyButton?.testHover(true)
+            shot("answer-rewrite-hover")
+            box.copyButton?.testHover(false)
+            box.copyButton?.performClick(nil)
             let long = (1...30).map { "Sentence number \($0) of a long answer that goes on for a while." }.joined(separator: " ")
             box.asked("explain all of it in detail please, with every step")
             box.showAnswer(long)

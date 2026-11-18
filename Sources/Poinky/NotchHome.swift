@@ -488,7 +488,7 @@ struct AnswerRow: View {
             if m.answerOpen {
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 5) {
-                        Text(a.question.isEmpty ? "Poinky said" : "You: " + a.question.replacingOccurrences(of: "\n", with: " "))
+                        Text(a.question.isEmpty ? "Poinky said" : "You: \u{2068}" + a.question.replacingOccurrences(of: "\n", with: " ") + "\u{2069}")
                             .font(.system(size: 10.5)).foregroundStyle(.white.opacity(0.45)).lineLimit(1).truncationMode(.tail)
                         Spacer(minLength: 4)
                         Text(ReportRow.ago(a.at)).font(.system(size: 10)).foregroundStyle(.white.opacity(0.38)).monospacedDigit()
