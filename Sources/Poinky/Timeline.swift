@@ -107,14 +107,15 @@ enum Timeline {
 }
 
 /// How the last run ended, told apart afterwards: a run that logged "app.quit" ended cleanly. Otherwise a
-/// heartbeat file (`timeline/alive`, written every 5 s from a background queue with the main thread's last
+/// heartbeat file (`timeline-alive`, written every 5 s from a background queue with the main thread's last
 /// beat) says which: the main thread had stopped beating well before the end (it froze, then was killed), the
 /// Mac started since (restart or power loss), a crash report was written, or it was killed / crashed. Logged as
 /// "app.unclean" at the next launch; nothing is shown to the user.
 enum Launches {
     struct Beat: Equatable { var main: Double; var bg: Double }
 
-    static var aliveURL: URL { Timeline.dir.appendingPathComponent("alive") }
+    /// Next to the timeline folder, not in it (tools read every file there as JSON lines).
+    static var aliveURL: URL { Timeline.dir.deletingLastPathComponent().appendingPathComponent("timeline-alive") }
     nonisolated(unsafe) private static var mainBeat = Date().timeIntervalSince1970
     private static let beatQueue = DispatchQueue(label: "poinky.alive")
     nonisolated(unsafe) private static var bgTimer: DispatchSourceTimer?
@@ -170,7 +171,7 @@ enum Launches {
 
     private static func writeBeat() {
         let s = String(format: "%.3f %.3f\n", mainBeat, Date().timeIntervalSince1970)
-        try? FileManager.default.createDirectory(at: Timeline.dir, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        try? FileManager.default.createDirectory(at: aliveURL.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         try? s.write(to: aliveURL, atomically: true, encoding: .utf8)
     }
 

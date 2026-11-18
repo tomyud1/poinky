@@ -85,7 +85,7 @@ enum ListenTest {
                             }
                         }
                     }
-                    if let on = step["contentVisible"] as? Bool { c.overlay.setContentVisible(on); write(String(format: "%.2f drawings %@", at, on ? "shown" : "hidden (a window covers them)")) }
+                    if let on = step["contentVisible"] as? Bool { c.testCoverDrawings(!on); write(String(format: "%.2f drawings %@", at, on ? "shown" : "hidden (a window covers them)")) }
                     if step["endSession"] as? Bool == true { c.testEndSession(); write(String(format: "%.2f session ended", at)) }
                     if let js = step["js"] as? String {
                         c.overlay.evaluateForTest(js) { r in

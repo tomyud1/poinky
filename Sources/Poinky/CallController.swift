@@ -766,6 +766,9 @@ final class CallController: NSObject, NSMenuDelegate {
     func testWords(_ text: String, final: Bool, live: Bool) { listener.fakeResult(text, isFinal: final, live: live) }
     /// A helper (POINKY_HELPER_CMD=tools/fake-helper.py for no tokens); its id, or nil if it didn't start.
     func testEndSession() { endCall(quietly: true) }
+    /// As if the drawings' window were covered (followAnchor keeps them hidden; here the anchor is dropped so it can't
+    /// show them again, the window being in plain view in a test).
+    func testCoverDrawings(_ covered: Bool) { anchor = nil; overlay.setContentVisible(!covered) }
     func testLessonSaved() { lessonSaved(FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Desktop/Poinky test.png"), pages: nil) }
     func testStartHelper(_ task: String) -> Int? { agents.start(AgentRequest(title: "Test helper", dir: nil, task: task), config: config)?.id }
     var testState: String { "\(state)" }

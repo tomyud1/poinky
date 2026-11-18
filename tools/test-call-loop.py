@@ -63,7 +63,7 @@ def run(name, asks, quit_after, env=None, args=()):
             os.kill(pid, 9)
     if server: server.terminate()
     events = []
-    for fn in sorted(os.listdir(f"{d}/tl")):
+    for fn in sorted(f for f in os.listdir(f"{d}/tl") if f.endswith(".jsonl")):
         for line in open(f"{d}/tl/{fn}"):
             events.append(json.loads(line))
     speech = []
