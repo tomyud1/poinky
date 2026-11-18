@@ -16,11 +16,17 @@ struct OCRLine {
 final class TextIndex: @unchecked Sendable {
     private let lock = NSLock()
     private var _lines: [OCRLine] = []
+    private var image: CGImage?
+    private var ink: InkMap?
+    private var reread: [CGRect: [OCRLine]] = [:]
 
     var lines: [OCRLine] { lock.withLock { _lines } }
     var words: [CGRect] { lines.flatMap { $0.words.map(\.rect) } }
 
-    init(lines: [OCRLine] = []) { _lines = lines }
+    init(lines: [OCRLine] = [], image: CGImage? = nil) {
+        _lines = lines; self.image = image
+        ink = image.flatMap(InkMap.init)
+    }
 
     /// Runs one small recognition in the background (the first one after a restart can take ~30 s).
     static func warmUp() {
@@ -41,12 +47,30 @@ final class TextIndex: @unchecked Sendable {
     }
 
     func start(_ image: CGImage) {
+        lock.withLock { self.image = image }
         Task.detached(priority: .userInitiated) { [weak self] in
-            let found = Self.recognize(image)
+            let ink = InkMap(image)
+            let found = Self.recognize(image, ink: ink)
             guard let self else { return }
-            self.lock.withLock { self._lines = found }
+            self.lock.withLock { self._lines = found; self.ink = ink }
         }
     }
+
+    /// The lines Vision reads in a thin strip of the screenshot (screenshot pixels): text it missed on the
+    /// whole screenshot (small print often isn't even detected there) is usually read in a strip.
+    /// Used when a mark names text that wasn't found. Cached; ~40 ms each.
+    func lines(inStrip r: CGRect) -> [OCRLine] {
+        guard let image = lock.withLock({ image }) else { return [] }
+        let strip = r.integral.intersection(CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        guard !strip.isNull, strip.width >= 20, strip.height >= 8 else { return [] }
+        if let cached = lock.withLock({ reread[strip] }) { return cached }
+        let found = image.cropping(to: strip).map { Self.read($0, origin: strip.origin) } ?? []
+        lock.withLock { reread[strip] = found }
+        return found
+    }
+
+    /// The bottom of the letters inside `r` (screenshot pixels): OCR's boxes run well below them.
+    func inkBottom(in r: CGRect) -> CGFloat? { lock.withLock { ink }?.bottom(in: r) }
 
     /// The text in an image as lines, top to bottom (used for the close-up of what you marked).
     static func readLines(_ image: CGImage, limit: Int = 1200) -> String {
@@ -62,7 +86,20 @@ final class TextIndex: @unchecked Sendable {
         return String(lines.joined(separator: "\n").prefix(limit))
     }
 
-    static func recognize(_ image: CGImage) -> [OCRLine] {
+    static func recognize(_ image: CGImage, ink: InkMap? = nil) -> [OCRLine] {
+        var lines = read(image, origin: .zero)
+        let ink = ink ?? InkMap(image)
+        if let ink { lines = rereadCutLines(lines, image: image, ink: ink) }
+        if let ink {
+            for i in lines.indices { lines[i].lead = ink.lead(leftOf: lines[i].rect) }
+        }
+        // Reading order: top to bottom, then left to right.
+        return lines.sorted { abs($0.rect.midY - $1.rect.midY) > min($0.rect.height, $1.rect.height) * 0.5
+            ? $0.rect.midY < $1.rect.midY : $0.rect.minX < $1.rect.minX }
+    }
+
+    /// The lines Vision reads in `image` (a crop placed at `origin` in the screenshot), in screenshot pixels.
+    static func read(_ image: CGImage, origin: CGPoint = .zero) -> [OCRLine] {
         let request = VNRecognizeTextRequest()
         request.recognitionLevel = .accurate
         request.usesLanguageCorrection = false
@@ -74,7 +111,9 @@ final class TextIndex: @unchecked Sendable {
         guard (try? handler.perform([request])) != nil, let results = request.results else { return [] }
         let W = CGFloat(image.width), H = CGFloat(image.height)
         // Vision uses 0–1 coordinates with the origin at the bottom-left.
-        func px(_ b: CGRect) -> CGRect { CGRect(x: b.minX * W, y: (1 - b.maxY) * H, width: b.width * W, height: b.height * H) }
+        func px(_ b: CGRect) -> CGRect {
+            CGRect(x: origin.x + b.minX * W, y: origin.y + (1 - b.maxY) * H, width: b.width * W, height: b.height * H)
+        }
         var lines: [OCRLine] = []
         for obs in results {
             guard let cand = obs.topCandidates(1).first else { continue }
@@ -86,12 +125,45 @@ final class TextIndex: @unchecked Sendable {
             }
             lines.append(OCRLine(rect: px(obs.boundingBox), text: s, words: words))
         }
-        if let ink = InkMap(image) {
-            for i in lines.indices { lines[i].lead = ink.lead(leftOf: lines[i].rect) }
+        return lines
+    }
+
+    /// Small print in a long line: on a whole screenshot Vision often reads only its first few words
+    /// ("By placing this order you ac" of a 180-character line of 7 px text) and drops the rest, so marks
+    /// on the rest had nothing to land on. A line whose ink runs on past its box is read again from a
+    /// thin strip of the screenshot around it, where Vision reads the whole line.
+    static func rereadCutLines(_ lines: [OCRLine], image: CGImage, ink: InkMap, limit: Int = 24) -> [OCRLine] {
+        var out = lines
+        var tries = 0
+        var i = 0
+        while i < out.count, tries < limit {
+            let l = out[i]
+            let others = out.enumerated().filter { $0.offset != i }.map(\.element.rect)
+            guard l.rect.height <= 16, l.rect.height >= 4, let end = ink.runsOn(rightOf: l.rect, skipping: others) else { i += 1; continue }
+            tries += 1
+            let lh = l.rect.height
+            // Just the row (what else is on the screen confuses it): from a little before the line to where its ink ends.
+            let stripH = max(24, (lh * 3.5).rounded())
+            let x0 = max(0, (l.rect.minX - lh * 2).rounded(.down))
+            let y0 = max(0, (l.rect.midY - stripH / 2).rounded(.down))
+            let x1 = min(CGFloat(image.width), (end + lh * 2).rounded(.up))
+            let strip = CGRect(x: x0, y: y0, width: x1 - x0, height: min(stripH, CGFloat(image.height) - y0))
+            guard strip.width > 40, strip.height >= 8, let crop = image.cropping(to: strip) else { i += 1; continue }
+            // The longest line read on the same row that starts where this one does.
+            let found = read(crop, origin: strip.origin).filter {
+                abs($0.rect.midY - l.rect.midY) <= lh * 0.6 && abs($0.rect.minX - l.rect.minX) <= lh * 1.5
+                    && $0.rect.width > l.rect.width + lh * 2 && $0.words.count > l.words.count
+            }.max { $0.rect.width < $1.rect.width }
+            guard let better = found else { i += 1; continue }
+            out[i] = better
+            // Pieces of the same row that were read on their own are now part of it.
+            out.removeAll { o in
+                o.rect != better.rect && abs(o.rect.midY - better.rect.midY) <= lh * 0.6
+                    && o.rect.minX >= better.rect.minX - 2 && o.rect.maxX <= better.rect.maxX + 2
+            }
+            i = (out.firstIndex { $0.rect == better.rect } ?? i) + 1
         }
-        // Reading order: top to bottom, then left to right.
-        return lines.sorted { abs($0.rect.midY - $1.rect.midY) > min($0.rect.height, $1.rect.height) * 0.5
-            ? $0.rect.midY < $1.rect.midY : $0.rect.minX < $1.rect.minX }
+        return out
     }
 }
 
@@ -118,6 +190,65 @@ struct InkMap {
     private func rgb(_ x: Int, _ y: Int) -> (Int, Int, Int) {
         let i = (y * w + x) * 4
         return (Int(data[i]), Int(data[i + 1]), Int(data[i + 2]))
+    }
+
+    /// The lowest row inside `r` with ink on it (letters, descenders), or nil when `r` has none.
+    /// The background is the most common color in `r`.
+    func bottom(in r: CGRect) -> CGFloat? {
+        let x0 = max(0, Int(r.minX)), x1 = min(w - 1, Int(r.maxX)), y0 = max(0, Int(r.minY)), y1 = min(h - 1, Int(r.maxY))
+        guard x1 > x0, y1 > y0 else { return nil }
+        var counts: [Int: Int] = [:]
+        for y in stride(from: y0, through: y1, by: 2) { for x in stride(from: x0, through: x1, by: 2) {
+            let (a, b, c) = rgb(x, y); counts[(a >> 4) << 8 | (b >> 4) << 4 | (c >> 4), default: 0] += 1
+        } }
+        guard let key = counts.max(by: { $0.value < $1.value })?.key else { return nil }
+        let bg = (((key >> 8) & 15) * 16 + 8, ((key >> 4) & 15) * 16 + 8, (key & 15) * 16 + 8)
+        // A row counts when a few pixels in it differ clearly from the background (not one stray pixel).
+        let need = max(2, (x1 - x0) / 200)
+        for y in stride(from: y1, through: y0, by: -1) {
+            var n = 0
+            for x in x0...x1 {
+                let (a, b, c) = rgb(x, y)
+                if abs(a - bg.0) + abs(b - bg.1) + abs(c - bg.2) > 90 { n += 1; if n >= need { return CGFloat(y + 1) } }
+            }
+        }
+        return nil
+    }
+
+    /// Where text on `r`'s row really ends when it runs on past `r`'s right edge (within a word gap or two)
+    /// outside the `skipping` boxes (other lines already read), or nil: the line was not cut short.
+    func runsOn(rightOf r: CGRect, skipping: [CGRect]) -> CGFloat? {
+        let lh = r.height
+        let y0 = max(0, Int(r.minY + lh * 0.15)), y1 = min(h - 1, Int(r.maxY - lh * 0.15))
+        let xa = min(w - 1, Int(r.maxX) + 1)
+        guard w - 1 - xa >= 2, y1 > y0 else { return nil }
+        // Background: the most common color just right of the line.
+        var counts: [Int: Int] = [:]
+        for y in y0...y1 { for x in xa...min(w - 1, xa + Int(lh * 4)) {
+            let (a, b, c) = rgb(x, y); counts[(a >> 4) << 8 | (b >> 4) << 4 | (c >> 4), default: 0] += 1
+        } }
+        guard let key = counts.max(by: { $0.value < $1.value })?.key else { return nil }
+        let bg = (((key >> 8) & 15) * 16 + 8, ((key >> 4) & 15) * 16 + 8, (key & 15) * 16 + 8)
+        let rows = skipping.filter { $0.maxY > CGFloat(y0) && $0.minY < CGFloat(y1) }
+        func inked(_ x: Int) -> Bool {
+            for y in y0...y1 {
+                let (a, b, c) = rgb(x, y)
+                // Small grey print is faint: a smaller difference than for bullets counts.
+                if abs(a - bg.0) + abs(b - bg.1) + abs(c - bg.2) > 60 { return true }
+            }
+            return false
+        }
+        // Follow the ink to the right until a gap wider than a few spaces (or another line read already).
+        let maxGap = Int(lh * 1.5)
+        var x = xa, gap = 0, last = -1
+        while x < w, gap <= maxGap {
+            if rows.contains(where: { CGFloat(x) >= $0.minX - 1 && CGFloat(x) <= $0.maxX + 1 }) { break }
+            if inked(x) { last = x; gap = 0 } else { gap += 1 }
+            x += 1
+        }
+        // Only worth it when a real stretch of text was left out (more than a stray pixel or two).
+        guard last >= 0, CGFloat(last - xa) >= lh * 1.5 else { return nil }
+        return CGFloat(last + 1)
     }
 
     /// A small separate blob of ink just left of `r` (a text line), or nil.
@@ -179,28 +310,92 @@ struct InkMap {
 /// pixels off) are nudged onto nearby words. Labels go where they cover the least text.
 enum MarkSnapper {
     /// `size`: the screenshot size; `scale`: screenshot pixels per screen point (labels are sized in points).
-    static func snap(_ json: String, lines: [OCRLine], size: CGSize, scale: CGFloat) -> String {
+    /// `text`: the screenshot's reading, to read a strip again for text named by `find` that the first
+    /// reading missed (small print), and to put underlines just under the letters.
+    static func snap(_ json: String, lines: [OCRLine], size: CGSize, scale: CGFloat, text: TextIndex? = nil) -> String {
         guard var obj = (try? JSONSerialization.jsonObject(with: Data(json.utf8))) as? [String: Any],
               let items = obj["items"] as? [[String: Any]] else { return json }
-        obj["items"] = items.map { snapItem($0, lines: lines, size: size, scale: scale) }
+        obj["items"] = items.map { snapItem($0, lines: lines, size: size, scale: scale, text: text) }
         guard let data = try? JSONSerialization.data(withJSONObject: obj),
               let out = String(data: data, encoding: .utf8) else { return json }
         return out
     }
 
-    static func snapItem(_ item: [String: Any], lines: [OCRLine], size: CGSize, scale: CGFloat) -> [String: Any] {
+    static func snapItem(_ item: [String: Any], lines: [OCRLine], size: CGSize, scale: CGFloat,
+                         text: TextIndex? = nil) -> [String: Any] {
         var it = item
+        var lines = lines
         let type = it["type"] as? String ?? ""
-        if let q = it["find"] as? String, var target = locate(q, to: it["to"] as? String, hint: hint(it), in: lines) {
+        var target: CGRect?
+        if let q = it["find"] as? String {
+            target = locate(q, to: it["to"] as? String, hint: hint(it), in: lines)
+            // Not found: read thin strips around where the mark was meant to go again.
+            if target == nil, let text {
+                for strip in strips(around: it, size: size) {
+                    let more = merged(lines, with: text.lines(inStrip: strip))
+                    if let t = locate(q, to: it["to"] as? String, hint: hint(it), in: more) { target = t; lines = more; break }
+                }
+            }
+        }
+        if var target {
             if ["box", "highlight", "bracket"].contains(type) { target = withLeads(target, lines) }
             place(&it, on: target)
+            // OCR's box runs well below the letters (34 px for 22 px text): the line goes just under the ink.
+            if type == "underline", let b = text?.inkBottom(in: target.insetBy(dx: 1, dy: 0)), b > target.midY {
+                it["y"] = b + max(2, min(4, target.height * 0.15))
+            }
         } else {
             it = nudge(it, lines: lines)
+            if type == "underline", let text { it = clearOfLetters(it, text: text) }
         }
         if let text = (it["label"] as? String), !text.isEmpty, let mark = bounds(it, scale: scale) {
             placeLabel(&it, text: text, mark: mark, lines: lines, size: size, scale: scale)
         }
         return it
+    }
+
+    /// An underline that found no text to sit under (the model's own y) must not run through letters:
+    /// when its y is inside a row of ink, it moves just below that row.
+    static func clearOfLetters(_ item: [String: Any], text: TextIndex) -> [String: Any] {
+        var it = item
+        guard let x = num(it["x"]), let y = num(it["y"]), let w = num(it["w"]), w > 4 else { return it }
+        // Ink right at the line's height (±2 px)?
+        guard text.inkBottom(in: CGRect(x: x, y: y - 2, width: w, height: 4)) != nil else { return it }
+        // Follow the ink down (at most ~30 px) to the bottom of that row.
+        var bottom = y
+        while bottom < y + 30, text.inkBottom(in: CGRect(x: x, y: bottom, width: w, height: 2)) != nil { bottom += 1 }
+        guard bottom < y + 30 else { return it }
+        it["y"] = bottom + 3
+        return it
+    }
+
+    /// Strips of the screenshot to read again for a mark whose text wasn't found: around its row (the
+    /// model's y is often off by a line or two), as wide as the mark plus some, never the whole screen
+    /// (other windows' text in the strip makes Vision skip the small print again).
+    static func strips(around it: [String: Any], size: CGSize) -> [CGRect] {
+        guard let h = hint(it) else { return [] }
+        var x0 = h.x - 450, x1 = h.x + 450
+        if let x = num(it["x"]), let w = num(it["w"]), w > 0 { x0 = min(x0, x - 150); x1 = max(x1, x + w + 150) }
+        x0 = max(0, x0); x1 = min(size.width, x1)
+        guard x1 - x0 >= 40 else { return [] }
+        return [40, 72, 120].map { hgt in
+            let y0 = max(0, min(size.height - hgt, h.y - hgt / 2))
+            return CGRect(x: x0, y: y0, width: x1 - x0, height: min(hgt, size.height))
+        }
+    }
+
+    /// `lines` with the ones read again in a strip: a line read again replaces what was read of the
+    /// same row before (often its first few words).
+    static func merged(_ lines: [OCRLine], with more: [OCRLine]) -> [OCRLine] {
+        guard !more.isEmpty else { return lines }
+        let kept = lines.filter { l in
+            !more.contains { m in
+                abs(m.rect.midY - l.rect.midY) <= min(m.rect.height, l.rect.height) * 0.6
+                    && l.rect.minX >= m.rect.minX - 4 && l.rect.maxX <= m.rect.maxX + 4
+            }
+        }
+        return (kept + more).sorted { abs($0.rect.midY - $1.rect.midY) > min($0.rect.height, $1.rect.height) * 0.5
+            ? $0.rect.midY < $1.rect.midY : $0.rect.minX < $1.rect.minX }
     }
 
     // MARK: Finding text by its words
@@ -222,22 +417,25 @@ enum MarkSnapper {
         }
         let need: Double = q.count <= 2 ? 1 : (q.count == 3 ? 0.66 : 0.75)
         var out: [Hit] = []
-        var i = 0
-        while i + q.count <= flat.count {
-            if flat[i].line >= fromLine {
-                let span = flat[i..<(i + q.count)]
-                if span.last!.line - span.first!.line <= 4 {
-                    // Only the words that really match count (a misread "3." must not drag in its neighbor).
-                    let matched = span.enumerated().filter { similar($0.element.text, q[$0.offset]) }.map(\.element)
-                    let score = Double(matched.count) / Double(q.count)
-                    if score >= need, let first = matched.first, similar(span.first!.text, q[0]) || q.count >= 4 {
-                        let r = matched.dropFirst().reduce(first.rect) { $0.union($1.rect) }
-                        out.append(Hit(rect: r, line: first.line, endLine: matched.last!.line, score: score,
-                                       lineSet: Set(matched.map(\.line))))
-                    }
-                }
+        for i in flat.indices where flat[i].line >= fromLine {
+            // Walk the query along the words from here. OCR runs words together ("or x" → "orx") and splits
+            // them ("30-day" → "30" "day" is already split the same way on both sides): one word read as two
+            // of the query's (or two read as one of its) counts for both.
+            var j = 0, p = i, matched: [Token] = [], hitCount = 0
+            while j < q.count, p < flat.count, flat[p].line - flat[i].line <= 4 {
+                let t = flat[p].text
+                if similar(t, q[j]) { matched.append(flat[p]); hitCount += 1; j += 1; p += 1 }
+                else if j + 1 < q.count, similar(t, q[j] + q[j + 1]) { matched.append(flat[p]); hitCount += 2; j += 2; p += 1 }
+                else if p + 1 < flat.count, flat[p + 1].line == flat[p].line, t + flat[p + 1].text == q[j] {
+                    matched.append(flat[p]); matched.append(flat[p + 1]); hitCount += 1; j += 1; p += 2
+                } else { j += 1; p += 1 }
             }
-            i += 1
+            guard j == q.count else { continue }   // ran out of words or lines
+            let score = Double(hitCount) / Double(q.count)
+            // Only the words that really match count (a misread "3." must not drag in its neighbor).
+            guard score >= need, let first = matched.first, similar(flat[i].text, q[0]) || flat[i].text.hasPrefix(q[0]) || q.count >= 4 else { continue }
+            let r = matched.dropFirst().reduce(first.rect) { $0.union($1.rect) }
+            out.append(Hit(rect: r, line: first.line, endLine: matched.last!.line, score: score, lineSet: Set(matched.map(\.line))))
         }
         return out
     }

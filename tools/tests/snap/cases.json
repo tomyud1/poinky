@@ -1,0 +1,22 @@
+[
+  {"page": "tools/e2e/pages/tiny.html", "screen": [1710, 1107], "note": "9 px small print (a 7 px line in the screenshot): Vision read only its first words", "marks": [
+    {"item": {"type": "underline", "id": "trial", "x": 125, "y": 200, "w": 690, "find": "30-day free trial of Premium Audio", "label": "auto-renews"}, "phrase": "30-day free trial of Premium Audio"},
+    {"item": {"type": "underline", "id": "restock", "x": 600, "y": 200, "w": 150, "find": "Restocking fee of 15%", "label": "15% fee"}, "phrase": "Restocking fee of 15%"},
+    {"item": {"type": "underline", "id": "guess", "x": 600, "y": 201, "w": 70}, "phrase": "Restocking fee of 15%", "check": "under", "note": "no find, the model's y runs through the letters"}
+  ]},
+  {"page": "tools/e2e/pages/homework.html", "screen": [1440, 900], "marks": [
+    {"item": {"type": "bracket", "id": "q1", "x": 330, "y": 120, "h": 110, "find": "Solve by factoring", "to": "x = -2 or x = -3"}, "phrase": "Solve by factoring", "to": "x = −2 or x = −3"},
+    {"item": {"type": "underline", "id": "sign", "x": 340, "y": 222, "w": 150, "find": "x = -2 or x = -3"}, "phrase": "x = −2 or x = −3"},
+    {"item": {"type": "highlight", "id": "q3", "x": 330, "y": 470, "w": 400, "h": 30, "find": "Find the slope of the line through"}, "phrase": "Find the slope of the line through"},
+    {"item": {"type": "underline", "id": "q4", "x": 330, "y": 610, "w": 160, "find": "Sketch y = x² − 4"}, "phrase": "Sketch y = x² − 4"},
+    {"item": {"type": "underline", "id": "twice", "x": 400, "y": 420, "w": 150, "find": "or x = -2"}, "phrase": "or x = −2", "note": "also in question 1: the one near the mark"}
+  ]},
+  {"page": "tools/e2e/pages/lecture.html", "screen": [1512, 982], "marks": [
+    {"item": {"type": "underline", "id": "net", "x": 100, "y": 240, "w": 300, "find": "Net force: 10 N − 4 N = 6 N", "label": "subtract"}, "phrase": "Net force: 10 N − 4 N = 6 N"},
+    {"item": {"type": "box", "id": "fr", "x": 420, "y": 180, "w": 220, "h": 30, "find": "friction is 4 N to the left"}, "phrase": "friction is 4 N to the left"}
+  ]},
+  {"page": "tools/e2e/pages/chart.html", "screen": [1440, 900], "marks": [
+    {"item": {"type": "circle", "id": "billing", "x": 240, "y": 180, "r": 40, "find": "668", "label": "most: 668"}, "phrase": "668"},
+    {"item": {"type": "underline", "id": "low", "x": 600, "y": 440, "w": 70, "find": "148", "label": "lowest: 148"}, "phrase": "148"}
+  ]}
+]

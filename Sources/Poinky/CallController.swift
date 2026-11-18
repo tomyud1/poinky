@@ -1675,7 +1675,7 @@ final class CallController: NSObject, NSMenuDelegate {
         let lines = lastSnapshot?.text.lines ?? []
         let shotSize = lastSnapshot.map { CGSize(width: $0.width, height: $0.height) } ?? .zero
         for d in ev.draws {
-            let snapped = MarkSnapper.snap(d, lines: lines, size: shotSize, scale: replyScale)
+            let snapped = MarkSnapper.snap(d, lines: lines, size: shotSize, scale: replyScale, text: lastSnapshot?.text)
             overlay.apply(snapped, scale: replyScale)
             // What the talker marked is what's being explained: keep the paper and captions off it.
             if let b = Placement.bounds(ofDraw: snapped, scale: replyScale) {
@@ -2070,7 +2070,7 @@ final class CallController: NSObject, NSMenuDelegate {
         guard !lines.isEmpty,
               var obj = (try? JSONSerialization.jsonObject(with: Data(json.utf8))) as? [String: Any],
               let ops = obj["ops"] as? [[String: Any]] else { return json }
-        obj["ops"] = ops.map { op in op["op"] as? String == "screen" ? MarkSnapper.snapItem(op, lines: lines, size: size, scale: snapshot.scale) : op }
+        obj["ops"] = ops.map { op in op["op"] as? String == "screen" ? MarkSnapper.snapItem(op, lines: lines, size: size, scale: snapshot.scale, text: snapshot.text) : op }
         guard let data = try? JSONSerialization.data(withJSONObject: obj), let out = String(data: data, encoding: .utf8) else { return json }
         return out
     }
@@ -2313,7 +2313,7 @@ final class CallController: NSObject, NSMenuDelegate {
             state = .speaking
         }
         for d in ev.draws {
-            let snapped = MarkSnapper.snap(d, lines: snap.text.lines, size: CGSize(width: snap.width, height: snap.height), scale: snap.scale)
+            let snapped = MarkSnapper.snap(d, lines: snap.text.lines, size: CGSize(width: snap.width, height: snap.height), scale: snap.scale, text: snap.text)
             overlay.clearAnnotations()
             overlay.apply(snapped, scale: snap.scale)
             guide?.target = Placement.bounds(ofDraw: snapped, scale: snap.scale)
