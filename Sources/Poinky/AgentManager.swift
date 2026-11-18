@@ -244,10 +244,13 @@ final class AgentManager {
         do { try input.write(contentsOf: line) } catch { return false }
         closeWork[id]?.cancel()
         closeWork[id] = nil
+        let wasPaused = agents[i].paused
         agents[i].paused = false
         agents[i].followUps.append(text)
         appendLog(agents[i], "\n## Follow-up\n\n\(text)\n\n")
         record(id, HelperEntry(k: "you", text: text))
+        // Its card said "Paused" until its next step (which can be a while): now it says it's going on.
+        if wasPaused { agents[i].latest = "Back to work"; onEvent?(agents[i], .step("Back to work")) }
         onChange?()
         return true
     }

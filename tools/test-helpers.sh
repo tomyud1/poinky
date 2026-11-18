@@ -169,6 +169,7 @@ expect "$TMP/P.txt" "pause #1: true" "it can be paused"
 expect "$TMP/P.txt" "#1 after pausing: status running, paused true, talk: Mint is paused" "paused, it keeps waiting (and says so)"
 expect "$TMP/P.txt" "status line: .*PAUSED by the user" "the main agent knows it's paused"
 expect "$TMP/P.txt" "new direction to #1: true, paused now false" "a new direction gets it going again"
+expect "$TMP/P.txt" "#1 Mint event step\\(\"Back to work\"\\)" "its card stops saying Paused"
 expect "$TMP/P.txt" "FINISHED done.*Done: Use yarn instead" "it finishes with the new direction"
 grep -q "You paused it" "$TMP"/logs-P/*.chat.jsonl && pass "its window shows the pause" || bad "its window shows the pause"
 
