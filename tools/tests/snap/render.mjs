@@ -1,6 +1,6 @@
 // Renders a page the way a Mac screen shows it (2x pixels) and says where phrases on it are, so the
 // snapping test can check marks against the real text. Usage:
-//   node render.mjs page.html out.png width height '["phrase" or "#id", …]'   → out.png + out.png.json ({phrase: [x,y,w,h]} in points)
+//   node render.mjs page.html out.png width height '["phrase", "phrase@2" (its 2nd appearance) or "#id", …]'   → out.png + out.png.json ({phrase: [x,y,w,h]} in points)
 import { spawn } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -40,11 +40,14 @@ const find = `(${function (phrases) {
   for (const p of phrases) {
     // "#id": an element (a checkbox, an icon) instead of text.
     if (p.startsWith('#')) { const e = document.querySelector(p); const b = e && e.getBoundingClientRect(); out[p] = b ? [b.left, b.top, b.width, b.height] : null; continue; }
-    const at = text.indexOf(p);
+    // "text@n": its n-th appearance on the page.
+    const m = /^(.*)@(\d+)$/.exec(p), q = m ? m[1] : p;
+    let at = text.indexOf(q);
+    for (let i = 1; m && i < +m[2] && at >= 0; i++) at = text.indexOf(q, at + 1);
     if (at < 0) { out[p] = null; continue; }
     const r = document.createRange();
     r.setStart(chars[at][0], chars[at][1]);
-    const [en, ei] = chars[at + p.length - 1]; r.setEnd(en, ei + 1);
+    const [en, ei] = chars[at + q.length - 1]; r.setEnd(en, ei + 1);
     // Union of the line boxes (a <br> in the phrase makes several).
     let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
     for (const b of r.getClientRects()) { if (!b.width) continue; x0 = Math.min(x0, b.left); y0 = Math.min(y0, b.top); x1 = Math.max(x1, b.right); y1 = Math.max(y1, b.bottom); }

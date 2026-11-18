@@ -19,7 +19,8 @@
   ]},
   {"page": "tools/e2e/pages/lecture.html", "screen": [1512, 982], "marks": [
     {"item": {"type": "underline", "id": "net", "x": 100, "y": 240, "w": 300, "find": "Net force: 10 N − 4 N = 6 N", "label": "subtract"}, "phrase": "Net force: 10 N − 4 N = 6 N"},
-    {"item": {"type": "box", "id": "fr", "x": 420, "y": 180, "w": 220, "h": 30, "find": "friction is 4 N to the left"}, "phrase": "friction is 4 N to the left"}
+    {"item": {"type": "box", "id": "fr", "x": 420, "y": 180, "w": 220, "h": 30, "find": "friction is 4 N to the left"}, "phrase": "friction is 4 N to the left"},
+    {"item": {"type": "circle", "id": "fric4", "x": 270, "y": 372, "r": 30, "find": "4 N", "label": "-4 N"}, "phrase": "4 N@3", "note": "the diagram's 4 N (the first reading missed it); the sentence's 4 N is far from the mark"}
   ]},
   {"page": "tools/tests/snap/pages/edges.html", "screen": [1440, 900], "note": "a window flush with the screen's edges, small checkboxes and icons", "marks": [
     {"item": {"type": "circle", "id": "file", "x": 30, "y": 10, "r": 30, "find": "File menu", "label": "here"}, "phrase": "File menu"},

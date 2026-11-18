@@ -421,6 +421,16 @@ enum MarkSnapper {
         var target: CGRect?
         if let q = it["find"] as? String {
             target = locate(q, to: it["to"] as? String, hint: hint(it), in: lines)
+            // Found only far from where the mark was meant to go ("4 N" in a sentence, when the model pointed
+            // at the diagram's "4 N" that the first reading missed): read around the mark too, and take a
+            // match there instead.
+            if let t = target, let h = hint(it), let text, hypot(t.midX - h.x, t.midY - h.y) > max(120, t.height * 5) {
+                for strip in strips(around: it, size: size) {
+                    let more = merged(lines, with: text.lines(inStrip: strip))
+                    if let near = locate(q, to: it["to"] as? String, hint: h, in: more),
+                       hypot(near.midX - h.x, near.midY - h.y) < hypot(t.midX - h.x, t.midY - h.y) * 0.5 { target = near; lines = more; break }
+                }
+            }
             // Not found: read thin strips around where the mark was meant to go again.
             if target == nil, let text {
                 for strip in strips(around: it, size: size) {
