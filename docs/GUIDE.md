@@ -137,15 +137,13 @@ Poinky is signed with a local certificate ("Poinky Local Signing", created by `b
 
 ## Settings
 
-✨ menu → **Settings…** (⌘,) opens the settings window: hold-to-talk keys, call shortcut, language and pause length, buddy and sounds, voice picker with ▶ preview and speed, Claude connection and models, **Privacy** (apps that are never captured; password managers are excluded by default), and prompt editing. Everything is stored in `~/Library/Application Support/Poinky/config.json`:
+✨ menu → **Settings…** (⌘,) opens the settings window: hold-to-talk keys, call shortcut, language and pause length, buddy and sounds, voice picker with ▶ preview and speed, Claude connection and Quick / Careful, **Privacy** (apps that are never captured; password managers are excluded by default), and prompt editing. Everything is stored in `~/Library/Application Support/Poinky/config.json`:
 
 | Key | Default | What it does |
 |---|---|---|
 | `brain` | `claudeCode` | `claudeCode` (your subscription) or `api` (API key) |
-| `claudeCodeModel` | `haiku` | Talker model. Haiku is fastest. |
 | `artistEnabled` | `true` | Turn the diagram/3D artist on or off (also in the menu) |
-| `artistModel` | `sonnet` | Artist model. `sonnet` gives detailed models (~30 s for 3D); `haiku` is ~8 s but simpler. |
-| `apiModel` / `apiArtistModel` | `claude-haiku-5-5` / `claude-sonnet-5-5` | The same two roles for the API brain |
+| `claudeCodeModel`, `artistModel`, `guideModel`, `doerModel` (and `api…` for the API brain), `talkerEffort`, `artistEffort`, `guideEffort`, `doerEffort` | Quick | Each part's model and effort. Settings → Claude sets them all at once with **Quick** (the defaults: Haiku talks, Sonnet teaches and does things) or **Careful** (Sonnet talks, the teacher thinks first, Opus does things); any other mix shows as Custom and is edited under Settings → Advanced. |
 | `apiKey` | | Anthropic API key (API brain only) |
 | `language` | `en-US` | e.g. `he-IL` for Hebrew (uses Apple's dictation engine). Claude replies in the language you speak. |
 | `voiceEngine` | `phonon` | `phonon` (free local neural voice) or `apple` |
@@ -164,7 +162,6 @@ Poinky is signed with a local certificate ("Poinky Local Signing", created by `b
 | `memoryEnabled` | `true` | Remember things about you between sessions |
 | `agentPermission` | `auto` | Background agents: `auto` (Claude Code's auto mode; falls back to `acceptEdits` if it can't start), `acceptEdits` or `plan` |
 | `computerControl` | `true` | Let Poinky click and type for you when you ask it to do something |
-| `doerModel` / `apiDoerModel` | `sonnet` / `claude-sonnet-5-5` | The model that clicks and types for you |
 | `agentModel` | | Background agents' model (empty = your Claude Code default) |
 | `silenceSeconds` | `1.0` | Hands-free calls: how long a pause ends your question |
 | `hotkey` | `ctrl+option+space` | Starts / ends a hands-free call, e.g. `cmd+shift+k`, `f13` |
