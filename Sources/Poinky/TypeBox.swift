@@ -38,7 +38,7 @@ final class TypeBox: NSObject, NSTextViewDelegate, NSWindowDelegate {
         var o = NSPoint(x: mouse.x + 18, y: mouse.y - 22 - panel.frame.height)
         o.x = min(max(vis.minX + 8, o.x), vis.maxX - panel.frame.width - 8)
         if o.y < vis.minY + 8 { o.y = mouse.y + 22 }
-        panel.setFrameOrigin(o)
+        panel.setFrameOrigin(Self.testOrigin ?? o)
         panel.alphaValue = 0
         panel.makeKeyAndOrderFront(nil)
         panel.makeFirstResponder(text)
@@ -325,6 +325,8 @@ final class TypeBox: NSObject, NSTextViewDelegate, NSWindowDelegate {
     func windowDidResignKey(_ notification: Notification) { if !Self.keepForTests { close() } }
     /// Tests (`--type`, launched in the background): the box can't keep the keyboard there, so it stays open anyway.
     static var keepForTests = false
+    /// Tests (`--type-box-test`): off screen, so the pictures don't put a box in front of whoever uses the Mac.
+    static var testOrigin: NSPoint?
 }
 
 extension TypeBox {
@@ -337,6 +339,7 @@ extension TypeBox {
         func log(_ s: String) { lines.append(s); try? lines.joined(separator: "\n").write(toFile: outDir + "/log.txt", atomically: true, encoding: .utf8) }
         let box = TypeBox()
         keep = box
+        testOrigin = NSPoint(x: -4000, y: 400)
         box.onSend = { text, helper in log("sent \(String(reflecting: text)) to \(helper.map { "#\($0)" } ?? "Poinky")") }
         func key(_ code: UInt16, shift: Bool = false) {
             guard let tv = box.text, let e = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: shift ? [.shift] : [], timestamp: 0,

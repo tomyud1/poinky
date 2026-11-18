@@ -28,6 +28,7 @@ Use this when the user asks how Poinky works, what it can do, or how to change s
 - `buddy`: true/false (show the cursor buddy at all).
 - `buddyAutoHide`: seconds after Poinky finishes before the buddy hides (0 = never, 3 = right after it answers). It comes back when you hold ⌃⌥. Settings → General → "Hide the buddy".
 - `sounds`: true/false (interface sounds). `soundVolume`: 0–1 (how loud they are; Poinky's voice is separate).
+- `quiet`: true/false. Quiet mode: answers are written next to the buddy (with Copy) and nothing is played (no voice, sounds, or video sound). For "I'm in a library", "don't talk out loud". Also the notch's speaker button and ⌃⌥Q. Typed questions (⌃⌥T) are always answered in writing, in the box; the last few answers are in the notch with Copy.
 - `artistEnabled`: true/false (the teacher: lessons and 3D).
 - `paperLook`: "auto" (a chalkboard when the screen is dark, else paper), "paper", "chalkboard". Lessons can be saved: the paper's Save button (one page as a picture) and "Save all" (every page of the session as one PDF), or by asking.
 - `silenceSeconds`: hands-free calls, how long a pause ends a question (0.5–2.5).

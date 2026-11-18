@@ -40,7 +40,7 @@ enum QuietPhrase {
         "שקט", "(?:תהיה|תהי|היה) בשקט", "מצב שקט", "בלי קול", "תפסיק לדבר(?: בקול)?", "אל תדבר(?: בקול)?", "רק טקסט", "תכתוב במקום לדבר",
     ]
     private static let off = [
-        "(?:you can|you may|ok to|okay to) (?:talk|speak)(?: again| out loud| aloud)*", "(?:talk|speak) (?:to me )?(?:again|out loud|aloud)(?: again)?",
+        "(?:you can|you may|ok to|okay to) (?:talk|speak)(?: again| out loud| aloud)*", "(?:talk|speak) (?:to me )?(?:again|out loud|aloud|normally)(?: again)?",
         "unmute(?: yourself)?", "quiet mode off", "(?:turn|switch) off quiet mode", "(?:turn|switch) quiet mode off", "(?:stop|end|exit|leave) quiet mode",
         "(?:turn|switch) (?:your|the) voice (?:back )?on", "(?:turn|switch) on (?:your|the) voice", "(?:use|with) (?:your|the) voice(?: again)?",
         "(?:you can )?(?:stop being|no need to be|don't be) quiet", "(?:i'm|i am) (?:back|out of the (?:library|lecture|meeting))",

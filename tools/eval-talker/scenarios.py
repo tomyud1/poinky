@@ -385,4 +385,27 @@ SCENARIOS = [
                  ("the reminder is ready: <offer> with <remind> before 5 today", lambda r: not re.search(r"remind", r["say"], re.I)
                   or offer_attr("remind", "at", r"^2026-11-15 1[4-6]:\d\d$")(r)),
                  ("short", say_words_max(30))]),
+    # Quiet mode (Quiet.swift): clear phrases ("be quiet") are switched by the app without the talker; these are the
+    # fuzzier ones the talker gets, which should become <set>{"quiet": …}</set>, and a typed rewrite (shown, not said).
+    dict(id="quiet-meeting", who="office", html=MAIL, ctx=["Front app: Mail, window “Demo next week?”."],
+         said="I'm going into a meeting now so keep it down from now on, just write to me", cursor=(700, 260),
+         checks=[("turns quiet mode on", body("set", r'"quiet"\s*:\s*true')), ("doesn't act", lacks("do", "agent")), ("short", say_words_max(25))]),
+    dict(id="quiet-roommate", who="student", html=LECTURE, ctx=LECTURE_CTX,
+         said="my roommate is asleep, can you not use your voice tonight", cursor=(520, 230),
+         checks=[("turns quiet mode on", body("set", r'"quiet"\s*:\s*true')), ("doesn't act", lacks("do", "agent"))]),
+    dict(id="quiet-howto", who="student", html=LECTURE, ctx=LECTURE_CTX,
+         said="is there a way to use you in the library without you talking", cursor=(520, 230),
+         checks=[("explains quiet mode", say(r"(?i)quiet")), ("doesn't act", lacks("do", "agent"))]),
+    dict(id="quiet-back", who="office", html=MAIL,
+         ctx=["Front app: Mail, window “Demo next week?”.", "(Quiet mode is on: the user reads your reply; nothing is said out loud.)"],
+         said="ok I'm out of the meeting, talk to me normally again", cursor=(700, 260),
+         checks=[("turns quiet mode off", body("set", r'"quiet"\s*:\s*false')), ("doesn't act", lacks("do", "agent"))]),
+    dict(id="typed-punchier", who="writer", html=PAGES,
+         ctx=["Front app: Pages, window “Onboarding proposal”.", "Open document: ~/Documents/Work/Onboarding proposal.pages.",
+              "The user selected this text (when they say \"this\" or \"it\" without marking anything, they most likely mean it):\n«" + PAGES_PARA + "»",
+              "(The user typed this: your reply is shown as text in their box, not said out loud.)"],
+         said="make this paragraph punchier", cursor=(600, 200),
+         checks=[("writes the whole rewrite", lambda r: len(re.sub(r"(?i)want me to.*|^.*?here'?s an?( \w+)? version[.:]?", "", r["say"]).split()) >= 8),
+                 ("offers to put it in", lambda r: offered("do")(r) or say(r"want me to|should I|shall I|swap|put it in|replace")(r)),
+                 ("no agent", lacks("agent"))]),
 ]

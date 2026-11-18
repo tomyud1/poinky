@@ -1525,6 +1525,10 @@ final class CallController: NSObject, NSMenuDelegate {
         if ["short version", "sum it up", "summarize", "summarise", "tl;dr", "tldr", "gist", "in a nutshell", "quick summary"].contains(where: { q.contains($0) }) {
             return "(Summary: at most 3 short sentences, about 40 words, the main point first. Don't list every item.)"
         }
+        if ["quiet", "out loud", "aloud", "your voice", "keep it down", "talk normally", "talk to me normally", "speak normally",
+            "silent", "mute", "stop talking", "write to me", "just write", "no talking", "without talking", "without you talking"].contains(where: { q.contains($0) }) {
+            return "(If they want you to stop or start talking out loud, that's quiet mode: add <set>{\"quiet\": true}</set> (false to talk again) and say so in a few words.)"
+        }
         return nil
     }
 
@@ -2809,7 +2813,8 @@ final class CallController: NSObject, NSMenuDelegate {
         case .say(let line)?:
             sayQuick(line, said: said)
         case .passed(let name)?:
-            overlay.setClaudeCaption("\(name) got it")
+            if answerInBox { typeBox.showAnswer("✓ \(name) got it."); typeBox.answerDone(copy: nil) }
+            else { overlay.setReading(false); overlay.setClaudeCaption("\(name) got it") }
             logExchange(said, "(passed to \(name))")
             state = restingState
             captionFade?.cancel()

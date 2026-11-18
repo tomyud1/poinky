@@ -16,7 +16,7 @@ let phrases: [(String, Bool?)] = [
     ("mute yourself", true), ("turn off your voice", true), ("just write it instead", true), ("text only", true),
     ("answer in text", true), ("I'm in a library", true), ("I’m in a lecture", true), ("can you please be quiet", true),
     ("ok please go quiet", true),
-    ("You can talk again.", false), ("talk to me again", false), ("speak out loud", false),
+    ("You can talk again.", false), ("talk to me again", false), ("talk to me normally again", false), ("speak out loud", false),
     ("unmute", false), ("quiet mode off", false), ("turn off quiet mode", false), ("stop quiet mode", false),
     ("turn your voice back on", false), ("I'm back", false), ("you can stop being quiet", false),
     ("תהיה בשקט", true), ("מצב שקט", true), ("שקט", true), ("אפשר לדבר שוב", false), ("תבטל את מצב שקט", false),

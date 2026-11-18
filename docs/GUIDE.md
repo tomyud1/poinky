@@ -30,7 +30,7 @@ Hold two keys and talk with Claude about what's on your screen. It answers out l
 2. **Hold ⌃⌥** (Control + Option) and talk. **Let go** and Claude answers. The mic is on only while you hold the keys.
    - A little blue **buddy** follows your cursor with a springy wobble. While you talk it shows your words next to it; while Claude thinks it turns into three orbiting dots; then Claude's words appear in its bubble as they're spoken, and it **flies over to point** at whatever Claude marks.
    - The **notch grows wings** with a soft glow: Listening (blue, with live mic bars), Thinking (violet dots), Speaking (orange bars). On screens without a notch, a tab appears at the top center.
-   - Messages next to the buddy fade 2 s after Claude finishes.
+   - Messages next to the buddy fade 2 s after Claude finishes (in quiet mode they stay until you're done; see "Quiet" below).
    - Soft sounds mark pressing, sending and nothing-heard (turn them off in Settings). They play through Poinky's own audio, so echo cancellation in hands-free calls doesn't swallow them.
    - **Hold again** to cut Claude off and ask something else. Holding again before Claude starts answering adds to your question. A **quick tap** of ⌃⌥ just stops it (nothing is sent).
    - **⌃⌥B** hides the buddy until your next question (also in the notch, and it can hide itself after some idle time: Settings → General).
@@ -51,6 +51,18 @@ Hold two keys and talk with Claude about what's on your screen. It answers out l
    - Scrolling the page clears the quick marks (they'd no longer line up), but the close-up of what you circled is kept, so you can still ask about it. Cards stay.
    - Drawings belong to the window they're about: they hide when it's minimized, covered or on another desktop, come back with it, and move along when you drag it.
    - The paper is placed (and sized) in the largest free space next to what's being explained; captions move to the top when the bottom is busy, and fade out when Claude is done.
+
+### Quiet: when you can't talk out loud
+In a library, a lecture, an open office or a call, turn on **quiet mode**: the speaker button in the notch's row, **⌃⌥Q**, the ✨ menu, Settings → Voice, or just say or type "be quiet" ("you can talk again" turns it off). Then nothing is played: no voice, no interface or helper sounds, videos play muted with subtitles, and helper notifications come without a sound. A slashed speaker beside the notch shows it's on, and while it answers the notch says *Writing*.
+- The answer is written in a bubble next to where the buddy was: the whole answer, not just the latest sentence, coming in at about reading speed. It stays where it opened while you move the mouse, scrolls when it's long, and stays until your next question, ✕, or a click somewhere else. **Copy** copies it (or just the rewrite or command in it).
+- Drawings work the same: each lesson step is drawn with its sentence, 3D steps get their time on screen.
+- You can still ask out loud (whispering works), or type.
+
+### Typed in, text out
+A question typed in the box (⌃⌥T) is answered **in the box**, in writing, never out loud: your question, then the answer as it comes, then **Copy** (select part of it and ⌘C works too). Type the next question right there as a follow-up. Esc or a click elsewhere closes it. Marks and papers still appear on screen. "@Mint …" still goes to that helper.
+
+### The last answer doesn't disappear
+Hover the notch: the last answer is one line with a copy button; click it to read all of it, with ‹ › for the few before. When a spoken answer has something to paste (a rewrite, a command, a line for an email), the bubble keeps just that part with **Copy** for a few seconds after Poinky stops talking.
 
 ### It knows you
 Poinky remembers things about you between sessions (your name, what you're working on, what interests you, how you like answers) and uses them to feel like a friend who remembers. It's a plain list stored only on this Mac: read, edit or clear it in Settings → Memory, or say "forget that" / "what do you remember about me?".
@@ -140,6 +152,8 @@ Poinky is signed with a local certificate ("Poinky Local Signing", created by `b
 | `pushToTalk` | `ctrl+option` | Keys to hold while talking: `ctrl+option`, `ctrl+shift`, `option+cmd`, or `off` |
 | `buddy` | `true` | The buddy at your cursor (captions appear next to it instead of at the bottom) |
 | `sounds` | `true` | Soft interface sounds |
+| `quiet` | `false` | Quiet mode: answers are written (with Copy), nothing is played |
+| `quietHotkey` | `ctrl+option+q` | Turns quiet mode on / off |
 | `menuBarIcon` | `false` | Also show ✨ in the menu bar (always shown when no screen has a notch) |
 | `buddyHotkey` | `ctrl+option+b` | Hides / shows the buddy |
 | `buddyAutoHide` | `0` | Hide the buddy this many seconds after it finishes (0 = never, 3 = right after it answers); it comes back when you hold ⌃⌥ |
