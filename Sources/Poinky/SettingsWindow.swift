@@ -372,7 +372,7 @@ private struct UpdateSection: View {
     private var status: String {
         let at = updater.lastChecked.map { " (checked at \($0.formatted(date: .omitted, time: .shortened)))" } ?? ""
         switch updater.state {
-        case .upToDate: return "Poinky is up to date\(at)."
+        case .upToDate: return "Poinky is up to date with GitHub\(at)." + (updater.rebuildNote.map { " " + $0 } ?? "")
         case .failed(let why), .unavailable(let why): return why
         case .checking: return "Looking for a new version…"
         default: return "Gets the newest Poinky from GitHub and builds it on this Mac."

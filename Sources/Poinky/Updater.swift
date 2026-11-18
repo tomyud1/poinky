@@ -28,6 +28,9 @@ final class Updater: ObservableObject {
     @Published private(set) var step = ""
     @Published private(set) var progress = 0.0
     @Published private(set) var lastChecked: Date?
+    /// A folder of your own already has GitHub's version but this build is older: not an update (nothing to
+    /// get), just a rebuild. Said in Settings; no arrow in the notch.
+    @Published private(set) var rebuildNote: String?
     /// The notch shows an arrow while an update is available or ready.
     var onChange: (() -> Void)?
     /// Why restarting now would interrupt something ("Mint is still working…"), or nil.
@@ -132,6 +135,7 @@ final class Updater: ObservableObject {
                 case .success(let found):
                     self.target = found.target
                     self.changes = found.changes
+                    self.rebuildNote = found.rebuild
                     // Newer, but this folder can't take it (uncommitted changes): say why, and don't offer it.
                     if found.newer, let why = found.blocked { self.state = .unavailable(why) }
                     else { self.state = found.newer ? .available : .upToDate }
@@ -142,7 +146,7 @@ final class Updater: ObservableObject {
         }
     }
 
-    struct Found { var target: String; var newer: Bool; var changes: [String]; var blocked: String? = nil }
+    struct Found { var target: String; var newer: Bool; var changes: [String]; var blocked: String? = nil; var rebuild: String? = nil }
 
     /// Asks GitHub for the branch this copy follows. Runs off the main thread.
     nonisolated static func findUpdate(src: URL, running: String) -> Result<Found, Failure> {
@@ -154,6 +158,8 @@ final class Updater: ObservableObject {
         let target = git(src, ["rev-parse", "FETCH_HEAD"]).out.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !target.isEmpty else { return .failure(Failure("Couldn't read the new version.")) }
         let head = git(src, ["rev-parse", "HEAD"]).out.trimmingCharacters(in: .whitespacesAndNewlines)
+        let env = ProcessInfo.processInfo.environment
+        let running = env["POINKY_UPDATE_RUNNING"] ?? running   // tests: the commit this build pretends to be
         let base = running.isEmpty ? head : running
         // Up to date: the same commit, or this copy is already ahead of GitHub (your own commits).
         if target == base || git(src, ["merge-base", "--is-ancestor", target, base]).ok {
@@ -162,6 +168,13 @@ final class Updater: ObservableObject {
         var log = git(src, ["log", "--format=%s", "-n", "30", "\(base)..\(target)"])
         if !log.ok { log = git(src, ["log", "--format=%s", "-n", "30", "\(head)..\(target)"]) }
         let changes = log.ok ? log.out.split(separator: "\n").map(String.init).filter { !$0.isEmpty } : []
+        // Your own folder already has GitHub's version (you pulled), only this build is older: there's nothing to
+        // get, so it isn't offered as an update.
+        if !isInstallerCopy(src), target == head || git(src, ["merge-base", "--is-ancestor", target, head]).ok {
+            let n = changes.count == 30 ? "30+" : "\(changes.count)"
+            return .success(Found(target: target, newer: false, changes: [],
+                                  rebuild: "\(AppContext.tilde(src.path)) has \(n) commit\(changes.count == 1 ? "" : "s") this build doesn't. Rebuild to match your source (./build.sh there)."))
+        }
         return .success(Found(target: target, newer: true, changes: changes, blocked: uncommitted(src)))
     }
 
@@ -403,7 +416,8 @@ final class Updater: ObservableObject {
         }
         check { [weak self] in
             guard let self else { return }
-            lines.append("checked \(self.state), changes \(self.changes.count): " + self.changes.prefix(5).joined(separator: " | "))
+            lines.append("checked \(self.state), changes \(self.changes.count): " + self.changes.prefix(5).joined(separator: " | ")
+                         + (self.rebuildNote.map { " rebuild: \($0)" } ?? ""))
             write()
             guard self.state == .available, ProcessInfo.processInfo.environment["POINKY_UPDATE_CHECK_ONLY"] != "1" else {
                 watch.invalidate(); write(); NSApp.terminate(nil); return
