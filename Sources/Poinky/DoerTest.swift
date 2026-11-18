@@ -52,7 +52,7 @@ enum DoerTest {
         var inFront: Bool {
             // (NSWorkspace's frontmost app lags behind and once named another copy of Poinky while this one was
             // active with this window key; NSApp.isActive is this app's own view of the same thing.)
-            NSApp.isActive && window.isKeyWindow
+            NSApp.isActive && (window.isKeyWindow || NSApp.keyWindow === window)
         }
 
         private func note(_ e: NSEvent) {
@@ -120,25 +120,25 @@ enum DoerTest {
         if let words = ProcessInfo.processInfo.environment["POINKY_TEST_FRONT"], !words.isEmpty {
             let title = frontWindowTitle()
             if title.localizedCaseInsensitiveContains(words) { return true }
-            NSLog("Poinky test: the front window is “\(title)”, not “\(words)”: not acting")
-            Timeline.log("test.notFront")
+            Timeline.log("test.notFront", ["title": title, "app": NSWorkspace.shared.frontmostApplication?.localizedName ?? ""])
             return false
         }
         guard let t = target else { return true }
         if t.inFront { return true }
-        t.add("ABORT: the target window wasn't in front, so nothing was done (active: \(NSApp.isActive), front: \(NSWorkspace.shared.frontmostApplication.map { "\($0.localizedName ?? "?") \($0.processIdentifier)" } ?? "?"), me: \(ProcessInfo.processInfo.processIdentifier), key window: \(NSApp.keyWindow.map { "\(type(of: $0)) “\($0.title)”" } ?? "none"))")
+        t.add("ABORT: the target window wasn't in front, so nothing was done (active: \(NSApp.isActive), isKey: \(t.window.isKeyWindow), front: \(NSWorkspace.shared.frontmostApplication.map { "\($0.localizedName ?? "?") \($0.processIdentifier)" } ?? "?"), me: \(ProcessInfo.processInfo.processIdentifier), key window: \(NSApp.keyWindow.map { "\(type(of: $0)) “\($0.title)”" } ?? "none"))")
         return false
     }
 
-    /// The title of the front app's frontmost window.
+    /// The title of the front app's focused window (accessibility; the window list's first one can be a
+    /// hidden helper window).
     static func frontWindowTitle() -> String {
-        guard let app = NSWorkspace.shared.frontmostApplication,
-              let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]]
-        else { return "" }
-        for w in list where (w[kCGWindowOwnerPID as String] as? pid_t) == app.processIdentifier && (w[kCGWindowLayer as String] as? Int) == 0 {
-            return w[kCGWindowName as String] as? String ?? ""
-        }
-        return ""
+        guard let app = NSWorkspace.shared.frontmostApplication else { return "" }
+        let ax = AXUIElementCreateApplication(app.processIdentifier)
+        var w: CFTypeRef?, t: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(ax, kAXFocusedWindowAttribute as CFString, &w) == .success, let win = w,
+              CFGetTypeID(win) == AXUIElementGetTypeID(),
+              AXUIElementCopyAttributeValue(win as! AXUIElement, kAXTitleAttribute as CFString, &t) == .success else { return "" }
+        return t as? String ?? ""
     }
 
     /// Every combination the doer may send with a modifier (letters and arrows that do nothing harmful in a
