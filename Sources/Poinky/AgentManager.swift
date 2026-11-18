@@ -573,8 +573,14 @@ final class AgentManager {
         if AppConfig.efforts.contains(config.agentEffort) { args += ["--effort", config.agentEffort] }
 
         let p = Process()
-        p.executableURL = URL(fileURLWithPath: exe)
-        p.arguments = args
+        // Through Poinky's wrapper, so what the helper starts (tests, a dev server) ends with it (HelperExec).
+        if let me = Bundle.main.executableURL, Self.groupHelpers {
+            p.executableURL = me
+            p.arguments = ["--helper-exec", exe] + args
+        } else {
+            p.executableURL = URL(fileURLWithPath: exe)
+            p.arguments = args
+        }
         p.currentDirectoryURL = worktrees[id]?.workDir ?? dir
         var env = ProcessInfo.processInfo.environment
         // A clean Claude Code environment (not settings inherited from wherever Poinky was started).
@@ -922,6 +928,9 @@ final class AgentManager {
         h.write(Data(text.utf8))
         try? h.close()
     }
+
+    /// Helpers run in a process group of their own (`POINKY_HELPER_GROUPS=0`: directly, as before).
+    static let groupHelpers = ProcessInfo.processInfo.environment["POINKY_HELPER_GROUPS"] != "0"
 
     static func executable(config: AppConfig) -> String? {
         if let fake = ProcessInfo.processInfo.environment["POINKY_HELPER_CMD"], !fake.isEmpty,
