@@ -589,6 +589,7 @@ final class CallController: NSObject, NSMenuDelegate {
             else { Self.writeDailyNote(sessionExchanges, config: config, summary: summary.full) }
         }
         sessionExchanges.removeAll()
+        releaseShot = nil
         summary.stop()
         callID += 1
         turn += 1
