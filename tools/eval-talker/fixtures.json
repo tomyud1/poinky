@@ -101,7 +101,8 @@
   "source": "after-fix7",
   "raw": "<say>Sure, here's a tighter version. Want me to swap it in?</say>\n\n<draw>{\"items\":[{\"type\":\"highlight\",\"id\":\"para\",\"x\":143,\"y\":186,\"w\":1020,\"h\":44}]}</draw>",
   "fails": [
-   "replaces it for them (<do>) or reads the rewrite aloud"
+   "the new text is ready to put in (<replace>, or an older <do>)",
+   "the new text is shorter than the old"
   ]
  },
  {

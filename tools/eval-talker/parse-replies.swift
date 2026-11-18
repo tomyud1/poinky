@@ -41,6 +41,7 @@ for raw in replies {
         var a: [String: Any] = ["say": o.say ?? "", "agents": o.actions.agents.count, "reminders": o.actions.reminders.count,
                                 "settings": o.actions.settings.count, "tells": o.actions.tells.count]
         if let d = o.actions.doTask { a["do"] = d }
+        if let x = o.actions.replace { a["replace"] = x.text }
         if let v = o.actions.visual { a["visual"] = v }
         if let g = o.actions.guide { a["guide"] = g }
         r["offer"] = a

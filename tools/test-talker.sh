@@ -6,6 +6,7 @@
 #      the eval's checks and run through the app's own TalkParser (so prompt, parser or check changes that
 #      break tag parsing show up)
 #   3. what is said: only speech, however the reply is cut into stream pieces (tools/tests/talk-parser)
+#   4. `<replace from=… to=…>`: the span of the document it names (TextSpan, tools/tests/text-swap)
 # Usage: tools/test-talker.sh     (a live run with real replies: see tools/eval-talker/README.md)
 set -uo pipefail
 cd "$(dirname "$0")/.."
@@ -36,5 +37,15 @@ swiftc -O -o "$TMP/talk-test" "${SRC[@]}" "$TMP/talk/main.swift" 2>"$TMP/swiftc.
 "$TMP/talk-test" > "$TMP/talk.txt"; code=$?
 grep -E "^FAIL" "$TMP/talk.txt" | sed 's/^/  /'
 [ $code = 0 ] && printf "  \033[32mok\033[0m   %s checks\n" "$(grep -c '^ok' "$TMP/talk.txt")" || { printf "  \033[31mFAIL\033[0m what's said\n"; fail=1; }
+
+echo "T4. New wording goes over the right text: <replace from=… to=…> finds its span (TextSpan)"
+mkdir -p "$TMP/swap"
+cp tools/tests/text-swap/main.swift "$TMP/swap/main.swift"
+awk '/^\/\/\/ Putting new wording into/{exit} {print}' Sources/Poinky/TextSwap.swift | grep -v "^import AppKit\|^import ApplicationServices" > "$TMP/swap/TextSpan.swift"
+{ echo "import Foundation"; cat "$TMP/swap/TextSpan.swift"; } > "$TMP/swap/span.swift"
+swiftc -O -o "$TMP/swap-test" "$TMP/swap/span.swift" "$TMP/swap/main.swift" 2>"$TMP/swiftc.log" || { cat "$TMP/swiftc.log"; exit 1; }
+"$TMP/swap-test" > "$TMP/swap.txt"; code=$?
+grep -E "^FAIL" "$TMP/swap.txt" | sed 's/^/  /'
+[ $code = 0 ] && printf "  \033[32mok\033[0m   %s checks\n" "$(grep -c '^ok' "$TMP/swap.txt")" || { printf "  \033[31mFAIL\033[0m text spans\n"; fail=1; }
 
 exit $fail

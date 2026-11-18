@@ -163,6 +163,7 @@ struct TalkEvents {
     var visual: String?            // a request for the artist
     var guide: String?             // start guide mode toward this goal
     var doTask: String?            // do this task for the user (clicks and types)
+    var replace: ReplaceRequest?   // put new text in place of the selection (or a span named by its first/last words)
     var done: String?              // (guide) the task is finished
     var acts: [String] = []        // (doer) JSON actions to perform: click, type, key, scroll
     var ask: String?               // (doer) a question for the user; wait for their answer
@@ -196,7 +197,7 @@ struct TalkEvents {
     }
     /// Has anything that would act (for logging what a lookup reply tried to do).
     var wouldAct: Bool {
-        guide != nil || doTask != nil || !settings.isEmpty || !remember.isEmpty || !forget.isEmpty || !agents.isEmpty
+        guide != nil || doTask != nil || replace != nil || !settings.isEmpty || !remember.isEmpty || !forget.isEmpty || !agents.isEmpty
             || !aboutUser.isEmpty || !aboutSelf.isEmpty || !unlearnUser.isEmpty || !unlearnSelf.isEmpty
             || !reminders.isEmpty || !reminderCancels.isEmpty
             || !tells.isEmpty || !stops.isEmpty || !undos.isEmpty || end || video != nil || recall != nil || search != nil
@@ -210,6 +211,16 @@ struct TalkEvents {
     /// `<offer say="…">action tags</offer>`: prepared for a yes, not run now (see `PendingOffer`).
     var offer: (say: String?, body: String)?
     var saveLesson: String?                           // <save-lesson/>: "page" (the open paper) or "all" (the session's notebook, one PDF)
+}
+
+/// `<replace>new text</replace>` (the selected text) or `<replace from="its first words" to="its last words">`:
+/// new wording put straight into the user's document by pasting it (`CallController.replaceText`), no doer.
+struct ReplaceRequest: Equatable {
+    var text: String
+    var from: String?
+    var to: String?
+    /// It says which text it replaces (otherwise: whatever is selected).
+    var named: Bool { !(from ?? "").isEmpty }
 }
 
 /// A background job for a Claude Code agent, asked for by the talker.
@@ -299,7 +310,7 @@ struct TalkParser {
             ev.sentences = takeSentences(final: true)
         } else if sayEmitted == 0 {
             var s = text
-            for tag in ["<draw>", "<visual>", "<guide>", "<do>", "<act", "<ask>", "<done>", "<end", "<set>", "<remember", "<forget", "<agent", "<tell", "<stop", "<undo", "<video", "<recall", "<search", "<remind", "<offer"] {
+            for tag in ["<draw>", "<visual>", "<guide>", "<do>", "<act", "<ask>", "<done>", "<end", "<set>", "<remember", "<forget", "<agent", "<tell", "<stop", "<undo", "<video", "<recall", "<search", "<remind", "<offer", "<replace"] {
                 if let r = s.range(of: tag) { s = String(s[..<r.lowerBound]) }
             }
             // (A reply cut off inside its first tag: "<sa" isn't speech.)
@@ -326,6 +337,10 @@ struct TalkParser {
         ev.acts = Self.blocks(text, "act").compactMap { JSONRepair.clean($0.body) }
         ev.ask = Self.blocks(text, "ask").first.map(\.body).flatMap { $0.isEmpty ? nil : $0 }
         if !doDone, let g = Self.blocks(text, "do").first?.body, !g.isEmpty { doDone = true; ev.doTask = g }
+        if let r = Self.blocks(text, "replace").first, !r.body.isEmpty {
+            func a(_ k: String) -> String? { Self.attr(k, in: r.attrs).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.flatMap { $0.isEmpty ? nil : $0 } }
+            ev.replace = ReplaceRequest(text: r.body, from: a("from"), to: a("to"))
+        }
         ev.settings = Self.blocks(text, "set").compactMap { JSONRepair.clean($0.body) }
         // `about="user"` / `about="poinky"` go to user.md / identity.md; plain ones to memory.md.
         for b in Self.blocks(text, "remember") where !b.body.isEmpty {
@@ -428,7 +443,7 @@ struct TalkParser {
     /// Tags whose contents are never spoken (an unclosed `<say>` runs into them, or a model puts one inside).
     private static let actionTags: Set<String> = ["draw", "visual", "guide", "do", "act", "ask", "done", "end", "set",
         "remember", "forget", "agent", "tell", "stop", "undo", "video", "video-cancel", "video-close", "video-play",
-        "recall", "search", "remind", "remind-cancel", "offer", "save-lesson", "step", "step3d", "scene3d", "lesson", "panel"]
+        "recall", "search", "remind", "remind-cancel", "offer", "replace", "save-lesson", "step", "step3d", "scene3d", "lesson", "panel"]
     private static let tagRegex = try! NSRegularExpression(pattern: #"^<(/?)([A-Za-z][A-Za-z0-9-]{0,15})((?:\s+[A-Za-z-]+\s*=\s*"[^"]*")*)\s*(/?)>"#)
 
     /// What of a `<say>` body is speech: other tags (and an action tag's contents) taken out. The haiku

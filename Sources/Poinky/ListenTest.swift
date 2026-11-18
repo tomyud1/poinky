@@ -5,7 +5,8 @@ import AppKit
 /// `at` seconds after launch:
 ///   {"at": 1.0, "keys": "down"}            the talk keys go down (or "up"); PushToTalk's own timing applies
 ///   {"at": 1.6, "words": "what is", "final": false, "live": true}   a result (main transcriber unless "live")
-///   {"at": 2.4, "probe": "label"}          writes what the bubble shows (SB.bubbleState) and the call state
+///   {"at": 2.4, "probe": "label"}          writes what the bubble shows (SB.bubbleState), the call state and how many
+///                                          doer acts ran ("actsAtMost" / "actsAtLeast" in "expect")
 ///   {"at": 3.0, "killPage": true}         ends the overlay page's process (as memory pressure would)
 ///   {"at": 9.0, "quit": true}
 /// A probe's "expect" is checked here (ListenTest.check) and written as an ok / FAIL line. A script can be a list of
@@ -70,10 +71,12 @@ enum ListenTest {
                         c.overlay.evaluateForTest("JSON.stringify(SB.bubbleState ? SB.bubbleState() : null)") { r in
                             MainActor.assumeIsolated {
                                 let json = (r as? String) ?? "null"
-                                write(String(format: "%.2f probe %@ state=%@ bubble=%@", at, label, c.testState, json))
+                                write(String(format: "%.2f probe %@ state=%@ acts=%d bubble=%@", at, label, c.testState, c.testActs, json))
                                 if let want = step["expect"] as? [String: Any] {
                                     let got = (try? JSONSerialization.jsonObject(with: Data(json.utf8))) as? [String: Any] ?? [:]
-                                    let bad = check(want, got: got, state: c.testState)
+                                    var bad = check(want, got: got, state: c.testState)
+                                    if let n = (want["actsAtMost"] as? NSNumber)?.intValue, c.testActs > n { bad.append("the doer went on: \(c.testActs) acts") }
+                                    if let n = (want["actsAtLeast"] as? NSNumber)?.intValue, c.testActs < n { bad.append("only \(c.testActs) acts ran") }
                                     write((bad.isEmpty ? "ok   " : "FAIL ") + label + (bad.isEmpty ? "" : " (" + bad.joined(separator: "; ") + ")"))
                                 }
                             }

@@ -87,5 +87,19 @@ check("say inside an offer isn't spoken now", { var q = TalkParser(); _ = q.feed
 check("an offer still arriving isn't acted on", { var q = TalkParser(); let e = q.feed("<say>Want me to?</say><offer><do>Type hi</do>"); return e.doTask == nil }())
 check("a <do> outside the offer still runs", { var q = TalkParser(); _ = q.feed("<say>On it.</say><do>Type hi</do><offer><visual>v</visual></offer>"); let e = q.finish(); return e.doTask == "Type hi" && e.visual == nil }() || { var q = TalkParser(); let e = q.feed("<say>On it.</say><do>Type hi</do>"); return e.doTask == "Type hi" }())
 
+// 5. New wording: `<replace>` carries the exact text that gets pasted (no doer loop)
+let swap = offer("<replace>Our Friday meetings run long.\nTwenty minutes is plenty.</replace>")
+check("a rewrite may wait as <replace>", swap?.actions.replace?.text == "Our Friday meetings run long.\nTwenty minutes is plenty." && swap?.actions.replace?.named == false)
+check("its default line", swap?.defaultLine == "Swapping it in.")
+let named = offer(#"<replace from="This summer I worked" to="able to do.">At my summer job…</replace>"#)
+check("a rewrite of a named span keeps its first and last words", named?.actions.replace == ReplaceRequest(text: "At my summer job…", from: "This summer I worked", to: "able to do."))
+check("with a <replace>, a <do> in the same offer doesn't also run", { let o = offer(#"<replace>New.</replace><do>Replace it with New.</do>"#); return o?.actions.replace != nil && o?.actions.doTask == nil }())
+check("<replace> is never spoken", { var q = TalkParser(); var said = q.feed("<say>Here's a shorter one. <replace>Secret words.</replace>Want me to swap it in?</say>").sentences; said += q.finish().sentences; return !said.joined().contains("Secret") && said.joined().contains("swap it in") }())
+check("a lookup reply can't replace text", { var q = TalkParser(); _ = q.feed("<say>Ok.</say><replace>x</replace>"); let e = q.finish(); return e.replace != nil && e.onlySpeech().replace == nil && e.wouldAct }())
+if let o = PendingOffer.make((say: nil, body: "<replace>Short.</replace>"), at: 100, app: "com.apple.TextEdit", window: "essay.txt", selection: "A long wordy sentence.") {
+    check("a swap over a selection lapses when the selection changed", o.check(now: 110, app: "com.apple.TextEdit", window: "essay.txt", selection: "Another sentence") == .moved)
+    check("…and runs when it's the same", o.check(now: 110, app: "com.apple.TextEdit", window: "essay.txt", selection: "A long wordy  sentence.") == .ok)
+} else { check("a swap offer is made", false) }
+
 print(failures == 0 ? "ALL OK" : "\(failures) FAILED")
 exit(failures == 0 ? 0 : 1)
