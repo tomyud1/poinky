@@ -184,7 +184,7 @@ final class TeacherLog {
         }
         guard !parts.isEmpty else { return nil }
         let body = TeacherLesson.clip(parts.suffix(2).joined(separator: " Also "), max)
-        return "(What you just showed and said in your sketch, which the user saw and heard in your voice, so it is part of your answer: \(body). Build on it and keep to it; if you now think something in it was wrong, say plainly that you're correcting it.)"
+        return "(What you just showed and said in your sketch, which the user saw and heard in your voice, so it is part of your answer: \(body). It stands as what you said: continue from it in your own words (no apology, no \"let me fix what I said\"). Never contradict it silently: only if you are sure part of it was wrong, say which part.)"
     }
 
     /// For the teacher's next brief: its last lesson didn't finish (cut off or failed), once.

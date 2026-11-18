@@ -36,7 +36,7 @@ func check(_ ok: Bool, _ what: String, _ detail: @autoclosure () -> String = "")
     let news = log.talkerNews() ?? ""
     check(news.contains("then said") && news.contains("x equals 2 or x equals 3") && !news.contains("sign slip") && news.contains("finished"),
           "the talker then hears the rest and the end, not again what it was told", news)
-    check(news.contains("correcting"), "and is told not to contradict it silently", news)
+    check(news.contains("Never contradict it silently") && news.contains("no apology"), "and is told to keep to it, never contradicting it silently", news)
     check(log.talkerNews() == nil, "once")
     check(log.teacherNews() == nil, "a finished lesson isn't news for the teacher")
 
