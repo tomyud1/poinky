@@ -35,7 +35,10 @@ struct StudyPart: Codable, Equatable {
         case .mine: return (mine, mine.isEmpty ? pages : [])
         case .poinky: return ([], pages)
         case .both: return (mine, pages)
-        case .auto: return status == .solvedByUser && !mine.isEmpty ? (mine, []) : ([], pages)
+        case .auto:
+            // Only finished parts go in by themselves (a part you only looked at, or skipped, doesn't).
+            guard status == .solvedByUser || status == .shown else { return ([], []) }
+            return status == .solvedByUser && !mine.isEmpty ? (mine, []) : ([], pages)
         }
     }
 }
