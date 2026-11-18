@@ -384,10 +384,19 @@ enum SentenceSplit {
             if isFirst, softEnders.contains(chars[i]),
                String(chars[start...i]).split(separator: " ").count >= 3,
                i + 1 < chars.count, chars[i + 1].isWhitespace {
-                out.append(String(chars[start...i]))
-                start = i + 1
-                i += 1
-                continue
+                // Not before a short ending: "…your answer is right, / Dana." or "…it's six, / right?" came out as
+                // a second sentence after a pause. Cut only when at least 3 words follow before the sentence ends.
+                switch tail(chars, from: i + 1, closed: closed) {
+                case .cut:
+                    out.append(String(chars[start...i]))
+                    start = i + 1
+                    i += 1
+                    continue
+                case .keep:
+                    break
+                case .wait:
+                    return (out.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }, start)
+                }
             }
             if enders.contains(chars[i]) {
                 var j = i + 1
@@ -408,6 +417,37 @@ enum SentenceSplit {
             start = chars.count
         }
         return (out.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }, start)
+    }
+
+    private enum Tail { case cut, keep, wait }
+    /// What follows a comma in the first piece: 3 or more words before the sentence ends (cut there), fewer (keep
+    /// it whole), or not enough of the reply yet to tell (wait for a few more words).
+    private static func tail(_ chars: [Character], from: Int, closed: Bool) -> Tail {
+        var words = 0, inWord = false, k = from, wordStart = from
+        while k < chars.count {
+            let c = chars[k]
+            if c == ".", inWord, neverLast.contains(String(chars[wordStart...k]).lowercased()) {
+                k += 1; continue   // "e.g." doesn't end the sentence
+            }
+            if !inWord, !c.isWhitespace { wordStart = k }
+            // Punctuation inside a word ("3.5", "i.e") isn't a break.
+            if enders.contains(c) || softEnders.contains(c), c != "\n", k + 1 < chars.count, !chars[k + 1].isWhitespace, !closers.contains(chars[k + 1]) {
+                inWord = true; k += 1; continue
+            }
+            if enders.contains(c) || softEnders.contains(c) {
+                if inWord { words += 1; inWord = false }
+                if enders.contains(c) { return words >= 3 ? .cut : .keep }
+            } else if c.isWhitespace {
+                if inWord { words += 1; inWord = false }
+            } else {
+                inWord = true
+            }
+            if words >= 3 { return .cut }
+            k += 1
+        }
+        if inWord { words += 1 }
+        if words >= 3 { return .cut }
+        return closed ? .keep : .wait
     }
 
     private static func endsSentence(_ chars: [Character], start: Int, dot: Int, after: Int) -> Bool {
