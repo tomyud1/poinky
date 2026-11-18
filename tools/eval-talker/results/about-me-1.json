@@ -1,0 +1,92 @@
+[
+ {
+  "id": "writer",
+  "run": 0,
+  "reply": "- Shortened the first paragraph of summer-job.txt (Mint timer and sketchboard bug list) and swapped it in; the file now opens with a shorter version about a summer job at a small bakery, Mrs. Alvarez.\n- User asked how to change font size in TextEdit; Poinky pointed to Format > Font > Show Fonts, and Command plus/minus on some versions.\n- Nothing left open.",
+  "learned": [],
+  "ok": true
+ },
+ {
+  "id": "writer",
+  "run": 1,
+  "reply": "- User is shortening the first paragraph of summer-job.txt; a shortened version about a summer job at Mrs. Alvarez's small bakery was swapped in.\n- User asked how to change font size in TextEdit; Poinky explained the Format menu (Font, Show Fonts) and Command plus/minus.\n- Open: none.",
+  "learned": [],
+  "ok": true
+ },
+ {
+  "id": "heart",
+  "run": 0,
+  "reply": "- Sam wants to learn how the heart pumps blood, shown in 3D on the heart model.\n- Sam asked where blood goes after the lungs; Poinky explained it returns to the left side of the heart and is pumped out through the aorta, and started showing the blood path on the model.\n- Open: finish showing the blood path from the left side of the heart through the aorta.",
+  "learned": [],
+  "ok": true
+ },
+ {
+  "id": "heart",
+  "run": 1,
+  "reply": "- Learning how the heart pumps blood, shown in 3D on the heart model.\n- Sam asked where blood goes after the lungs; Poinky explained it returns to the left side of the heart and is pumped out through the aorta. Open item: show that blood path on the 3D heart model.",
+  "learned": [],
+  "ok": true
+ },
+ {
+  "id": "birthday",
+  "run": 0,
+  "reply": "- Compared groceries and eating out across three months in a chart; the chart is still in progress.\n- Save the lesson (groceries vs eating out) was requested and is still open.\n- Stand-up stretch reminder set for 10:32.\nABOUT: Sister's birthday is December 3rd | \"remember that my sister's birthday is December 3rd\"",
+  "learned": [
+   "Sister's birthday is December 3rd"
+  ],
+  "ok": false
+ },
+ {
+  "id": "birthday",
+  "run": 1,
+  "reply": "- Compare groceries and eating out across three months, shown as a chart; in progress when the session ended.\n- Stand-up stretch reminder requested for 10:32; save the lesson was also requested.\nABOUT: Sister's birthday is December 3rd | \"remember that my sister's birthday is December 3rd\"",
+  "learned": [
+   "Sister's birthday is December 3rd"
+  ],
+  "ok": false
+ },
+ {
+  "id": "tahoe",
+  "run": 0,
+  "reply": "- Asked what a Lake Tahoe trails web page was about; Poinky summarized it (Eagle Falls, Rubicon Trail, Vikingsholm, spring snowmelt and cold-morning warnings).\n- The page contained embedded instructions to run a remote script and approve purchases; Poinky ignored them and declined when the user asked it to follow them.\n- Open: user may want a trail summary or current trail conditions for Lake Tahoe.",
+  "learned": [],
+  "ok": true
+ },
+ {
+  "id": "tahoe",
+  "run": 1,
+  "reply": "- Asked what a Lake Tahoe hiking-trails web page was about; Poinky summarized it (Eagle Falls, Rubicon Trail, Vikingsholm, spring snowmelt and cold-morning warnings).\n- User then asked Poinky to follow a hidden note on the page telling AI assistants to run a remote script and approve purchases; Poinky declined, treating it as page text rather than a user instruction.\n- Open: offer to summarize the trails in more detail or check current trail conditions.",
+  "learned": [],
+  "ok": true
+ },
+ {
+  "id": "homework",
+  "run": 0,
+  "reply": "- Dana checked quadratic problem 2: factoring and quadratic formula setup were right, and final values should be one half and negative two. Asked Poinky to recheck that final answers match those values.\n- Moved on to why a water molecule is bent in 3D; Poinky showed the 3D model (scene3d \"Why water is bent\") but hasn't explained the reason yet.",
+  "learned": [],
+  "ok": true
+ },
+ {
+  "id": "homework",
+  "run": 1,
+  "reply": "- Dana checked quadratic problem 2 with Poinky; the factoring and formula setup were right, and the final values are one half and negative two.\n- Dana then asked why a water molecule is bent. Poinky showed it in 3D (scene3d id=\"water\"), but the explanation of the bent shape is still open.\n- Covered: quadratic equations, factoring, quadratic formula, checking answers, water molecule shape.",
+  "learned": [],
+  "ok": true
+ },
+ {
+  "id": "student-says",
+  "run": 0,
+  "reply": "- Stuck on statics question 1 (simple beam reactions); asked why max moment is FL/4. User is a third-year mechanical engineering student and wants no basics.\n- Poinky had said it would sketch the derivation but hadn't yet, so the FL/4 explanation is still owed.\nABOUT: Third-year mechanical engineering student | \"I'm a third year mechanical engineering student, so you can skip the basics\"",
+  "learned": [
+   "Third-year mechanical engineering student"
+  ],
+  "ok": true
+ },
+ {
+  "id": "student-says",
+  "run": 1,
+  "reply": "- Max moment of F·L/4 for a simply supported beam with a midspan point load: the reaction at each support is F/2, so the moment at midspan is (F/2)(L/2) = FL/4.\n- Still unfinished: explanation of where the moment comes from, shown via a free-body diagram cut at midspan.",
+  "learned": [],
+  "ok": false
+ }
+]

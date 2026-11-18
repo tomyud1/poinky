@@ -1,0 +1,128 @@
+# TalkerRoute.classify: question	marked (y/n)	work (selected or marked text, - for none)	teacher (none/sketch/check)	flags (- or comma list: app,helpers,time,usage,video,rewrite,summary)
+# Explaining: the teacher sketches while the talker hands over
+explain this	n	-	sketch	-
+can you explain what this function does	n	-	sketch	-
+how does a transistor work	n	-	sketch	-
+how do plants make sugar	n	-	sketch	-
+show me how the heart pumps blood, in 3D	n	-	sketch	-
+draw the graph for number 4	n	-	sketch	-
+what's the difference between mitosis and meiosis	n	-	sketch	-
+compare these two plans	n	-	sketch	-
+teach me how loops work	n	-	sketch	-
+compare groceries and eating out across the three months, like as a chart	n	-	sketch	-
+# The first-run tour's own question, and other "how do I" about schoolwork: a lesson, not a walkthrough
+How do I solve this?	n	-	sketch	-
+how do i solve number three	n	-	sketch	-
+how can I factor this	n	-	sketch	-
+how do I find x here	n	-	sketch	-
+help me understand this paragraph	n	-	sketch	-
+show me how to balance this equation	n	-	sketch	-
+how do I calculate the net force	n	-	sketch	-
+# "How do I" in an app: a walkthrough (the talker's <guide>), no paper
+how do I make the title bigger	n	-	none	guide
+how do I export this as a PDF	n	-	none	guide
+where do I change the font size	n	-	none	guide
+how can I add a filter to this column	n	-	none	guide
+walk me through setting up a new rule	n	-	none	guide
+show me how to turn on dark mode	n	-	none	guide
+help me with number three	n	-	none	-
+# Short on purpose, or a few words: the talker answers alone
+how do you say nice to meet you in French	n	-	none	-
+how do you pronounce Worcestershire	n	-	none	-
+how do you spell necessary	n	-	none	-
+explain briefly what Rubisco does	n	-	none	-
+briefly explain this error	n	-	none	-
+quick question, how does this button work	n	-	none	-
+can you just tell me what a VPN is in one sentence	n	-	none	-
+translate this into Spanish	n	-	none	-
+can you summarize this slide real quick	n	-	none	summary
+# Checking their own work: the teacher checks carefully (the fast talker guessed wrong verdicts)
+did I get number 2 right?	n	-	check	-
+is my answer right for number one	n	-	check	-
+check my work	n	-	check	-
+can you check my answers	n	-	check	-
+where did I go wrong	n	-	check	-
+is number 3 correct	n	-	check	-
+is question 4 right?	n	-	check	-
+briefly, did I get this right	n	-	check	-
+is this right	n	3. 2x² − 8x + 6 = 0 → x = 2, x = 3	check	-
+is this correct	y	x + 5 = 12 so x = 7	check	-
+# "Is this right?" with no math to check: the talker answers (a date, an email, a fact)
+is this right	n	-	none	-
+is this right	n	Thursday at 2pm works for me	none	-
+is that correct about the treaty	n	-	none	-
+# A mark plus what/why: a sketch; without a mark the talker decides
+what does this mean	y	-	sketch	-
+why is this here	y	-	sketch	-
+what does this mean	n	-	none	-
+why is it 6 newtons and not 14	n	-	none	-
+what's this	n	-	none	-
+what does this chart say	n	-	none	-
+show this as a line	n	-	none	-
+# Videos and long explanations: the talker decides, and gets the video section
+make me a video about why the sky is blue	n	-	none	video
+explain the whole story of the Roman empire	n	-	none	video
+give me an in-depth explanation of black holes	n	-	none	video
+# Hebrew and other languages
+תסביר לי מה כתוב פה	n	-	sketch	-
+תסביר לי את המשוואה הזאת	n	-	sketch	-
+איך פותרים את זה	n	-	sketch	-
+מה ההבדל בין מיטוזה למיוזה	n	-	sketch	-
+צדקתי בשאלה 2?	n	-	check	-
+תבדוק לי את התרגיל	n	-	check	-
+זה נכון	n	x = 4 כי 2x + 3 = 11	check	-
+תסביר בקצרה מה זה	n	-	none	-
+איך אומרים תודה בצרפתית	n	-	none	-
+תזכיר לי מחר בתשע	n	-	none	time
+תדבר לאט יותר	n	-	none	app
+explica esto	n	-	sketch	-
+comment ça marche	n	-	sketch	-
+# About the app: the manual and the settings go with the question
+can you talk a little slower	n	-	none	app
+talk faster	n	-	none	app
+change your voice to a British one	n	-	none	app
+how do I hide the buddy	n	-	none	app
+what can you do	n	-	none	app
+what did you see when I asked that	n	-	none	app
+turn off the sounds	n	-	none	app
+what's the shortcut for hands-free	n	-	none	app
+turn the teacher off	n	-	none	app
+forget what we talked about today	n	-	none	app
+how does Poinky work	n	-	sketch	app
+sounds good, thanks	n	-	none	-
+what's the speed of light	n	-	none	-
+my teacher said this is wrong	n	-	none	-
+# Helpers: their finer tags go with the question
+start three helpers to fix these bugs	n	-	none	helpers
+continue the login fix	n	-	none	helpers
+undo what Mint did	n	-	none	helpers
+commit this and open a PR	n	-	none	helpers
+make a plan first, then fix it	n	-	none	helpers
+fix it with Opus	n	-	none	helpers
+how much have the helpers used	n	-	none	helpers,usage
+run a code review on this	n	-	none	helpers
+fix this	n	-	none	-
+why is the sky blue	n	-	none	-
+what's the price of this	n	-	none	-
+# Time and usage
+remind me to call Dan at 5	n	-	none	time
+set a timer for 25 minutes	n	-	none	time
+every weekday at 8 remind me to review my flashcards	n	-	none	time
+what's scheduled	n	-	none	time
+how much have I spent this month	n	-	none	usage
+# Reply shapes the fast talker got wrong
+make this paragraph punchier	n	-	none	rewrite
+can you make this sound more polite	n	-	none	rewrite
+fix the grammar in this	n	-	none	rewrite
+give me the short version of this page	n	-	none	summary
+sum it up	n	-	none	summary
+explain question 1	n	-	sketch	-
+מה עושים בשאלה 1?	n	-	none	-
+תסביר לי את שאלה 1	n	-	sketch	-
+# Before this conversation: look it up (a hint to write <recall>)
+what did you tell me yesterday about my thesis outline	n	-	none	recall
+what did we talk about last time	n	-	none	helpers,recall
+what was I doing in Claude Code this morning	n	-	none	recall
+מה דיברנו אתמול	n	-	none	recall
+quiz me on this	n	-	none	quiz
+תעשה לי בוחן קצר	n	-	none	quiz

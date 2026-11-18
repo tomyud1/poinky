@@ -206,7 +206,9 @@
     }
     switch (it.type) {
       case 'circle': { const cx=s(it.x), cy=s(it.y), r=Math.max(s(it.r),16);
-        ink(g, loop(cx,cy,r*1.15,r)); label(g, cx+r*1.15+10, cy-r*0.55, it.label); break; }
+        // rx/ry: the app fitted an ellipse around the whole target (several lines, a wide phrase).
+        const rx = it.rx != null ? Math.max(s(it.rx),16) : r*1.15, ry = it.ry != null ? Math.max(s(it.ry),16) : r;
+        ink(g, loop(cx,cy,rx,ry)); label(g, cx+rx+10, cy-ry*0.55, it.label); break; }
       case 'box': { const x=s(it.x), y=s(it.y), w=s(it.w), h=s(it.h);
         ink(g, wobblyRect(x-4,y-4,w+8,h+8)); label(g, x, y-14, it.label); break; }
       case 'arrow': { const x1=s(it.x1), y1=s(it.y1), x2=s(it.x2), y2=s(it.y2);
