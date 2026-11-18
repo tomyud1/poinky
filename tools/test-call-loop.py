@@ -11,7 +11,7 @@ Usage: tools/test-call-loop.py [scenario …]     (no names: all of them; --list
 import json, os, subprocess, sys, tempfile, time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-APP = os.path.join(ROOT, "build/Poinky.app")
+APP = os.environ.get("POINKY_APP") or os.path.join(ROOT, "build/Poinky.app")   # (another build: checks that fail before a fix)
 EXE = os.path.join(APP, "Contents/MacOS/Poinky")
 FAKE = os.path.join(ROOT, "tools/fake-claude.py")
 
@@ -25,8 +25,7 @@ def run(name, asks, quit_after, env=None, args=()):
     env = dict(env or {})
     api = env.pop("_API", None)   # the API brain, against tools/fake-api.py on this port
     extra_config = json.loads(env.pop("_CONFIG", "{}"))   # more settings in config.json
-    args = list(args) + json.loads(env.pop("_ARGS", "[]"))   # more arguments (e.g. --type)
-    if not env.pop("_AUDIO", None): env.setdefault("POINKY_MUTE", "1")   # played at volume 0 (the WAV still records it)
+    audio = env.pop("_AUDIO", None)   # really played (otherwise at volume 0: the WAV still records what was scheduled)
     server = None
     if api:
         server = subprocess.Popen([sys.executable, os.path.join(ROOT, "tools/fake-api.py"), api],
@@ -37,16 +36,22 @@ def run(name, asks, quit_after, env=None, args=()):
     with open(f"{d}/support/config.json", "w") as f:
         json.dump({"homeShown": True, "checkForUpdates": False, "sounds": False,
                    **({"brain": "api", "apiKey": "test"} if api else {}), **extra_config}, f)
-    e = {"POINKY_SUPPORT_DIR": f"{d}/support", "POINKY_TIMELINE_DIR": f"{d}/tl",
+    seed = env.pop("_SEED", None)   # files to put in the support folder first: {relative path: text}
+    for rel, text in (seed() if callable(seed) else seed or {}).items():
+        os.makedirs(os.path.dirname(f"{d}/support/{rel}"), exist_ok=True)
+        with open(f"{d}/support/{rel}", "w") as f: f.write(text)
+    extra = env.pop("_ARGS", [])
+    e = {"POINKY_SUPPORT_DIR": f"{d}/support", "POINKY_TIMELINE_DIR": f"{d}/tl", "POINKY_MUTE": "1",
          "POINKY_SPEECH_LOG": f"{d}/speech.txt", "POINKY_CLAUDE_CMD": FAKE, "FAKE_CLAUDE_LOG": f"{d}/fake.txt",
          "POINKY_SPEECH_WAV": f"{d}/played.f32", "POINKY_OVERLAY_LOG": f"{d}/overlay.txt", "POINKY_TYPEBOX_LOG": f"{d}/box.txt"}
     e.update(env)
+    if audio: e.pop("POINKY_MUTE", None)
     if api: e["POINKY_API_URL"] = f"http://127.0.0.1:{api}/v1/messages"
     cmd = ["open", "-n", "-g"]
     for k, v in e.items(): cmd += ["--env", f"{k}={v}"]
     cmd += [APP, "--args"]
     for q in asks: cmd += ["--ask", q]
-    cmd += list(args) + ["--quit-after", str(quit_after)]
+    cmd += list(args) + list(extra) + ["--quit-after", str(quit_after)]
     before = pids()
     subprocess.run(cmd, check=True)
     pid = None
@@ -83,8 +88,16 @@ def run(name, asks, quit_after, env=None, args=()):
         wav = {"secs": len(a) / rate, "peak": max((abs(x) for x in a), default=0.0)}
     def lines(fn): return open(f"{d}/{fn}").read().splitlines() if os.path.exists(f"{d}/{fn}") else []
     cfg = json.load(open(f"{d}/support/config.json"))
+    # What each fake session was sent: (pid, role, text), in order.
+    sent = []
+    if os.path.exists(f"{d}/fake.txt"):
+        for l in open(f"{d}/fake.txt"):
+            parts = l.rstrip("\n").split(" ", 5)
+            if len(parts) == 6 and parts[1] == "pid" and parts[4] == "question:":
+                sent.append((int(parts[2]), parts[3], json.loads(parts[5])))
     return {"events": events, "speech": speech, "spoken": spoken, "wav": wav, "overlay": lines("overlay.txt"),
-            "box": lines("box.txt"), "config": cfg, "hung": hung, "dir": d}
+            "box": lines("box.txt"), "config": cfg, "hung": hung, "dir": d, "sent": sent,
+            "fake": open(f"{d}/fake.txt").read() if os.path.exists(f"{d}/fake.txt") else ""}
 
 
 def evs(r, name, **match):
@@ -279,6 +292,102 @@ def c_quiet_words(r):
 
 REWRITE = {"FAKE_CLAUDE_REPLY": "<say>Here's a shorter version: We ship Friday, tested and ready. Want me to swap it in?</say>"
            "<offer say=\"Swapping it in.\"><do>Replace the selected text with exactly: We ship Friday, tested and ready.</do></offer>"}
+def asked(r, role):
+    """The text each session of `role` was sent, in order (talker, artist, summarizer, notes…)."""
+    return [t for _, ro, t in r["sent"] if ro == role]
+
+
+def conversation(r):
+    out = []
+    cdir = f"{r['dir']}/support/conversations"
+    for fn in sorted(os.listdir(cdir)) if os.path.isdir(cdir) else []:
+        out += [json.loads(l) for l in open(f"{cdir}/{fn}") if l.strip()]
+    return out
+
+
+LESSON1 = ('<lesson title="checking number one"><say>Your factoring is right.</say><step>[{"op":"text","x":40,"y":60,"text":"(x-2)(x-3)=0"}]</step>'
+           '<say>But your answer is wrong: the signs flip, so x is 2 or 3.</say><step>[{"op":"text","x":40,"y":140,"text":"x = 2 or 3"}]</step></lesson>')
+
+def c_teacher_record(r):
+    # r01: the teacher said answer 1 was wrong; the talker, the summary, the log and the daily note must all know.
+    f = []
+    talk = asked(r, "talker")
+    if len(talk) < 2: return [f"the talker got {len(talk)} questions"]
+    if "What you just showed and said" not in talk[1] or "the signs flip" not in talk[1] or "finished" not in talk[1]:
+        f.append("the talker's next message lacks the lesson: " + talk[1][:600])
+    summ = asked(r, "summarizer")
+    if not any("Poinky's sketch:" in t and "finished" in t and "the signs flip" in t for t in summ):
+        f.append(f"no summary update with the finished lesson ({len(summ)} updates)")
+    if any("User: explain number one" in t and "Poinky's sketch" not in t for t in summ):
+        f.append("the summary got the question before its lesson ended (it says 'about to show')")
+    notes = asked(r, "notes")
+    if not notes or "[Sketch:" not in notes[0] or "finished" not in notes[0]: f.append("the daily note's input lacks the lesson: " + (notes[0][:400] if notes else "none"))
+    log = [e for e in conversation(r) if e.get("you") == "explain number one"]
+    if not log or "finished" not in (log[0].get("lesson") or ""): f.append(f"the conversation log lacks the lesson: {log}")
+    return f
+
+
+LESSON6 = ('<lesson title="the heart">' + "".join(f'<say>Heart line {i} is a sentence about the heart that takes a moment.</say>'
+           f'<step>[{{"op":"text","x":40,"y":{40 + 60 * i},"text":"step {i}"}}]</step>' for i in range(1, 7)) + '</lesson>')
+LESSON_NEXT = '<lesson title="the heart" continue="true"><say>Picking up from there.</say></lesson>'
+
+def c_teacher_interrupt(r):
+    # A follow-up while the lesson is still being written: the same teacher session answers it (interrupted, not
+    # restarted) and is told where the user stopped hearing it.
+    f = []
+    art = [(pid, t) for pid, ro, t in r["sent"] if ro == "artist"]
+    if len(art) != 2: return [f"the teacher got {len(art)} briefs"]
+    if art[0][0] != art[1][0]: f.append(f"a new teacher process answered ({art[0][0]} then {art[1][0]})")
+    if "interrupt" not in r["fake"]: f.append("the teacher's turn was never interrupted")
+    if "was cut off" not in art[1][1] or "continue=" not in art[1][1]: f.append("the second brief doesn't say the lesson was cut off: " + art[1][1][:500])
+    if not evs(r, "lesson.end", how="interrupted"): f.append("no interrupted lesson in the timeline")
+    if evs(r, "brain.restart"): f.append("a brain was restarted")
+    talk = asked(r, "talker")
+    if len(talk) < 2 or ("interrupted" not in talk[1] and "Heart line" in r["fake"] and evs(r, "lesson.end", how="interrupted") and
+                         evs(r, "lesson.end", how="interrupted")[0].get("heard", 0) > 0):
+        f.append("the talker wasn't told the lesson was cut off")
+    return f
+
+
+def seed_previous(mins=4, app="Notebook Test App", window="bugs.md", you="can you make the first paragraph shorter",
+                  poinky="Sure. The first paragraph is the Mint timer and sketchboard bug list, so I'll shorten that one."):
+    def make():
+        at = time.time() - mins * 60
+        day = time.strftime("%Y-%m-%d", time.localtime(at))
+        return {f"conversations/{day}.jsonl": json.dumps({"at": at, "you": you, "poinky": poinky, "app": app, "window": window}) + "\n"}
+    return make
+
+
+def c_carry_dropped(r):
+    talk = asked(r, "talker")
+    if not talk: return ["no question"]
+    # (Checked by the block's own words: the real front window can contain anything, even "Mint timer".)
+    return ["the old answer about another app was sent as context: " + talk[0][:700]] if "previous session" in talk[0] or "so I'll shorten that one" in talk[0] else []
+
+
+def c_carry_kept(r):
+    talk = asked(r, "talker")
+    if not talk: return ["no question"]
+    t = talk[0]
+    return [] if "Mint timer" in t and "NOT the screen now" in t and "Notebook Test App" in t else ["the previous session isn't there, labeled: " + t[:700]]
+
+
+def seed_reminder(secs=7):
+    def make():
+        at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() + secs))
+        return {"reminders.json": json.dumps([{"id": "r1", "text": "stand up and stretch", "at": at}])}
+    return make
+
+
+def c_reminder_fired(r):
+    f = []
+    if not any("stand up and stretch" in s for s in r["speech"]): f.append(f"the reminder wasn't said: {r['speech']}")
+    talk = asked(r, "talker")
+    if len(talk) < 2 or "Already went off" not in talk[1] or "stand up and stretch" not in talk[1]:
+        f.append("the talker doesn't know it went off: " + (talk[1][:600] if len(talk) > 1 else "no second question"))
+    if not any("reminder went off" in (e.get("note") or "") for e in conversation(r)): f.append("not in the conversation log")
+    return f
+
 
 SCENARIOS = {
     "answer": (["what is this"], 10, {}, c_answer),
@@ -297,8 +406,18 @@ SCENARIOS = {
     "quiet-end": (["bye"], 12, {"FAKE_CLAUDE_REPLY": "<say>Bye for now, see you later.</say><end/>", "_CONFIG": '{"quiet": true}'}, c_quiet_end),
     "quiet-lesson": (["explain how the heart works"], 16, {**LESSON, "_CONFIG": '{"quiet": true}'}, c_quiet_lesson),
     "voice": (["what is this"], 12, TWO, c_voice),
-    "typed": ([], 12, {**REWRITE, "_ARGS": '["--type", "make this shorter"]'}, c_typed),
+    "typed": ([], 12, {**REWRITE, "_ARGS": ["--type", "make this shorter"]}, c_typed),
     "quiet-words": (["be quiet", "what is this", "you can talk again"], 18, {"POINKY_ASK_GAP": "4"}, c_quiet_words),
+    "teacher-record": (["explain number one", "wait why is it wrong"], 26,
+                       {"FAKE_CLAUDE_REPLIES": json.dumps(["<say>Sure, let me show you.</say>", "<say>Because the signs flip.</say>"]),
+                        "FAKE_ARTIST_REPLY": LESSON1, "POINKY_ASK_WAIT": "1", "_ARGS": ["--end-after", "17"]}, c_teacher_record),
+    "teacher-interrupt": (["explain how the heart works", "explain the next step"], 22,
+                          {**HANDOVER, "FAKE_ARTIST_REPLIES": json.dumps([LESSON6, LESSON_NEXT]), "FAKE_ARTIST_PIECES": "14",
+                           "FAKE_ARTIST_PIECE_SECS": "0.5", "POINKY_ASK_GAP": "6"}, c_teacher_interrupt),
+    "carry-dropped": (["can you make the first paragraph shorter"], 9, {"_SEED": seed_previous()}, c_carry_dropped),
+    "carry-kept": (["what did we talk about earlier"], 9, {"_SEED": seed_previous()}, c_carry_kept),
+    "reminder-fired": (["hi", "did my reminder go off"], 20, {"_SEED": seed_reminder(), "POINKY_REMINDER_TICK": "1",
+                                                              "POINKY_ASK_GAP": "11"}, c_reminder_fired),
     "hang": (["what is this"], 22, {"FAKE_CLAUDE_MODE": "hang", "POINKY_STALL_SECS": "8", "POINKY_STUCK_SECS": "12"}, c_hang),
 }
 

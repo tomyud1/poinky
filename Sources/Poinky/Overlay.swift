@@ -294,7 +294,12 @@ final class Overlay: NSObject, WKNavigationDelegate {
     func lessonBegin(frame: CGRect, title: String, continuing: Bool = false, avoid: CGRect? = nil, look: String = "paper", session: Int? = nil) {
         let a = avoid.map { ",avoid:{x:\(Int($0.minX)),y:\(Int($0.minY)),w:\(Int($0.width)),h:\(Int($0.height))}" } ?? ""
         let extra = ",look:\(jsString(look))" + (session.map { ",session:\($0)" } ?? "")
-        js("SB.lessonBegin({x:\(Int(frame.minX)),y:\(Int(frame.minY)),w:\(Int(frame.width)),h:\(Int(frame.height)),h0:240\(a)\(extra)}, \(jsString(title)), \(continuing))")
+        // lo/hi: the band it may use (it grows down from y and never past hi, so it stays off what Placement kept it off).
+        js("SB.lessonBegin({x:\(Int(frame.minX)),y:\(Int(frame.minY)),w:\(Int(frame.width)),h:\(Int(frame.height)),h0:240,lo:\(Int(frame.minY)),hi:\(Int(frame.maxY))\(a)\(extra)}, \(jsString(title)), \(continuing))")
+    }
+    /// Moves the open paper (same width) off what the next question is about; one you dragged stays put.
+    func lessonPlace(frame: CGRect) {
+        js("SB.lessonPlace && SB.lessonPlace({x:\(Int(frame.minX)),y:\(Int(frame.minY)),lo:\(Int(frame.minY)),hi:\(Int(frame.maxY))})")
     }
 
     // MARK: Drawings follow their window

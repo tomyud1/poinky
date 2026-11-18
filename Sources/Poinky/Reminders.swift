@@ -129,18 +129,63 @@ enum Reminders {
         return due
     }
 
-    /// For the talker: what's scheduled, in the user's words and time.
+    /// For the talker: what's scheduled, in the user's words and time, and what already went off today
+    /// (it said "that should be going off soon" five minutes after one had fired).
     static func summary(now: Date = Date(), limit: Int = 12) -> String {
         let list = all()
-        guard !list.isEmpty else { return "" }
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_US_POSIX")
         f.dateFormat = "EEE d MMM, h:mm a"
-        return "Scheduled (you'll say or start these by yourself at the time):\n" + list.prefix(limit).map { r in
-            var s = "- \(f.string(from: r.at)): \(r.agentTitle.map { "start a helper \"\($0)\": " } ?? "")\(r.text)"
-            if let e = r.every { s += " (every \([Reminder.Repeat.daily: "day", .weekdays: "weekday", .weekly: "week", .hourly: "hour"][e]!))" }
-            return s
-        }.joined(separator: "\n")
+        var parts: [String] = []
+        if !list.isEmpty {
+            parts.append("Scheduled (you'll say or start these by yourself at the time):\n" + list.prefix(limit).map { r in
+                var s = "- \(f.string(from: r.at)): \(r.agentTitle.map { "start a helper \"\($0)\": " } ?? "")\(r.text)"
+                if let e = r.every { s += " (every \([Reminder.Repeat.daily: "day", .weekdays: "weekday", .weekly: "week", .hourly: "hour"][e]!))" }
+                return s
+            }.joined(separator: "\n"))
+        }
+        let done = fired(now: now)
+        if !done.isEmpty {
+            let t = DateFormatter()
+            t.locale = Locale(identifier: "en_US_POSIX")
+            t.dateFormat = "h:mm a"
+            parts.append("Already went off (done; you said these out loud at the time):\n" + done.suffix(6).map { r in
+                "- \(t.string(from: r.due)): \(r.agent ? "started the helper for: " : "")\(r.text) (said at \(t.string(from: r.said)))"
+            }.joined(separator: "\n"))
+        }
+        return parts.joined(separator: "\n")
+    }
+
+    // MARK: Ones that went off
+
+    struct Fired: Codable, Equatable {
+        var text: String
+        var due: Date
+        var said: Date
+        var agent = false
+    }
+
+    static var firedURL: URL { url.deletingLastPathComponent().appendingPathComponent("reminders-fired.json") }
+
+    /// Reminders that went off in the last `within` seconds (oldest first).
+    static func fired(now: Date = Date(), within: TimeInterval = 12 * 3600) -> [Fired] {
+        guard let data = try? Data(contentsOf: firedURL) else { return [] }
+        let dec = JSONDecoder()
+        dec.dateDecodingStrategy = .iso8601
+        return ((try? dec.decode([Fired].self, from: data)) ?? []).filter { now.timeIntervalSince($0.said) <= within }
+    }
+
+    /// One came due and was said (or its helper started): kept a while, so "did my reminder go off?" has an answer.
+    static func markFired(_ r: Reminder, said: Date = Date()) {
+        var list = fired(now: said) + [Fired(text: r.text, due: r.at, said: said, agent: r.agentTitle != nil)]
+        if list.count > 20 { list.removeFirst(list.count - 20) }
+        let enc = JSONEncoder()
+        enc.dateEncodingStrategy = .iso8601
+        enc.outputFormatting = [.prettyPrinted, .sortedKeys]
+        guard let data = try? enc.encode(list) else { return }
+        try? FileManager.default.createDirectory(at: firedURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? data.write(to: firedURL, options: .atomic)
+        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: firedURL.path)
     }
 
     /// What Poinky says when one comes due. `late`: it was due a while ago (the Mac was asleep or off).
