@@ -832,6 +832,8 @@
       }, g);
       node.setAttributeNS('http://www.w3.org/XML/1998/namespace', 'xml:space', 'preserve');
       fillText(node, o.text || '', size);
+      // Hebrew with symbols in it ("הלחץ ב-r_c"): the line reads right to left, the symbols stay as written.
+      if (/^[^A-Za-z\u0590-\u05FF]*[\u0590-\u05FF]/.test(o.text || '')) node.style.unicodeBidi = 'plaintext';
     }
     if (o.halo) node.style.setProperty('--halo', o.halo);
     let bb = node.getBBox();
