@@ -33,7 +33,6 @@ final class CallController: NSObject, NSMenuDelegate {
     let agents = AgentManager()       // background Claude Code agents
     private let helperWindows = HelperWindows()   // each helper's own window (its transcript and a box to type to it)
     private let typeBox = TypeBox()               // typing to Poinky instead of talking (⌃⌥T)
-    private let away = AwayNotifier()             // away from the Mac: helpers' questions go to your phone (opt-in)
     private let notifier = HelperNotifier()       // Mac notifications: a helper needs you outside a session, or finished while you're away
     private var typeHotKey: HotKey?
     private var helpersHotKey: HotKey?   // ⌃⌥H: the Helpers window
@@ -354,15 +353,11 @@ final class CallController: NSObject, NSMenuDelegate {
             guard let self else { return }
             self.helperScreen.asksChanged(a)
             if a.asks.isEmpty { self.askEnded(a.id) }
-            self.away.stillOpen(Set(self.agents.agents.flatMap { $0.asks.map(\.requestID) }))
-            if let first = a.asks.first { self.away.asking(a, first) }
             self.notifyAsks(a)
         }
-        away.settings(config)
         notifier.settings(config)
-        notifier.onAnswer = { [weak self] id, rid, reply in self?.phoneAnswer(id, rid, reply) }   // the same path as the phone's and the card's buttons
+        notifier.onAnswer = { [weak self] id, rid, reply in self?.notificationAnswer(id, rid, reply) }   // like the card's buttons
         notifier.onOpen = { [weak self] id in self?.helperWindows.show(id) }
-        away.onAnswer = { [weak self] id, rid, reply in self?.phoneAnswer(id, rid, reply) }
         overlay.onHelperAsking = { [weak self] id in self?.helperAsking(id) }
         helperScreen.onCardAnswer = { [weak self] id, yes in self?.cardAnswer(id, yes) }
         helperScreen.settings(config)
@@ -3484,8 +3479,8 @@ final class CallController: NSObject, NSMenuDelegate {
         agents.answer(id: id, requestID: requestID, reply)
     }
 
-    /// An answer from your phone (away mode), for one request.
-    private func phoneAnswer(_ id: Int, _ requestID: String, _ reply: HelperAsk.Reply) {
+    /// An answer from a Mac notification's button, for one request.
+    private func notificationAnswer(_ id: Int, _ requestID: String, _ reply: HelperAsk.Reply) {
         guard let asks = agents.agents.first(where: { $0.id == id })?.asks else { return }
         if asks.first?.requestID == requestID { answerAsk(id, reply, said: nil) }
         else if asks.contains(where: { $0.requestID == requestID }) { agents.answer(id: id, requestID: requestID, reply) }
@@ -3795,7 +3790,6 @@ final class CallController: NSObject, NSMenuDelegate {
 
     /// The Settings window saved: pick up what can change right away.
     private func settingsChanged(_ cfg: AppConfig) {
-        away.settings(cfg)
         notifier.settings(cfg)
         if cfg.checkForUpdates != config.checkForUpdates { Updater.shared.autoCheck(cfg.checkForUpdates) }
         let hotkeyChanged = cfg.hotkey != config.hotkey || cfg.buddyHotkey != config.buddyHotkey || cfg.typeHotkey != config.typeHotkey

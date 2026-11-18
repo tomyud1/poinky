@@ -61,11 +61,6 @@ struct AppConfig: Codable {
     var agentPermission = "auto"        // background agents: "auto" (Claude Code's auto mode; falls back to acceptEdits if it can't start), "acceptEdits" (edit the project + run tests, ask for the rest), "plan"
     var agentModel = ""                // background agents' model ("" = your Claude Code default)
     var maxHelpers = 3                 // helpers (background agents) working at once, 1–6; more wait in line
-    var awayNotify = false             // away from the Mac: a helper's question goes to your phone (ntfy)
-    var ntfyServer = "https://ntfy.sh" // the ntfy server (ntfy.sh, or your own)
-    var ntfyTopic = ""                 // a random, private topic (made when away mode is turned on)
-    var awayMinutes = 3.0              // no keyboard or mouse for this long counts as away (or the screen locked)
-    var awayDetails = true             // the notification says what it wants (the command); off: only that one is waiting
     var helperNotify = true            // a Mac notification when a helper needs you and no session runs (or its question went unanswered)
     var helperNotifyDone = false       // also when a helper finishes while you're away from the Mac (screen locked or idle)
     /// Apps left out of every screenshot (password managers by default).
@@ -135,11 +130,6 @@ struct AppConfig: Codable {
         agentPermission = try c.decodeIfPresent(String.self, forKey: .agentPermission) ?? d.agentPermission
         agentModel = try c.decodeIfPresent(String.self, forKey: .agentModel) ?? d.agentModel
         maxHelpers = try c.decodeIfPresent(Int.self, forKey: .maxHelpers) ?? d.maxHelpers
-        awayNotify = try c.decodeIfPresent(Bool.self, forKey: .awayNotify) ?? d.awayNotify
-        ntfyServer = try c.decodeIfPresent(String.self, forKey: .ntfyServer) ?? d.ntfyServer
-        ntfyTopic = try c.decodeIfPresent(String.self, forKey: .ntfyTopic) ?? d.ntfyTopic
-        awayMinutes = try c.decodeIfPresent(Double.self, forKey: .awayMinutes) ?? d.awayMinutes
-        awayDetails = try c.decodeIfPresent(Bool.self, forKey: .awayDetails) ?? d.awayDetails
         helperNotify = try c.decodeIfPresent(Bool.self, forKey: .helperNotify) ?? d.helperNotify
         helperNotifyDone = try c.decodeIfPresent(Bool.self, forKey: .helperNotifyDone) ?? d.helperNotifyDone
         excludedApps = try c.decodeIfPresent([String].self, forKey: .excludedApps) ?? d.excludedApps

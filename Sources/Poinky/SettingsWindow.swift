@@ -11,8 +11,6 @@ final class SettingsModel: ObservableObject {
     }
     /// Called after saving, so the app can pick up changes (e.g. a new shortcut).
     var onSaved: ((AppConfig) -> Void)?
-    /// What happened when you sent a test notification to your phone.
-    @Published var awayTestResult: String?
     /// Which tab is showing (the notch's update arrow opens General).
     @Published var tab = "general"
     /// Plays a sample with the local voice (provided by the app, which owns the voice helper).
@@ -580,33 +578,6 @@ private struct ClaudeTab: View {
                     .disabled(!model.config.helperNotify)
                 Text("A Mac notification when a helper asks for your OK or asks a question while you're not talking to Poinky, or when nobody answered it out loud. Allow and Don't Allow work like the buttons on its card (Allow needs your Mac unlocked). macOS asks you once, the first time one is needed.")
                     .font(.caption).foregroundStyle(.secondary)
-            }
-            Section("When you're away") {
-                Toggle("Send helpers' questions to my phone", isOn: Binding(get: { model.config.awayNotify }, set: { on in
-                    model.config.awayNotify = on
-                    if on, model.config.ntfyTopic.isEmpty { model.config.ntfyTopic = "poinky-" + AwayNotifier.randomCode(20) }
-                }))
-                if model.config.awayNotify {
-                    Text("Install the free ntfy app on your phone and subscribe to this topic. Keep it private: it's what lets the notifications reach you.")
-                        .font(.caption).foregroundStyle(.secondary)
-                    LabeledContent("Topic") {
-                        Text(model.config.ntfyTopic).textSelection(.enabled).font(.system(.body, design: .monospaced))
-                    }
-                    TextField("Server", text: $model.config.ntfyServer)
-                    Picker("Counts as away after", selection: $model.config.awayMinutes) {
-                        Text("1 minute idle").tag(1.0); Text("3 minutes idle").tag(3.0); Text("10 minutes idle").tag(10.0)
-                    }
-                    Toggle("Say what it wants (the command) in the notification", isOn: $model.config.awayDetails)
-                    HStack {
-                        Button("Send a Test Notification") {
-                            let c = model.config
-                            AwayNotifier().test(c) { err in DispatchQueue.main.async { model.awayTestResult = err ?? "Sent. Check your phone." } }
-                        }
-                        if let r = model.awayTestResult { Text(r).font(.caption).foregroundStyle(.secondary) }
-                    }
-                    Text("Notifications go through \(URL(string: model.config.ntfyServer)?.host ?? "the server"). Your answer comes back the same way, and only counts for the one request it was sent for. Away means the screen is locked, or no keyboard or mouse for that long.")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
             }
         }
         .formStyle(.grouped)
