@@ -144,6 +144,7 @@ final class LocalModelEngine: SpeechEngine {
     }
 
     private func exited() {
+        if process != nil { Timeline.log("stt.local.exit", ["engine": name]) }   // it died (stop() clears process first)
         ready = false
         process = nil
         stdin = nil
