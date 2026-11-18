@@ -78,6 +78,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             HelperTest.run(out: args[i + 1], dir: args[i + 2], tasks: Array(args[(i + 3)...]))
             return
         }
+        // `Poinky --mic-check-shot <out.png>` (with POINKY_MIC_CHECK_WAVS=<dir>): the mic check on recordings.
+        if let i = args.firstIndex(of: "--mic-check-shot"), i + 1 < args.count {
+            MicCheckWindow.snapshot(to: args[i + 1])
+            return
+        }
         if let i = args.firstIndex(of: "--receipts-shot"), i + 1 < args.count {
             ReceiptsWindow.snapshot(to: args[i + 1])
             return
@@ -99,7 +104,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller = c
         // `Poinky --listen-test <script.json> <out.txt>`: scripted holds and heard words (ListenTest.swift).
         if let (script, out) = listenTest { ListenTest.run(script: script, out: out, controller: c) }
-        let quiet = args.contains { ["--ask", "--video", "--play-video", "--listen-test"].contains($0) }
+        // `Poinky --mic-check`: opens the microphone check (also Settings → Voice).
+        if args.contains("--mic-check") { DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { MicCheckWindow.shared.show() } }
+        let quiet = args.contains { ["--ask", "--video", "--play-video", "--listen-test", "--mic-check"].contains($0) }
         if let page = args.contains("--welcome") ? .hello : quiet ? nil : WelcomeModel.pageToResume(configExisted: configExisted) {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { WelcomeWindowController.shared.show(at: page) }
         }

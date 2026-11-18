@@ -10,6 +10,8 @@ enum ConversationLog {
         var poinky: String            // what Poinky said out loud
         var app: String? = nil        // the front app when it was asked
         var note: String? = nil       // what else happened: "started Mint: Fix the login test", "searched: …"
+        var window: String? = nil     // the front window's title when it was asked
+        var lesson: String? = nil     // what Poinky's sketch (the teacher) showed and said, and how it ended
         var date: Date { Date(timeIntervalSince1970: at) }
     }
 
@@ -254,9 +256,11 @@ enum Recall {
             hits.append(Hit(score: s, date: date, line: line))
         }
         for e in src.conversation {
-            let text = [e.you, e.poinky, e.note ?? "", e.app ?? ""].joined(separator: " ")
-            var line = "- \(stamp(e.date, now: now)): user said \"\(clip(e.you, 160))\"; you said \"\(clip(e.poinky, 320))\""
-            if let a = e.app, !a.isEmpty { line += " (in \(a))" }
+            let text = [e.you, e.poinky, e.note ?? "", e.app ?? "", e.window ?? "", e.lesson ?? ""].joined(separator: " ")
+            var line = "- \(stamp(e.date, now: now)): " + (e.you.isEmpty ? "(nobody asked)" : "user said \"\(clip(e.you, 160))\"")
+            if !e.poinky.isEmpty { line += "; you said \"\(clip(e.poinky, 320))\"" }
+            if let l = e.lesson, !l.isEmpty { line += "; then your sketch: \(clip(l, 360))" }
+            if let a = e.app, !a.isEmpty { line += " (in \(a)\(e.window.map { ", “\(clip($0, 60))”" } ?? ""))" }
             if let n = e.note, !n.isEmpty { line += " [\(n)]" }
             consider(e.date, text, line)
         }
