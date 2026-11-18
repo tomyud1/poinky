@@ -50,7 +50,9 @@ enum DoerTest {
         }
 
         var inFront: Bool {
-            NSWorkspace.shared.frontmostApplication?.processIdentifier == ProcessInfo.processInfo.processIdentifier && window.isKeyWindow
+            // (NSWorkspace's frontmost app lags behind and once named another copy of Poinky while this one was
+            // active with this window key; NSApp.isActive is this app's own view of the same thing.)
+            NSApp.isActive && window.isKeyWindow
         }
 
         private func note(_ e: NSEvent) {
@@ -124,7 +126,7 @@ enum DoerTest {
         }
         guard let t = target else { return true }
         if t.inFront { return true }
-        t.add("ABORT: the target window wasn't in front, so nothing was done (front: \(NSWorkspace.shared.frontmostApplication?.localizedName ?? "?"), key window: \(NSApp.keyWindow.map { "\(type(of: $0)) “\($0.title)”" } ?? "none"))")
+        t.add("ABORT: the target window wasn't in front, so nothing was done (active: \(NSApp.isActive), front: \(NSWorkspace.shared.frontmostApplication.map { "\($0.localizedName ?? "?") \($0.processIdentifier)" } ?? "?"), me: \(ProcessInfo.processInfo.processIdentifier), key window: \(NSApp.keyWindow.map { "\(type(of: $0)) “\($0.title)”" } ?? "none"))")
         return false
     }
 
