@@ -9,6 +9,7 @@ FAKE_CLAUDE_MODE:
   hang    reads messages and never answers (the stall watchdog / stuck detector must recover)
   deaf    never answers and ignores interrupts too
   crash   exits as soon as a message arrives
+  stuffed never reads its input (a Claude Code that hangs while starting): a big message can't be written to it
   signedout  answers every message with Claude Code's "Not logged in" error; `auth status` says loggedIn false
 FAKE_TOKENS_PER_TURN: talker results report usage growing by that many input tokens per message (size-based rotation).
 `--version` and `auth status` answer like the real CLI (signed in, except in "signedout" mode).
@@ -38,6 +39,8 @@ summarizes = "running summary of one voice session" in prompt
 note(f"start pid {os.getpid()} identity={'## Who you are' in prompt} about_me={'## About the user' in prompt} notes={'## Recent sessions' in prompt} note_writer={writes_notes} summarizer={summarizes}")
 busy = False
 turns = 0
+if mode == "stuffed":
+    time.sleep(3600); sys.exit(0)
 for line in sys.stdin:
     try: msg = json.loads(line)
     except ValueError: continue
