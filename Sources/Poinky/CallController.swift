@@ -194,6 +194,7 @@ final class CallController: NSObject, NSMenuDelegate {
     private var stateSince: TimeInterval = 0
     private var askedAt: TimeInterval?        // you finished asking (keys released, or the pause ended): for the wait time
     private var firstTokenTurn = -1
+    private var firstSentenceTurn = -1
     /// Longer than this in one state means Poinky is stuck (nothing legitimate takes this long:
     /// replies have their own 75 s watchdog, captures 6 s, web searches 30 s).
     /// Tests: the session takes this long to start (a speech engine that doesn't come up).
@@ -878,6 +879,7 @@ final class CallController: NSObject, NSMenuDelegate {
                 self.endHelperListen()
                 return
             }
+            Timeline.log("heard", ["ms": Int((ProcessInfo.processInfo.systemUptime - (self.askedAt ?? 0)) * 1000)])   // keys up → final words
             self.playSound(.send)
             self.overlay.setYouCaption(text)   // the final words (the live ones can lag or differ)
             self.heard(utterance: text)
@@ -1726,6 +1728,10 @@ final class CallController: NSObject, NSMenuDelegate {
     private func handle(_ ev: TalkEvents) {
         // Answering from web pages or old transcripts: they can't make Poinky do anything.
         let ev = lookupReply ? ev.onlySpeech() : ev
+        if !ev.sentences.isEmpty, firstSentenceTurn != turn {
+            firstSentenceTurn = turn
+            Timeline.log("firstSentence", ["turn": turn, "chars": ev.sentences[0].count])   // handed to the voice
+        }
         for s in ev.sentences {
             speaker.enqueue(s)
             state = .speaking
