@@ -212,7 +212,9 @@ enum Placement {
         for it in items {
             var r = CGRect.null
             switch it["type"] as? String {
-            case "circle": let rad = n(it["r"]); r = CGRect(x: n(it["x"]) - rad * 1.2, y: n(it["y"]) - rad, width: rad * 2.4, height: rad * 2)
+            case "circle":
+                let rad = n(it["r"]), rx = it["rx"] != nil ? n(it["rx"]) : rad * 1.2, ry = it["ry"] != nil ? n(it["ry"]) : rad
+                r = CGRect(x: n(it["x"]) - rx, y: n(it["y"]) - ry, width: rx * 2, height: ry * 2)
             case "box", "highlight": r = CGRect(x: n(it["x"]), y: n(it["y"]), width: n(it["w"]), height: n(it["h"]))
             case "underline": r = CGRect(x: n(it["x"]), y: n(it["y"]) - 24, width: n(it["w"]), height: 28)
             case "bracket": r = CGRect(x: n(it["x"]) - 24, y: n(it["y"]), width: 24, height: n(it["h"]))

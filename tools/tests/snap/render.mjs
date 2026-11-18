@@ -1,6 +1,6 @@
 // Renders a page the way a Mac screen shows it (2x pixels) and says where phrases on it are, so the
 // snapping test can check marks against the real text. Usage:
-//   node render.mjs page.html out.png width height '["phrase", …]'   → out.png + out.png.json ({phrase: [x,y,w,h]} in points)
+//   node render.mjs page.html out.png width height '["phrase" or "#id", …]'   → out.png + out.png.json ({phrase: [x,y,w,h]} in points)
 import { spawn } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -38,6 +38,8 @@ const find = `(${function (phrases) {
   const text = chars.map(([n, i]) => norm(n.data[i])).join('');
   const out = {};
   for (const p of phrases) {
+    // "#id": an element (a checkbox, an icon) instead of text.
+    if (p.startsWith('#')) { const e = document.querySelector(p); const b = e && e.getBoundingClientRect(); out[p] = b ? [b.left, b.top, b.width, b.height] : null; continue; }
     const at = text.indexOf(p);
     if (at < 0) { out[p] = null; continue; }
     const r = document.createRange();

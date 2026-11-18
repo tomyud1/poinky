@@ -1360,7 +1360,9 @@
         X.report(); return;
       default: { // circle
         const cx = s(o.x), cy = s(o.y), r = Math.max(s(o.r), 14), a0 = Math.random() * 6.28; d = '';
-        for (let i = 0; i <= 60; i++) { const a = a0 + Math.PI * 2 * 1.06 * i / 60, w = 1 + .025 * Math.sin(a * 2 + 1); d += (i ? 'L' : 'M') + (cx + Math.cos(a) * r * 1.15 * w).toFixed(1) + ',' + (cy + Math.sin(a) * r * w).toFixed(1); }
+        // rx/ry: the app fitted an ellipse around the whole target.
+        const rx = o.rx != null ? Math.max(s(o.rx), 14) : r * 1.15, ry = o.ry != null ? Math.max(s(o.ry), 14) : r;
+        for (let i = 0; i <= 60; i++) { const a = a0 + Math.PI * 2 * 1.06 * i / 60, w = 1 + .025 * Math.sin(a * 2 + 1); d += (i ? 'L' : 'M') + (cx + Math.cos(a) * rx * w).toFixed(1) + ',' + (cy + Math.sin(a) * ry * w).toFixed(1); }
       }
     }
     const p = el('path', { d, ...stroke }, g);

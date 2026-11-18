@@ -70,7 +70,9 @@ final class TextIndex: @unchecked Sendable {
     }
 
     /// The bottom of the letters inside `r` (screenshot pixels): OCR's boxes run well below them.
-    func inkBottom(in r: CGRect) -> CGFloat? { lock.withLock { ink }?.bottom(in: r) }
+    func inkBottom(in r: CGRect) -> CGFloat? { inkMap?.bottom(in: r) }
+    /// The screenshot's pixels (nil until it's been read, or without an image).
+    var inkMap: InkMap? { lock.withLock { ink } }
 
     /// The text in an image as lines, top to bottom (used for the close-up of what you marked).
     static func readLines(_ image: CGImage, limit: Int = 1200) -> String {
@@ -190,6 +192,96 @@ struct InkMap {
     private func rgb(_ x: Int, _ y: Int) -> (Int, Int, Int) {
         let i = (y * w + x) * 4
         return (Int(data[i]), Int(data[i + 1]), Int(data[i + 2]))
+    }
+
+    // MARK: Ink geometry (marks enclose the real ink, not OCR's box)
+
+    typealias Color = (Int, Int, Int)
+    /// The most common color in `r` (the background there).
+    func background(_ r: CGRect) -> Color? {
+        let x0 = max(0, Int(r.minX)), x1 = min(w - 1, Int(r.maxX)), y0 = max(0, Int(r.minY)), y1 = min(h - 1, Int(r.maxY))
+        guard x1 >= x0, y1 >= y0 else { return nil }
+        let step = max(1, min(x1 - x0, y1 - y0) / 40)
+        var counts: [Int: Int] = [:]
+        for y in stride(from: y0, through: y1, by: step) { for x in stride(from: x0, through: x1, by: step) {
+            let (a, b, c) = rgb(x, y); counts[(a >> 4) << 8 | (b >> 4) << 4 | (c >> 4), default: 0] += 1
+        } }
+        guard let key = counts.max(by: { $0.value < $1.value })?.key else { return nil }
+        return (((key >> 8) & 15) * 16 + 8, ((key >> 4) & 15) * 16 + 8, (key & 15) * 16 + 8)
+    }
+    func isInk(_ x: Int, _ y: Int, _ bg: Color, _ thr: Int = 90) -> Bool {
+        guard x >= 0, y >= 0, x < w, y < h else { return false }
+        let (a, b, c) = rgb(x, y); return abs(a - bg.0) + abs(b - bg.1) + abs(c - bg.2) > thr
+    }
+    /// The box around the ink inside `r` (nil: none), the background judged a little around it.
+    func tight(_ r: CGRect, bg: Color? = nil) -> CGRect? {
+        guard let bg = bg ?? background(r.insetBy(dx: -6, dy: -6)) else { return nil }
+        let x0 = max(0, Int(r.minX)), x1 = min(w - 1, Int(r.maxX.rounded(.up)) - 1), y0 = max(0, Int(r.minY)), y1 = min(h - 1, Int(r.maxY.rounded(.up)) - 1)
+        guard x1 >= x0, y1 >= y0 else { return nil }
+        var lx = Int.max, ly = Int.max, hx = -1, hy = -1
+        for y in y0...y1 { for x in x0...x1 where isInk(x, y, bg) { lx = min(lx, x); hx = max(hx, x); ly = min(ly, y); hy = max(hy, y) } }
+        guard hx >= 0 else { return nil }
+        return CGRect(x: lx, y: ly, width: hx - lx + 1, height: hy - ly + 1)
+    }
+    /// `r` grown while ink touches its edges (OCR's boxes clip parentheses, roots, handwriting's loops),
+    /// by at most `dx` / `dy` on each side so it doesn't run into the next line.
+    func grow(_ r: CGRect, dx: CGFloat, dy: CGFloat, bg: Color? = nil) -> CGRect {
+        guard let bg = bg ?? background(r.insetBy(dx: -6, dy: -6)) else { return r }
+        var x0 = Int(r.minX), x1 = Int(r.maxX.rounded(.up)) - 1, y0 = Int(r.minY), y1 = Int(r.maxY.rounded(.up)) - 1
+        func rowInk(_ y: Int) -> Bool { y >= 0 && y < h && (max(0, x0)...max(0, min(w - 1, x1))).contains { isInk($0, y, bg) } }
+        func colInk(_ x: Int) -> Bool { x >= 0 && x < w && (max(0, y0)...max(0, min(h - 1, y1))).contains { isInk(x, $0, bg) } }
+        let ly = Int(r.minY - dy), hy = Int(r.maxY + dy), lx = Int(r.minX - dx), hx = Int(r.maxX + dx)
+        var changed = true
+        while changed {
+            changed = false
+            if y0 - 1 >= max(0, ly), rowInk(y0 - 1) { y0 -= 1; changed = true }
+            if y1 + 1 <= min(h - 1, hy), rowInk(y1 + 1) { y1 += 1; changed = true }
+            if x0 - 1 >= max(0, lx), colInk(x0 - 1) { x0 -= 1; changed = true }
+            if x1 + 1 <= min(w - 1, hx), colInk(x1 + 1) { x1 += 1; changed = true }
+        }
+        return CGRect(x: x0, y: y0, width: x1 - x0 + 1, height: y1 - y0 + 1)
+    }
+    /// The first row below `y` (within `limit`) with ink between x0 and x1.
+    func firstInkRow(below y: CGFloat, x0: CGFloat, x1: CGFloat, limit: CGFloat, bg: Color) -> CGFloat? {
+        let a = max(0, Int(x0)), b = min(w - 1, Int(x1))
+        guard b >= a else { return nil }
+        var yy = Int(y.rounded(.up))
+        while CGFloat(yy) < y + limit, yy < h {
+            if (a...b).contains(where: { isInk($0, yy, bg) }) { return CGFloat(yy) }
+            yy += 1
+        }
+        return nil
+    }
+    /// Whether the area has no ink at all.
+    func clear(_ r: CGRect, bg: Color) -> Bool {
+        let x0 = max(0, Int(r.minX)), x1 = min(w - 1, Int(r.maxX)), y0 = max(0, Int(r.minY)), y1 = min(h - 1, Int(r.maxY))
+        guard x1 >= x0, y1 >= y0 else { return true }
+        for y in y0...y1 { for x in x0...x1 where isInk(x, y, bg) { return false } }
+        return true
+    }
+    /// The separate shapes of ink in `area` (pixels within 2 of each other belong together), as boxes.
+    func blobs(in area: CGRect, bg: Color) -> [CGRect] {
+        let x0 = max(0, Int(area.minX)), x1 = min(w - 1, Int(area.maxX)), y0 = max(0, Int(area.minY)), y1 = min(h - 1, Int(area.maxY))
+        guard x1 >= x0, y1 >= y0, (x1 - x0) * (y1 - y0) < 400_000 else { return [] }
+        let bw = x1 - x0 + 1, bh = y1 - y0 + 1
+        var seen = [Bool](repeating: false, count: bw * bh)
+        var ink = [Bool](repeating: false, count: bw * bh)
+        for y in 0..<bh { for x in 0..<bw { ink[y * bw + x] = isInk(x0 + x, y0 + y, bg) } }
+        var out: [CGRect] = []
+        for start in 0..<(bw * bh) where ink[start] && !seen[start] {
+            var stack = [start]; seen[start] = true
+            var lx = bw, ly = bh, hx = 0, hy = 0
+            while let i = stack.popLast() {
+                let x = i % bw, y = i / bw
+                lx = min(lx, x); hx = max(hx, x); ly = min(ly, y); hy = max(hy, y)
+                for ny in max(0, y - 2)...min(bh - 1, y + 2) { for nx in max(0, x - 2)...min(bw - 1, x + 2) {
+                    let j = ny * bw + nx
+                    if ink[j] && !seen[j] { seen[j] = true; stack.append(j) }
+                } }
+            }
+            out.append(CGRect(x: x0 + lx, y: y0 + ly, width: hx - lx + 1, height: hy - ly + 1))
+        }
+        return out
     }
 
     /// The lowest row inside `r` with ink on it (letters, descenders), or nil when `r` has none.
@@ -337,19 +429,22 @@ enum MarkSnapper {
                 }
             }
         }
+        // No text named (or not found): what the mark's own coordinates are around.
+        let found = target != nil
+        if target == nil { target = nudgeTarget(it, lines: lines, ink: text?.inkMap) }
         if var target {
             if ["box", "highlight", "bracket"].contains(type) { target = withLeads(target, lines) }
-            place(&it, on: target)
-            // OCR's box runs well below the letters (34 px for 22 px text): the line goes just under the ink.
-            if type == "underline", let b = text?.inkBottom(in: target.insetBy(dx: 1, dy: 0)), b > target.midY {
-                it["y"] = b + max(2, min(4, target.height * 0.15))
+            if let ink = text?.inkMap {
+                fit(&it, on: target, lines: lines, ink: ink, size: size, scale: scale)
+            } else {
+                place(&it, on: target)
             }
-        } else {
-            it = nudge(it, lines: lines)
+        } else if !found {
             if type == "underline", let text { it = clearOfLetters(it, text: text) }
         }
+        let text_ = text
         if let text = (it["label"] as? String), !text.isEmpty, let mark = bounds(it, scale: scale) {
-            placeLabel(&it, text: text, mark: mark, lines: lines, size: size, scale: scale)
+            placeLabel(&it, text: text, mark: mark, lines: lines, size: size, scale: scale, ink: text_?.inkMap)
         }
         return it
     }
@@ -506,6 +601,218 @@ enum MarkSnapper {
         return nil
     }
 
+    /// Without `find`: what the mark's coordinates are around, if it's clear (nil: leave the mark as it is).
+    static func nudgeTarget(_ it: [String: Any], lines: [OCRLine], ink: InkMap?) -> CGRect? {
+        let words = lines.flatMap { $0.words.map(\.rect) }
+        switch it["type"] as? String {
+        case "underline":
+            guard let x = num(it["x"]), let y = num(it["y"]), let w = num(it["w"]), w > 0 else { return nil }
+            // Words under the line's span whose bottom edge is close to where Claude put the line.
+            let cands = words.filter { r in
+                let overlap = min(r.maxX, x + w) - max(r.minX, x)
+                return overlap >= 0.5 * min(r.width, w) && abs(r.maxY - y) < max(28, r.height * 1.5)
+            }
+            guard let best = cands.min(by: { abs($0.maxY - y) < abs($1.maxY - y) }) else { return nil }
+            return union(cands.filter { abs($0.midY - best.midY) < best.height * 0.6 })
+        case "highlight", "box":
+            guard let x = num(it["x"]), let y = num(it["y"]), let w = num(it["w"]), let h = num(it["h"]) else { return nil }
+            let rect = CGRect(x: x, y: y, width: w, height: h)
+            // Words mostly inside the box (a line the box only grazes stays out).
+            func isInside(_ r: CGRect) -> Bool { let i = r.intersection(rect); return !i.isNull && i.width * i.height >= 0.6 * r.width * r.height }
+            var found: CGRect?
+            for l in lines {
+                let inside = l.words.map(\.rect).filter(isInside)
+                guard !inside.isEmpty else { continue }
+                // Most of the line is in the box: take the whole line (Claude's boxes often stop short).
+                let part = Double(inside.count) >= 0.6 * Double(l.words.count) ? union(l.words.map(\.rect)) : union(inside)
+                found = found.map { $0.union(part) } ?? part
+            }
+            // Only when the words fill a good part of the area (otherwise it's probably a picture or button).
+            guard let textArea = found, textArea.width * textArea.height >= 0.25 * w * h else { return nil }
+            return textArea
+        case "bracket":
+            guard let x = num(it["x"]), let y = num(it["y"]), let h = num(it["h"]), h > 0 else { return nil }
+            let block = words.filter { $0.midY >= y && $0.midY <= y + h && $0.minX >= x - 40 && $0.minX < x + 400 }
+            return block.isEmpty ? nil : union(block)
+        case "circle":
+            guard let x = num(it["x"]), let y = num(it["y"]), let r = num(it["r"]), r > 0 else { return nil }
+            let rx = r * 1.15, ry = r
+            func inEllipse(_ p: CGPoint, _ f: CGFloat = 1.1) -> Bool { let dx = (p.x - x) / (rx * f), dy = (p.y - y) / (ry * f); return dx * dx + dy * dy <= 1 }
+            // Text: the lines most of whose words are inside (a circle the model drew too small still means
+            // those whole lines); a line it only clips stays out.
+            var text: CGRect?
+            for l in lines where !l.words.isEmpty {
+                let inside = l.words.filter { inEllipse(CGPoint(x: $0.rect.midX, y: $0.rect.midY)) }
+                if !inside.isEmpty, Double(inside.count) >= 0.5 * Double(l.words.count) { text = text.map { $0.union(l.rect) } ?? l.rect }
+            }
+            if let t = text, t.width < rx * 4, t.height < ry * 4 { return t }
+            // No text: a picture, icon or checkbox. The shapes of ink centered inside the circle (not letters).
+            guard let ink = ink, let bg = ink.background(CGRect(x: x - rx * 1.5, y: y - ry * 1.5, width: rx * 3, height: ry * 3)) else { return nil }
+            let shapes = ink.blobs(in: CGRect(x: x - rx * 1.4, y: y - ry * 1.4, width: rx * 2.8, height: ry * 2.8), bg: bg).filter { b in
+                inEllipse(CGPoint(x: b.midX, y: b.midY), 0.85) && !words.contains { $0.insetBy(dx: -1, dy: -1).contains(CGPoint(x: b.midX, y: b.midY)) }
+            }
+            guard !shapes.isEmpty else { return nil }
+            let u = union(shapes)
+            return u.width < rx * 3 && u.height < ry * 3 ? u : nil
+        case "arrow":
+            guard let x = num(it["x2"]), let y = num(it["y2"]) else { return nil }
+            let tip = CGPoint(x: x, y: y)
+            // The word or shape the tip is on (or right next to).
+            if let w = words.first(where: { $0.insetBy(dx: -4, dy: -4).contains(tip) }) { return w }
+            guard let ink = ink, let bg = ink.background(CGRect(x: x - 40, y: y - 40, width: 80, height: 80)) else { return nil }
+            let shapes = ink.blobs(in: CGRect(x: x - 30, y: y - 30, width: 60, height: 60), bg: bg)
+            return shapes.first { $0.insetBy(dx: -4, dy: -4).contains(tip) && $0.width < 80 && $0.height < 80 }
+        default:
+            return nil
+        }
+    }
+
+    /// Fits a mark onto `r` using the screenshot's ink: around all of it (OCR's boxes clip handwriting,
+    /// roots and parentheses), never through it, on the screen. Sizes in screenshot pixels; `scale` is
+    /// pixels per point (the overlay draws with point-sized pens and padding).
+    static func fit(_ it: inout [String: Any], on r: CGRect, lines: [OCRLine], ink: InkMap, size: CGSize, scale k: CGFloat) {
+        guard let bg = ink.background(r.insetBy(dx: -8, dy: -8)) else { place(&it, on: r); return }
+        // The real ink of the target: shrink to it, then let it grow over what OCR's box clipped.
+        let line = min(r.height, (lines.filter { $0.rect.intersects(r) }.map(\.rect.height).min() ?? r.height))
+        var t = ink.tight(r, bg: bg) ?? r
+        t = ink.grow(t, dx: max(2, line * 0.5), dy: max(2, line * 0.35), bg: bg)
+        let screen = CGRect(origin: .zero, size: size)
+        let pen = 2.25 * k   // half the overlay's 4.5 pt pen
+        // Can't be drawn around it on the screen (it's at the very edge): a highlight over it instead.
+        func highlight() {
+            let h = t.insetBy(dx: -1, dy: -1)
+            let inset = 4 * k   // the highlight's own 3 pt padding and its edge
+            let c = h.intersection(screen.insetBy(dx: inset, dy: inset))
+            let b = c.isNull ? h : c
+            it["type"] = "highlight"
+            it["x"] = b.minX; it["y"] = b.minY; it["w"] = b.width; it["h"] = b.height
+            it["r"] = nil; it["rx"] = nil; it["ry"] = nil
+        }
+        /// A number, bullet or checkbox just before the target's first line that OCR skipped (small, on that
+        /// line: not a margin rule running down the block).
+        func leadLeft(of t: CGRect, from left: CGFloat) -> CGRect? {
+            let area = CGRect(x: left - line * 1.5, y: t.minY - 3, width: line * 1.5 - 1, height: min(t.height, line * 1.2) + 6)
+            guard let lead = ink.tight(area, bg: bg), left - lead.maxX < line * 0.8,
+                  lead.minY > area.minY + 0.5, lead.maxY < area.maxY - 0.5 else { return nil }
+            return lead
+        }
+        switch it["type"] as? String {
+        case "box":
+            // A checkbox or bullet right before it belongs to it (the box would run through it otherwise).
+            if let lead = leadLeft(of: t, from: t.minX) { t = t.union(lead) }
+            // The overlay draws 4 pt outside the box, with a 2.5 pt wobble: keep the pen's inside edge off the ink.
+            let b = t.insetBy(dx: -(0.75 * k + 2.5), dy: -(0.75 * k + 2.5))
+            let outer = b.insetBy(dx: -(4 + 2.5) * k - pen, dy: -(4 + 2.5) * k - pen)
+            if !screen.contains(outer) { highlight(); return }
+            it["x"] = b.minX; it["y"] = b.minY; it["w"] = b.width; it["h"] = b.height
+        case "highlight":
+            let b = t.insetBy(dx: -1, dy: -1)
+            it["x"] = b.minX; it["y"] = b.minY; it["w"] = b.width; it["h"] = b.height
+            if !screen.insetBy(dx: 4 * k, dy: 4 * k).contains(b) { highlight() }
+        case "circle":
+            // An ellipse around the whole target with room for the pen (its loop ends ~6% inside): wide
+            // enough that it isn't much taller than the target.
+            let pad = pen + 3
+            let a = t.width / 2 + pad, b = t.height / 2 + pad
+            // Other text the loop would run through (lines that aren't the target): a flatter, wider loop
+            // passes between the lines above and below.
+            let near = t.insetBy(dx: -a * 1.6, dy: -60)
+            let others = lines.map(\.rect).filter { !$0.intersects(t.insetBy(dx: 2, dy: 2)) && $0.intersects(near) }.map { ink.tight($0, bg: bg) ?? $0 }
+            func size(_ m: CGFloat) -> (CGFloat, CGFloat) {
+                let rx = max(a * m, a + 4) / 0.94
+                return (rx, b / (1 - pow(a / (rx * 0.94), 2)).squareRoot() / 0.94)
+            }
+            func hits(_ rx: CGFloat, _ ry: CGFloat) -> Int {
+                (0..<72).filter { i in
+                    let an = Double(i) / 72 * 2 * .pi, p = CGPoint(x: t.midX + rx * CGFloat(cos(an)), y: t.midY + ry * CGFloat(sin(an)))
+                    return others.contains { $0.insetBy(dx: -pen, dy: -pen).contains(p) }
+                }.count
+            }
+            // The most compact loop that's on screen, unless a somewhat wider one clears the other text.
+            var best: (CGFloat, CGFloat)?
+            for m: CGFloat in [1.4, 1.22, 1.7, 2.1] {
+                let (rx, ry) = size(m)
+                let ell = CGRect(x: t.midX - rx - pen, y: t.midY - ry - pen, width: 2 * (rx + pen), height: 2 * (ry + pen))
+                guard screen.contains(ell) else { continue }
+                if best == nil { best = (rx, ry) }
+                if hits(rx, ry) == 0 { best = (rx, ry); break }
+            }
+            guard let (rx, ry) = best else { highlight(); return }
+            it["x"] = t.midX; it["y"] = t.midY; it["r"] = ry; it["rx"] = rx; it["ry"] = ry
+        case "underline":
+            // In the gap under the letters, above whatever comes next; no gap: a highlight.
+            let bottom = t.maxY
+            let next = ink.firstInkRow(below: bottom + 1, x0: t.minX, x1: t.maxX, limit: 40, bg: bg) ?? (bottom + 40)
+            var y = bottom + pen + max(1, min(3, t.height * 0.12))
+            if y + pen > next - 1 { y = (bottom + next) / 2 }
+            if y - pen < bottom - 0.5 || y + pen > next + 0.5 || y + pen > size.height { highlight(); return }
+            it["x"] = t.minX; it["w"] = t.width; it["y"] = y
+        case "bracket":
+            // Left of where the block's lines start (a "2." or a bullet is part of the block), in clear space.
+            let rows = lines.filter { $0.rect.midY >= t.minY && $0.rect.midY <= t.maxY && $0.rect.minX <= t.minX + 2 && $0.rect.maxX >= t.minX }
+            var left = min(t.minX, rows.map(\.rect.minX).min() ?? t.minX)
+            // A number or bullet just before it that OCR skipped (small, on the first line: not a border running down the block).
+            if let lead = leadLeft(of: t, from: left) { left = lead.minX }
+            // The bracket's stroke runs 12 pt left of x and its curls come back to 6 pt: as close as that allows,
+            // then step left past any ink there (a page's margin rule, other text).
+            var x = left + 6 * k - pen - 1.5
+            func free(_ x: CGFloat) -> Bool { ink.clear(CGRect(x: x - 12 * k - pen - 0.5, y: t.minY - 2, width: 6 * k + pen + 1, height: t.height + 4), bg: bg) }
+            var tries = 0
+            while !free(x), tries < Int(24 * k) { x -= 1; tries += 1 }
+            if !free(x) { x = left + 6 * k - pen - 1.5 }   // no clear spot near: hug the block
+            if x - 12 * k - pen < 0 { highlight(); return }
+            it["x"] = x; it["y"] = t.minY - 2; it["h"] = t.height + 4
+        case "arrow":
+            fitArrow(&it, on: t, lines: lines, size: size, scale: k)
+        default:
+            place(&it, on: t)
+        }
+    }
+
+    /// An arrow ends just outside its target, pointing at it from where its tail is; a tail inside the target
+    /// or off the screen moves to the side with room (toward the middle of the screen when it's at an edge).
+    static func fitArrow(_ it: inout [String: Any], on t: CGRect, lines: [OCRLine], size: CGSize, scale k: CGFloat) {
+        let screen = CGRect(origin: .zero, size: size).insetBy(dx: 14 * k, dy: 14 * k)
+        let keepOut = t.insetBy(dx: -6, dy: -6)
+        var tail = CGPoint(x: num(it["x1"]) ?? t.minX - 80 * k, y: num(it["y1"]) ?? t.midY)
+        func tip(from p: CGPoint) -> CGPoint {
+            let px = min(max(p.x, t.minX), t.maxX), py = min(max(p.y, t.minY), t.maxY)
+            let d = max(1, hypot(px - p.x, py - p.y))
+            return CGPoint(x: px - (px - p.x) / d * 6, y: py - (py - p.y) / d * 6)
+        }
+        if keepOut.contains(tail) || !screen.contains(tail) {
+            let len = max(70 * k, min(160 * k, hypot((num(it["x2"]) ?? tail.x) - tail.x, (num(it["y2"]) ?? tail.y) - tail.y)))
+            let words = lines.flatMap { $0.words.map(\.rect) }
+            let toMiddle = CGPoint(x: size.width / 2 - t.midX, y: size.height / 2 - t.midY)
+            var best: (CGPoint, CGFloat)?
+            for i in 0..<16 {
+                let a = Double(i) / 16 * 2 * .pi, dx = CGFloat(cos(a)), dy = CGFloat(sin(a))
+                // From the target's edge in that direction, `len` away.
+                let ex = dx > 0 ? t.maxX : (dx < 0 ? t.minX : t.midX), ey = dy > 0 ? t.maxY : (dy < 0 ? t.minY : t.midY)
+                let p = CGPoint(x: ex + dx * len, y: ey + dy * len)
+                guard screen.contains(p), !keepOut.contains(p) else { continue }
+                // Less text under the arrow is better; toward the middle of the screen, and close to where the model meant.
+                let q = tip(from: p)
+                var cost: CGFloat = 0
+                for w in words where segmentHits(p, q, w) { cost += 1 }
+                cost -= (dx * toMiddle.x + dy * toMiddle.y) / max(1, hypot(toMiddle.x, toMiddle.y)) * 0.5
+                cost += hypot(p.x - tail.x, p.y - tail.y) / max(1, size.width) * 0.5
+                if best == nil || cost < best!.1 { best = (p, cost) }
+            }
+            if let b = best { tail = b.0 }
+        }
+        let q = tip(from: tail)
+        it["x1"] = tail.x; it["y1"] = tail.y; it["x2"] = q.x; it["y2"] = q.y
+    }
+
+    private static func segmentHits(_ a: CGPoint, _ b: CGPoint, _ r: CGRect) -> Bool {
+        for i in 0...12 {
+            let u = CGFloat(i) / 12
+            if r.contains(CGPoint(x: a.x + (b.x - a.x) * u, y: a.y + (b.y - a.y) * u)) { return true }
+        }
+        return false
+    }
+
     /// Fits a mark onto `r`, the text it's about.
     private static func place(_ it: inout [String: Any], on r: CGRect) {
         switch it["type"] as? String {
@@ -550,75 +857,6 @@ enum MarkSnapper {
         return out
     }
 
-    /// Without `find`: nudge the mark onto the words near Claude's coordinates.
-    static func nudge(_ item: [String: Any], lines: [OCRLine]) -> [String: Any] {
-        var it = item
-        let words = lines.flatMap { $0.words.map(\.rect) }
-        guard !words.isEmpty else { return it }
-        switch it["type"] as? String {
-        case "underline":
-            guard let x = num(it["x"]), let y = num(it["y"]), let w = num(it["w"]), w > 0 else { return it }
-            // Words under the line's span whose bottom edge is close to where Claude put the line.
-            let cands = words.filter { r in
-                let overlap = min(r.maxX, x + w) - max(r.minX, x)
-                return overlap >= 0.5 * min(r.width, w) && abs(r.maxY - y) < max(28, r.height * 1.5)
-            }
-            guard let best = cands.min(by: { abs($0.maxY - y) < abs($1.maxY - y) }) else { return it }
-            let row = cands.filter { abs($0.midY - best.midY) < best.height * 0.6 }
-            let u = union(row)
-            it["x"] = u.minX; it["w"] = u.width; it["y"] = u.maxY + 3
-
-        case "highlight", "box":
-            guard let x = num(it["x"]), let y = num(it["y"]), let w = num(it["w"]), let h = num(it["h"]) else { return it }
-            let rect = CGRect(x: x, y: y, width: w, height: h)
-            // Words mostly inside the box (a line the box only grazes stays out).
-            func isInside(_ r: CGRect) -> Bool {
-                let i = r.intersection(rect)
-                return !i.isNull && i.width * i.height >= 0.6 * r.width * r.height
-            }
-            var found: CGRect?
-            for l in lines {
-                let inside = l.words.map(\.rect).filter(isInside)
-                guard !inside.isEmpty else { continue }
-                // Most of the line is in the box: take the whole line (Claude's boxes often stop short).
-                let part = Double(inside.count) >= 0.6 * Double(l.words.count) ? union(l.words.map(\.rect)) : union(inside)
-                found = found.map { $0.union(part) } ?? part
-            }
-            guard let textArea = found else { return it }
-            // Only snap when the words fill a good part of the area (otherwise it's probably a picture or button).
-            guard textArea.width * textArea.height >= 0.25 * w * h else { return it }
-            let u = withLeads(textArea, lines)
-            let pad: CGFloat = it["type"] as? String == "box" ? 6 : 2
-            let r = u.insetBy(dx: -pad, dy: -pad)
-            it["x"] = r.minX; it["y"] = r.minY; it["w"] = r.width; it["h"] = r.height
-
-        case "bracket":
-            guard let x = num(it["x"]), let y = num(it["y"]), let h = num(it["h"]), h > 0 else { return it }
-            // The block of words to its right, from its top to its bottom.
-            let block = words.filter { $0.midY >= y && $0.midY <= y + h && $0.minX >= x - 40 && $0.minX < x + 400 }
-            guard !block.isEmpty else { return it }
-            let u = withLeads(union(block), lines)
-            it["x"] = u.minX; it["y"] = u.minY - 2; it["h"] = u.height + 4
-
-        case "circle":
-            guard let x = num(it["x"]), let y = num(it["y"]), let r = num(it["r"]), r > 0 else { return it }
-            // Only when the circle is clearly centered on some text (it could be around an icon).
-            guard let nearest = words.min(by: { hypot($0.midX - x, $0.midY - y) < hypot($1.midX - x, $1.midY - y) }),
-                  hypot(nearest.midX - x, nearest.midY - y) < r * 0.6 else { return it }
-            let row = words.filter { w in
-                abs(w.midY - nearest.midY) < nearest.height * 0.6 && hypot(w.midX - x, w.midY - y) < r
-            }
-            let u = union(row)
-            guard u.width < r * 3.5 else { return it }
-            it["x"] = u.midX; it["y"] = u.midY
-            it["r"] = max(u.height / 2 + 10, u.width / 2.3 + 6)
-
-        default:
-            break
-        }
-        return it
-    }
-
     // MARK: Labels
 
     /// The area a mark covers, in screenshot pixels.
@@ -627,7 +865,8 @@ enum MarkSnapper {
         switch it["type"] as? String {
         case "circle":
             guard let x = n("x"), let y = n("y"), let r = n("r") else { return nil }
-            return CGRect(x: x - r * 1.2, y: y - r * 1.05, width: r * 2.4, height: r * 2.1)
+            let rx = n("rx") ?? r * 1.15, ry = n("ry") ?? r
+            return CGRect(x: x - rx * 1.04, y: y - ry * 1.05, width: rx * 2.08, height: ry * 2.1)
         case "box", "highlight":
             guard let x = n("x"), let y = n("y"), let w = n("w"), let h = n("h") else { return nil }
             return CGRect(x: x - 5, y: y - 5, width: w + 10, height: h + 10)
@@ -648,7 +887,7 @@ enum MarkSnapper {
     /// Picks the spot next to the mark where the label covers the least text and stays on screen.
     /// Sets `lx`, `ly` (top-left of the label, screenshot pixels) and `la` ("start" or "end").
     private static func placeLabel(_ it: inout [String: Any], text: String, mark m: CGRect, lines: [OCRLine],
-                                   size: CGSize, scale: CGFloat) {
+                                   size: CGSize, scale: CGFloat, ink: InkMap? = nil) {
         let k = max(scale, 0.1)
         let w = (CGFloat(text.count) * 10.5 + 22) * k, h = 32 * k, g = 8 * k
         let type = it["type"] as? String ?? ""
@@ -665,6 +904,8 @@ enum MarkSnapper {
         if type == "underline" { cands.swapAt(0, 2) }
         let words = lines.flatMap { $0.words.map { $0.rect.insetBy(dx: -2, dy: -2) } }
         let screen = CGRect(origin: .zero, size: size).insetBy(dx: 6 * k, dy: 6 * k)
+        // The page's color around the mark (judged over a wide area: a spot on a chart's bar is not "empty").
+        let pageBG = ink?.background(m.insetBy(dx: -220 * k, dy: -160 * k))
         var best: (CGRect, String, CGFloat)?
         for (i, (r, anchor)) in cands.enumerated() {
             var cost = CGFloat(i) * 0.04
@@ -673,6 +914,14 @@ enum MarkSnapper {
                 let x = wr.intersection(r); return acc + (x.isNull ? 0 : x.width * x.height)
             }
             cost += covered / (w * h) * 10
+            // Pictures count too (a chart's bars, an icon): what share of the spot isn't background.
+            if let ink, let bg = pageBG {
+                var hit = 0, all = 0
+                for yy in stride(from: Int(r.minY), to: Int(r.maxY), by: 3) { for xx in stride(from: Int(r.minX), to: Int(r.maxX), by: 3) {
+                    all += 1; if ink.isInk(xx, yy, bg, 60) { hit += 1 }
+                } }
+                if all > 0 { cost += CGFloat(hit) / CGFloat(all) * 6 }
+            }
             let onMark = r.intersection(m)
             if !onMark.isNull { cost += onMark.width * onMark.height / (w * h) * 6 }
             if best == nil || cost < best!.2 { best = (r, anchor, cost) }
