@@ -26,6 +26,10 @@
     const flatTex = src => JSON.stringify(T.parseTex(src)).match(/"s":"[^"]*"/g).map(m => m.slice(5, -1)).join('');
     check(flatTex('5\\cdot 5 - 9') === '5 · 5−9' || flatTex('5\\cdot 5 - 9') === '5 · 5 − 9', `\\cdot gets the same room on both sides however it's typed (${flatTex('5\\cdot 5 - 9')})`);
     check(flatTex('2 \\times 3') === '2 × 3' && flatTex('a\\le b') === 'a ≤ b', `so do \\times and \\le (${flatTex('2 \\times 3')}, ${flatTex('a\\le b')})`);
+    const near = (a, b) => Math.abs(a - b) < 1e-9;
+    check(near(f('sin x', Math.PI / 2), 1) && f('x²', 3) === 9 && f('|x|', -4) === 4 && f('sqrt x', 9) === 3 && near(f('2pi x', 1), 2 * Math.PI),
+      'functions as people type them: sin x, x², |x|, sqrt x, 2pi x');
+    check(near(f('100*0.5^t', 2), 25) && f('n^2', 3) === 9 && f('f(t) = 3t', 2) === 6 && near(f('e^(-t)', 0), 1), 'a function of t or n is drawn like one of x');
     let threw = false; try { T.compileFn('alert(1)')(0); } catch (e) { threw = true; }
     check(threw, 'anything that is not math is refused (no code runs)');
 

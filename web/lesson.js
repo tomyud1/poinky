@@ -941,8 +941,12 @@
   // ---------- graphs: axes, curves and points ----------
   /** A function of x from text like "x^2 - 2x + 1", "sin(x)", "2^x", "sqrt(x)/2" (no code is run, only this math). */
   function compileFn(src) {
-    const s = String(src).replace(/\s+/g, '').replace(/\*\*/g, '^').replace(/·|×/g, '*').replace(/−/g, '-').replace(/^y=|^f\(x\)=/, '');
+    const s = String(src).replace(/\s+/g, '').replace(/\*\*/g, '^').replace(/·|×/g, '*').replace(/−/g, '-').replace(/²/g, '^2').replace(/³/g, '^3')
+      .replace(/^(y|[a-zA-Z]\([a-zθ]\))=/, '');
     let i = 0;
+    // A function of t or n (decay over time, a sequence) is drawn the same way when there's no x in it.
+    const letters = s.toLowerCase().replace(/asin|acos|atan|sqrt|sign|round|floor|exp|max|min|sin|cos|tan|abs|log|ln|pi/g, '');
+    const alias = /x/.test(letters) ? 'x' : (['t', 'n', 'θ'].find(v => letters.includes(v)) || 'x');
     const F = { sin: Math.sin, cos: Math.cos, tan: Math.tan, exp: Math.exp, ln: Math.log, log: Math.log10, sqrt: Math.sqrt, abs: Math.abs,
       asin: Math.asin, acos: Math.acos, atan: Math.atan, floor: Math.floor, round: Math.round, sign: Math.sign };
     const C = { pi: Math.PI, e: Math.E, 'π': Math.PI };
@@ -951,7 +955,7 @@
       let f = unary();
       for (;;) {
         if (s[i] === '*' || s[i] === '/') { const op = s[i++], a = f, b = unary(); f = op === '*' ? x => a(x) * b(x) : x => a(x) / b(x); }
-        else if (i < s.length && /[0-9a-zπ.(]/i.test(s[i])) { const a = f, b = power(); f = x => a(x) * b(x); }   // 2x, 3(x+1), x sin(x)
+        else if (i < s.length && /[0-9a-zπθ.(]/i.test(s[i])) { const a = f, b = power(); f = x => a(x) * b(x); }   // 2x, 3(x+1), x sin(x)
         else return f;
       }
     }
@@ -961,9 +965,17 @@
       const c = s[i];
       if (c === '(') { i++; const f = expr(); if (s[i] === ')') i++; return f; }
       if (/[0-9.]/.test(c)) { let n = ''; while (/[0-9.]/.test(s[i] || '')) n += s[i++]; const v = parseFloat(n); return () => v; }
-      if (c === 'x' && !/[a-z]/i.test(s[i + 1] || '')) { i++; return x => x; }
+      if (c === '|') { i++; const f = expr(); if (s[i] === '|') i++; return x => Math.abs(f(x)); }   // |x|
+      if ((c === 'x' || c === alias) && !/[a-z]/i.test(s[i + 1] || '')) { i++; return x => x; }
       let name = '';
-      while (/[a-zπ]/i.test(s[i] || '')) name += s[i++];
+      while (/[a-zπθ]/i.test(s[i] || '')) name += s[i++];
+      // A function or constant run into what follows ("sinx", "sqrtx", "pix"): take the longest name that fits.
+      if (!F[name.toLowerCase()] && !(name.toLowerCase() in C)) {
+        for (let L = name.length - 1; L >= 2; L--) {
+          const p = name.slice(0, L).toLowerCase();
+          if (F[p] || p in C) { i -= name.length - L; name = name.slice(0, L); break; }
+        }
+      }
       if (F[name.toLowerCase()]) { const fn = F[name.toLowerCase()], a = s[i] === '(' ? atom() : power(); return x => fn(a(x)); }
       if (name.toLowerCase() in C) { const v = C[name.toLowerCase()]; return () => v; }
       if (name === 'x') return x => x;
@@ -971,7 +983,7 @@
       if (name) { i -= name.length - 1; return atomOf(name[0]); }
       throw new Error('bad expression at ' + i);
     }
-    const atomOf = ch => ch === 'x' ? (x => x) : ch in C ? (() => C[ch]) : (() => { throw new Error('unknown ' + ch); });
+    const atomOf = ch => ch === 'x' || ch === alias ? (x => x) : ch in C ? (() => C[ch]) : (() => { throw new Error('unknown ' + ch); });
     const f = expr();
     if (i < s.length) throw new Error('bad expression at ' + i);
     return f;
