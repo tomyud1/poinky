@@ -62,7 +62,7 @@ struct BrainQuestion {
 
     /// The screenshot, plus the close-up of what you marked (if any).
     var imageBlocks: [[String: Any]] {
-        guard let snapshot else { return [] }
+        guard let snapshot, !snapshot.isBlind else { return [] }
         var blocks: [[String: Any]] = [["type": "image",
                                         "source": ["type": "base64", "media_type": "image/jpeg", "data": snapshot.jpegBase64]]]
         if let f = snapshot.focus {

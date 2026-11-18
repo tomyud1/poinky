@@ -1449,7 +1449,15 @@ final class CallController: NSObject, NSMenuDelegate {
                 let reading = Task.detached(priority: .userInitiated) { () -> AppContext in
                     (try? await Deadline.run(0.5, "Reading the front app") { AppContextReader.read(app: front, excluded: excluded) }) ?? AppContext()
                 }
-                let snap = try await ScreenCapture.capture(screen: screen, marks: marks, cursor: cursor, focus: focusCrop)
+                let snap: Snapshot
+                do {
+                    snap = try await ScreenCapture.capture(screen: screen, marks: marks, cursor: cursor, focus: focusCrop)
+                } catch let e where !(e is CancellationError) {
+                    // The display is asleep or off, or the capture service is stuck: ask without a picture
+                    // rather than "Sorry, that didn't work".
+                    Timeline.log("capture.failed", ["why": e.localizedDescription, "turn": myTurn])
+                    snap = Snapshot.blind(screen: screen.frame.size, why: e.localizedDescription)
+                }
                 self.frontContext = self.config.frontAppContext ? await reading.value : AppContext()
                 Timeline.log("capture", ["ms": Int((ProcessInfo.processInfo.systemUptime - capStart) * 1000), "turn": myTurn])
                 guard myTurn == self.turn else { return }
@@ -1473,7 +1481,7 @@ final class CallController: NSObject, NSMenuDelegate {
                         : "Explain this to the user (2D lesson, or a 3D model if they asked for 3D). Started in parallel with the talker; the talker only says a short hand-over line.")
                 }
                 let q = BrainQuestion(text: self.talkerText(question, snap, proactive: proactive), snapshot: snap)
-                self.overlay.glance()
+                if !snap.isBlind { self.overlay.glance() }
                 self.addReceipt(q, question: proactive ? "" : question, snap: snap, turn: myTurn)
                 if sketchNow || checkNow { self.receiptAlso("The teacher (\(self.config.model(for: .artist))) got the same screenshot to sketch an answer") }
                 _ = try await talker.ask(q) { delta in self.received(delta, turn: myTurn) }
@@ -1663,7 +1671,7 @@ final class CallController: NSObject, NSMenuDelegate {
         }
         r.parts = Receipts.sessionParts
         r.message = q.text
-        receiptID = Receipts.add(r, jpegBase64: snap.jpegBase64)
+        receiptID = Receipts.add(r, jpegBase64: snap.isBlind ? nil : snap.jpegBase64)
         receiptTurn = myTurn
     }
 
