@@ -1093,7 +1093,7 @@ final class CallController: NSObject, NSMenuDelegate {
     static func ago(_ d: Date) -> String {
         let s = Date().timeIntervalSince(d)
         if s < 90 { return "just now" }
-        if s < 3600 { return "\(Int(s / 60)) minutes ago" }
+        if s < 3600 { return Int(s / 60) == 1 ? "a minute ago" : "\(Int(s / 60)) minutes ago" }
         if s < 2 * 3600 { return "an hour ago" }
         if s < 86400 { return "\(Int(s / 3600)) hours ago" }
         if s < 2 * 86400 { return "yesterday" }
@@ -2040,7 +2040,11 @@ final class CallController: NSObject, NSMenuDelegate {
         var lines = ["Brief from the talker: \(brief)",
                      "User said: \"\(lastQuestion)\""]
         let talkerSaid = parser.sayPreview
-        if !talkerSaid.isEmpty { lines.append("Talker said: \"\(talkerSaid)\"") }
+        if !talkerSaid.isEmpty {
+            lines.append("Talker said: \"\(talkerSaid)\"")
+            // A long line already explained part of it (the talker said step three, then the lesson said it again).
+            if talkerSaid.split(separator: " ").count > 14 { lines.append("(The user just heard that, in the same voice: start after it, don't say it again.)") }
+        }
         // Its last lesson was cut off (you talked over it) or failed: where the user stopped hearing it.
         if let news = lessons.teacherNews() { lines.append(news) }
         lines.append("Screenshot size: \(snap.width)x\(snap.height) px (coordinates use this size).")
