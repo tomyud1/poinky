@@ -13,6 +13,8 @@ final class SettingsModel: ObservableObject {
     var onSaved: ((AppConfig) -> Void)?
     /// Which tab is showing (the notch's update arrow opens General).
     @Published var tab = "general"
+    /// Settings → Advanced: each part's model and effort, shown (for developers; closed until opened).
+    @Published var showRoleModels = false
     /// Plays a sample with the local voice (provided by the app, which owns the voice helper).
     var previewVoice: ((String, Double) -> Void)?
     /// "Start Fresh" (Settings → General → Why isn't it working?): the app's `resetEverything`.
@@ -144,15 +146,19 @@ final class SettingsWindowController {
         window?.makeKeyAndOrderFront(nil)
     }
 
-    /// Developer check (`--settings-shot <out.png> [voice]`): a picture of the Claude (or Voice) tab, then quit.
+    /// Developer check (`--settings-shot <out.png> [voice|general|privacy|advanced]`): a picture of the Claude (or
+    /// another) tab, then quit. `POINKY_SHOT_DARK=1`: in dark mode. The advanced tab is shown with its sections open.
     func snapshotTab(to out: String, tab name: String = "claude") {
         model.reload()
         let voice = name == "voice"
+        if name == "advanced" { model.showRoleModels = true }
         let tab = voice ? AnyView(VoiceTab(model: model)) : name == "general" ? AnyView(GeneralTab(model: model))
-            : name == "privacy" ? AnyView(PrivacyTab(model: model)) : AnyView(ClaudeTab(model: model))
+            : name == "privacy" ? AnyView(PrivacyTab(model: model)) : name == "advanced" ? AnyView(AdvancedTab(model: model))
+            : AnyView(ClaudeTab(model: model))
         let h: CGFloat = voice ? 560 : name == "general" ? 1600 : name == "privacy" ? 620 : 900
         let host = NSHostingView(rootView: tab.frame(width: 620, height: h))
         let w = NSWindow(contentRect: CGRect(x: -3000, y: 0, width: 620, height: h), styleMask: [.borderless], backing: .buffered, defer: false)
+        w.appearance = NSAppearance(named: ProcessInfo.processInfo.environment["POINKY_SHOT_DARK"] == "1" ? .darkAqua : .aqua)
         w.contentView = host
         w.orderFrontRegardless()
         let delay = Double(ProcessInfo.processInfo.environment["POINKY_SHOT_DELAY"] ?? "") ?? 2.5
@@ -476,29 +482,9 @@ private struct VoiceTab: View {
 private struct ClaudeTab: View {
     @ObservedObject var model: SettingsModel
 
-    /// One part of Poinky: its model and how hard it thinks.
-    private func row(_ title: String, _ about: String, model m: Binding<String>, effort: Binding<String>,
-                     sameAs: String? = nil, automatic: String = "Automatic") -> some View {
-        LabeledContent {
-            HStack(spacing: 8) {
-                ModelPicker(value: m, sameAs: sameAs).frame(width: 205)
-                Picker("Effort", selection: effort) {
-                    Text(automatic).tag("")
-                    Divider()
-                    ForEach(EffortChoice.all, id: \.1) { Text($0.0).tag($0.1) }
-                }
-                .labelsHidden().frame(width: 118)
-            }
-        } label: {
-            VStack(alignment: .leading, spacing: 1) {
-                Text(title)
-                Text(about).font(.caption).foregroundStyle(.secondary)
-            }
-        }
-    }
-
     var body: some View {
         let cc = model.config.brain == .claudeCode
+        let pace = model.config.pace
         Form {
             Section {
                 Picker("Connect with", selection: $model.config.brain) {
@@ -511,11 +497,41 @@ private struct ClaudeTab: View {
                 }
             }
             Section {
-                row("Talker", "answers out loud, marks the screen",
-                    model: cc ? $model.config.claudeCodeModel : $model.config.apiModel, effort: $model.config.talkerEffort)
-                row("Teacher", "sketches and 3D models",
-                    model: cc ? $model.config.artistModel : $model.config.apiArtistModel, effort: $model.config.artistEffort)
-                    .disabled(!model.config.artistEnabled)
+                Picker("Answers", selection: Binding(get: { pace?.rawValue ?? "custom" },
+                                                     set: { if let p = AppConfig.Pace(rawValue: $0) { model.config.use(p) } })) {
+                    Text("Quick").tag("quick")
+                    Text("Careful").tag("careful")
+                    if pace == nil { Text("Custom").tag("custom") }
+                }
+                .pickerStyle(.segmented)
+                switch pace {
+                case .quick?:
+                    Text("Answers start right away. Best for most questions.").font(.caption).foregroundStyle(.secondary)
+                case .careful?:
+                    Text("Stronger models where they make answers better: the teacher thinks before it explains or checks your work, and a stronger model clicks and types for you. A little slower to start, and uses more of your plan.")
+                        .font(.caption).foregroundStyle(.secondary)
+                case nil:
+                    HStack {
+                        Text("You picked each part's model yourself. Choose Quick or Careful to go back.").font(.caption).foregroundStyle(.secondary)
+                        Spacer()
+                        Button("Show Models…") { model.showRoleModels = true; model.tab = "advanced" }
+                    }
+                }
+                LabeledContent {
+                    ModelPicker(value: $model.config.agentModel, sameAs: "Your Claude Code default").frame(width: 230)
+                } label: {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("Helpers' model")
+                        Text("background agents doing longer work").font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+            } header: {
+                Text("Models")
+            } footer: {
+                Text("Changes apply from your next call (helpers: from the next one you start).")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Section {
                 Toggle("Teacher sketches explanations and 3D models", isOn: $model.config.artistEnabled)
                 Picker("Sketches are drawn on", selection: $model.config.paperLook) {
                     Text("Paper, or a chalkboard on dark screens").tag("auto")
@@ -525,19 +541,6 @@ private struct ClaudeTab: View {
                 .disabled(!model.config.artistEnabled)
                 Toggle("Quick web search (the talker looks things up itself, with web tools only)", isOn: $model.config.webSearch)
                     .disabled(!cc)
-                row("Guide", "walks you through, step by step",
-                    model: cc ? $model.config.guideModel : $model.config.apiGuideModel, effort: $model.config.guideEffort,
-                    sameAs: "Same as the talker")
-                row("Doer", "clicks and types for you",
-                    model: cc ? $model.config.doerModel : $model.config.apiDoerModel, effort: $model.config.doerEffort)
-                row("Helpers", "background agents (always Claude Code)",
-                    model: $model.config.agentModel, effort: $model.config.agentEffort,
-                    sameAs: "Your Claude Code default", automatic: "Default")
-            } header: {
-                Text("Models")
-            } footer: {
-                Text("Effort is how long each one thinks before answering. Automatic keeps Poinky's voice quick (no thinking step); higher is smarter but slower, and uses more of your plan. Changes apply from your next call (helpers: from the next one you start).")
-                    .font(.caption).foregroundStyle(.secondary)
             }
             if cc, let v = model.claudeVersion {
                 Section {
@@ -582,6 +585,34 @@ private struct ClaudeTab: View {
         }
         .formStyle(.grouped)
         .onAppear { model.checkClaudeVersion() }
+    }
+}
+
+/// One part of Poinky: its model and how hard it thinks (Settings → Advanced). nil model: effort only.
+private struct RoleRow: View {
+    let title: String, about: String
+    let model: Binding<String>?
+    let effort: Binding<String>
+    var sameAs: String? = nil
+    var automatic = "Automatic"
+
+    var body: some View {
+        LabeledContent {
+            HStack(spacing: 8) {
+                if let model { ModelPicker(value: model, sameAs: sameAs).frame(width: 205) }
+                Picker("Effort", selection: effort) {
+                    Text(automatic).tag("")
+                    Divider()
+                    ForEach(EffortChoice.all, id: \.1) { Text($0.0).tag($0.1) }
+                }
+                .labelsHidden().frame(width: 118)
+            }
+        } label: {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title)
+                Text(about).font(.caption).foregroundStyle(.secondary)
+            }
+        }
     }
 }
 
@@ -766,7 +797,25 @@ private struct MemoryTab: View {
 private struct AdvancedTab: View {
     @ObservedObject var model: SettingsModel
     var body: some View {
+        let cc = model.config.brain == .claudeCode
         Form {
+            Section(isExpanded: $model.showRoleModels) {
+                RoleRow(title: "Talker", about: "answers out loud, marks the screen",
+                        model: cc ? $model.config.claudeCodeModel : $model.config.apiModel, effort: $model.config.talkerEffort)
+                RoleRow(title: "Teacher", about: "sketches and 3D models",
+                        model: cc ? $model.config.artistModel : $model.config.apiArtistModel, effort: $model.config.artistEffort)
+                RoleRow(title: "Guide", about: "walks you through, step by step",
+                        model: cc ? $model.config.guideModel : $model.config.apiGuideModel, effort: $model.config.guideEffort,
+                        sameAs: "Same as the talker")
+                RoleRow(title: "Doer", about: "clicks and types for you",
+                        model: cc ? $model.config.doerModel : $model.config.apiDoerModel, effort: $model.config.doerEffort)
+                RoleRow(title: "Helpers", about: "their model is in Settings → Claude", model: nil,
+                        effort: $model.config.agentEffort, automatic: "Default")
+                Text("Quick and Careful (Settings → Claude) set these for you; anything else shows there as Custom. Effort is how long each one thinks before answering: Automatic keeps the voice quick (no thinking step), higher is smarter but slower and uses more of your plan.")
+                    .font(.caption).foregroundStyle(.secondary)
+            } header: {
+                Text("Each part's model and effort (for developers)")
+            }
             Section("How Claude talks and draws") {
                 HStack {
                     Button("Edit Talker Prompt…") { NSWorkspace.shared.open(SystemPrompt.ensureEditableCopy(.talker)) }
