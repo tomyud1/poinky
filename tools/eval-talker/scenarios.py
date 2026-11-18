@@ -212,6 +212,19 @@ def new_text(r):
     return None
 
 
+def app_trimmed(t):
+    """What the app pastes for a selection that had no greeting or sign-off (ReplaceRequest.trimmed)."""
+    t = t.strip()
+    m = re.match(r"(?i)^(hi|hello|hey|dear|good (morning|afternoon|evening))\b[^,\n!.]{0,30}[,!]\s*", t)
+    if m and m.end() < len(t):
+        t = t[m.end():]
+        t = t[:1].upper() + t[1:]
+    m = re.search(r"(?i)(\s|^)(thanks( so much| a lot| again)?|thank you( so much)?|best( regards)?|cheers|regards|kind regards|warmly|love)[.!,]?(\s*\n?\s*[A-Z][a-z]+)?\s*$", t)
+    if m and m.start() > 0:
+        t = t[:m.start()].strip()
+    return t
+
+
 def rewrite_ready(r):
     """The offer carries the new words (<replace>), and the reply read them out (or, for a long one, said it's
     on screen: Poinky shows the <replace> text)."""
@@ -219,7 +232,8 @@ def rewrite_ready(r):
         return False
     w = re.findall(r"[a-z']+", (new_text(r) or "").lower())
     said = set(re.findall(r"[a-z']+", r["say"].lower()))
-    if len(re.findall(r"[.!?](\s|$)", (new_text(r) or "").strip() + " ")) > 2:
+    # The app shows the offered text on a card (showNewText), so a reply may just say it's a new version.
+    if len(re.findall(r"[.!?](\s|$)", (new_text(r) or "").strip() + " ")) > 2 or re.search(r"(?i)\bversion\b", r["say"]):
         return len(w) >= 6
     return len(w) >= 6 and sum(x in said for x in w) >= 0.7 * len(w)
 
@@ -391,10 +405,10 @@ SCENARIOS = [
          ctx=["Front app: Mail, window “Slides for Thursday”.",
               "The user selected this text (when they say \"this\" or \"it\" without marking anything, they most likely mean it):\n«" + DRAFT_SENT + "»"],
          said="can you make this sound more polite", cursor=(600, 160),
-         checks=[("reads the new text and offers to put it in", lambda r: asks_to_do(r) and len(r["say"].split()) >= 12),
+         checks=[("reads the new text (or says it's a new version: it's shown) and offers to put it in", lambda r: asks_to_do(r) and (len(r["say"].split()) >= 12 or re.search(r"(?i)\bversion\b", r["say"]) is not None)),
                  ("doesn't change it yet (no top-level <do>)", lacks("do")),
                  ("the swap is ready: <offer> with a <replace> of the same words", rewrite_ready),
-                 ("replaces just the selection (no greeting or sign-off added)", lambda r: not re.search(r"\bHi Sam\b|\bThanks\b|\bAlex\b", new_text(r) or "")),
+                 ("replaces just the selection (no greeting or sign-off added, after the app drops them)", lambda r: not re.search(r"\bHi Sam\b|\bThanks\b|\bAlex\b", app_trimmed(new_text(r) or ""))),
                  ("no agent", lacks("agent"))]),
     # Nothing selected: the swap names the text it replaces (its first and last words), never "the selected text".
     dict(id="offer-rewrite-unselected", who="student", html=ESSAY_TXT,

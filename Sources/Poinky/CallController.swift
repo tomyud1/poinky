@@ -725,6 +725,7 @@ final class CallController: NSObject, NSMenuDelegate {
     func testKeys(down: Bool) { ptt.fakeFlags = down ? ptt.combo : [] }
     func testWords(_ text: String, final: Bool, live: Bool) { listener.fakeResult(text, isFinal: final, live: live) }
     var testState: String { "\(state)" }
+    var testHold: String { "\(ptt.isDown ? "down" : "up")\(ptt.committed ? " committed" : "")" }
     /// Tests: how many of the doer's acts have started (a stop must hold it at one more, at most).
     private(set) var testActs = 0
 
@@ -1475,7 +1476,7 @@ final class CallController: NSObject, NSMenuDelegate {
         let q = question.lowercased()
         if ["punchier", "shorter", "rewrite", "reword", "rephrase", "fix the grammar", "more formal", "less formal",
             "tighten", "make it sound", "make this sound"].contains(where: { q.contains($0) }) {
-            return "(New wording: the whole new text goes in <offer say=\"Swapping it in.\"><replace>…the new text…</replace></offer>, which replaces the selected text. If nothing is selected, name what it replaces by its first and last words, copied exactly from the screen: <replace from=\"…\" to=\"…\">, and don't say \"selected\". In <say>: one or two sentences: say the new words, then \"Want me to swap it in?\"; longer: \"Here's a shorter version. Want me to swap it in?\" (Poinky shows it). Only the words being replaced: no greeting or sign-off.)"
+            return "(New wording: the whole new text goes in <offer say=\"Swapping it in.\"><replace>…the new text…</replace></offer>, which replaces the selected text. If nothing is selected, name what it replaces by its first and last words, copied exactly from the screen: <replace from=\"…\" to=\"…\">, and don't say \"selected\". In <say>: if the new text is one or two sentences, say those words themselves (no \"here's a version\"), then \"Want me to swap it in?\"; only if longer: \"Here's a shorter version. Want me to swap it in?\" (Poinky shows it). Only the words being replaced: no greeting or sign-off.)"
         }
         if ["short version", "sum it up", "summarize", "summarise", "tl;dr", "tldr", "gist", "in a nutshell", "quick summary"].contains(where: { q.contains($0) }) {
             return "(Summary: at most 3 short sentences, about 40 words, the main point first. Don't list every item.)"

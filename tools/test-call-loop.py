@@ -11,7 +11,7 @@ Usage: tools/test-call-loop.py [scenario …]     (no names: all of them; --list
 import json, os, subprocess, sys, tempfile, time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-APP = os.path.join(ROOT, "build/Poinky.app")
+APP = os.environ.get("POINKY_APP", os.path.join(ROOT, "build/Poinky.app"))   # another build (e.g. a "before" one)
 EXE = os.path.join(APP, "Contents/MacOS/Poinky")
 FAKE = os.path.join(ROOT, "tools/fake-claude.py")
 

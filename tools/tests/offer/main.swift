@@ -101,5 +101,17 @@ if let o = PendingOffer.make((say: nil, body: "<replace>Short.</replace>"), at: 
     check("…and runs when it's the same", o.check(now: 110, app: "com.apple.TextEdit", window: "essay.txt", selection: "A long wordy  sentence.") == .ok)
 } else { check("a swap offer is made", false) }
 
+// 6. A rewrite of a selected sentence doesn't bring the greeting / sign-off around it
+let sel = "I need you to send me the slides by tomorrow because I already asked twice and nobody has done it."
+func swapped(_ body: String, _ selection: String = sel) -> String? {
+    PendingOffer.make((say: nil, body: body), at: 0, app: "", window: "", selection: selection)?.actions.replace?.text
+}
+check("greeting and sign-off dropped", swapped("<replace>Hi Sam, could you send me the slides by tomorrow? I've asked a couple of times now. Thanks!</replace>") == "Could you send me the slides by tomorrow? I've asked a couple of times now.")
+check("a signed-off name goes too", swapped("<replace>Hi Sam,\nWould you send the slides by tomorrow?\nThanks so much,\nAlex</replace>") == "Would you send the slides by tomorrow?")
+check("kept when the selection had them", swapped("<replace>Hi Sam, slides by tomorrow please. Thanks!</replace>", "Hi Sam, I need the slides by tomorrow. Thanks,") == "Hi Sam, slides by tomorrow please. Thanks!")
+check("plain rewrites untouched", swapped("<replace>Our Friday meetings run long. Twenty minutes is plenty.</replace>") == "Our Friday meetings run long. Twenty minutes is plenty.")
+check("'thanks' inside a sentence stays", swapped("<replace>Thanks to the team, we shipped on time.</replace>") == "Thanks to the team, we shipped on time.")
+check("unknown selection: nothing trimmed", swapped("<replace>Hi Sam, slides please.</replace>", "") == "Hi Sam, slides please.")
+
 print(failures == 0 ? "ALL OK" : "\(failures) FAILED")
 exit(failures == 0 ? 0 : 1)

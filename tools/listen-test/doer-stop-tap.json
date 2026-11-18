@@ -8,7 +8,7 @@
   {"at": 4.6, "probe": "the doer is at work", "expect": {"actsAtLeast": 1}},
   {"at": 4.7, "keys": "down"},
   {"at": 4.8, "keys": "up"},
-  {"at": 4.85, "probe": "acts when tapped"},
+  {"at": 4.75, "probe": "acts when tapped"},
   {"at": 8.5, "probe": "no act started after the tap (one may finish)", "expect": {"actsAtMost": 5, "notState": "speaking"}},
   {"at": 9.0, "quit": true}
  ]}

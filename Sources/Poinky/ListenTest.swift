@@ -62,7 +62,7 @@ enum ListenTest {
                 MainActor.assumeIsolated {
                     if let k = step["keys"] as? String {
                         c.testKeys(down: k == "down")
-                        write(String(format: "%.2f keys %@ (state %@)", at, k, c.testState))
+                        write(String(format: "%.2f keys %@ (state %@, hold %@)", at, k, c.testState, c.testHold))
                     }
                     if let w = step["words"] as? String {
                         c.testWords(w, final: step["final"] as? Bool ?? false, live: step["live"] as? Bool ?? false)

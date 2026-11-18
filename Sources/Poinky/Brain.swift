@@ -221,6 +221,29 @@ struct ReplaceRequest: Equatable {
     var to: String?
     /// It says which text it replaces (otherwise: whatever is selected).
     var named: Bool { !(from ?? "").isEmpty }
+
+    /// The new text without a greeting or sign-off that the text it replaces didn't have (the model often
+    /// adds the "Hi Sam," it sees above a selected sentence, and a swap would then repeat it). `old`: the
+    /// selection, or "" when unknown (then nothing is trimmed).
+    func trimmed(replacing old: String) -> ReplaceRequest {
+        let o = old.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !o.isEmpty else { return self }
+        var t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let greeting = #"^(hi|hello|hey|dear|good (morning|afternoon|evening))\b[^,\n!.]{0,30}[,!]\s*"#
+        if o.range(of: greeting, options: [.regularExpression, .caseInsensitive]) == nil,
+           let r = t.range(of: greeting, options: [.regularExpression, .caseInsensitive]), r.upperBound < t.endIndex {
+            t = String(t[r.upperBound...])
+            if let f = t.first, f.isLowercase { t = f.uppercased() + t.dropFirst() }
+        }
+        let signoff = #"(\s|^)(thanks( so much| a lot| again)?|thank you( so much)?|best( regards)?|cheers|regards|kind regards|warmly|love)[.!,]?(\s*\n?\s*[A-Z][a-z]+)?\s*$"#
+        if o.range(of: signoff, options: [.regularExpression, .caseInsensitive]) == nil,
+           let r = t.range(of: signoff, options: [.regularExpression, .caseInsensitive]), r.lowerBound > t.startIndex {
+            t = String(t[..<r.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        var copy = self
+        copy.text = t.isEmpty ? text : t
+        return copy
+    }
 }
 
 /// A background job for a Claude Code agent, asked for by the talker.

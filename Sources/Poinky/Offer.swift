@@ -49,8 +49,10 @@ struct PendingOffer {
         all.doTask = all.doTask ?? early.doTask
         all.guide = all.guide ?? early.guide
         all.visual = all.visual ?? early.visual
-        let actions = allowed(all)
+        var actions = allowed(all)
         guard !isEmpty(actions) else { return nil }
+        // What's pasted replaces just the selection: no greeting or sign-off it didn't have.
+        if let r = actions.replace, !r.named { actions.replace = r.trimmed(replacing: selection) }
         let say = offer.say.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.flatMap { $0.isEmpty ? nil : $0 }
         return PendingOffer(actions: actions, say: say, made: now, app: app, window: window, selection: selection)
     }

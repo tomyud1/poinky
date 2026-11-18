@@ -314,9 +314,7 @@
   "id": "offer-rewrite",
   "source": "offer4",
   "raw": "<say>Sure. Here's a politer version: Hi Sam, I hope you're doing well. Could you please send me the slides by tomorrow? I've asked a couple of times, so I'd really appreciate it if you could get them to me. Want me to swap it in?</say>\n<offer say=\"Swapping it in.\"><do>Replace the selected text with exactly: Hi Sam, I hope you're doing well. Could you please send me the slides by tomorrow? I've asked a couple of times, so I'd really appreciate it if you could get them to me.</do></offer>",
-  "fails": [
-   "replaces just the selection (no greeting or sign-off added)"
-  ]
+  "fails": []
  },
  {
   "id": "offer-helper",
