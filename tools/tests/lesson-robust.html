@@ -151,6 +151,30 @@
     const hb = item('he').getBBox();
     check(clipRect && +clipRect.getAttribute('x') > hb.x + 20, `Hebrew is revealed from the right (${clipRect && Math.round(+clipRect.getAttribute('x'))} vs left edge ${Math.round(hb.x)})`);
     await done();
+
+    // The paper removed under the pen (the Clear button, or the overlay dropping old cards) mid-op: the drawing
+    // ends, the pen goes away, and the next lesson draws normally.
+    SB.lessonBegin(frame, 'cleared');
+    SB.lessonStep({ ops: [{ op: 'table', id: 'tc', x: 40, y: 60, rows: [['a', 'b'], ['1', '2'], ['3', '4'], ['5', '6'], ['7', '8']] }] }, 1);
+    await wait(400);
+    SB.clearAll();
+    await wait(3200);
+    check(!SB.lessonBusy(), 'a paper cleared away mid-op does not leave the drawing stuck');
+    check(W.getComputedStyle(pen).opacity === '0', `nor the pen on screen (opacity ${W.getComputedStyle(pen).opacity})`);
+    SB.lessonBegin(frame, 'after clear');
+    SB.lessonStep({ ops: [{ op: 'text', id: 'ac', x: 40, y: 60, text: 'drawing again', size: 28 }] }, 1);
+    check(await done(5000) && !!item('ac'), 'the next lesson draws');
+
+    // The drawings hidden mid-lesson (their window covered): the pen hides too and stays hidden while it draws on.
+    SB.lessonStep({ ops: [{ op: 'table', id: 'th', x: 40, y: 140, rows: [['a', 'b'], ['1', '2'], ['3', '4'], ['5', '6'], ['7', '8'], ['9', '10']] }] }, 1);
+    await wait(300);
+    SB.setVisible(false);
+    await wait(500);   // the pen fades out over 0.4 s
+    let shown = 0;
+    for (let i = 0; i < 20; i++) { await wait(50); if (W.getComputedStyle(pen).opacity !== '0') shown++; }
+    check(shown === 0, `while the drawings are hidden the pen stays hidden (${shown} of 20 looks)`);
+    SB.setVisible(true);
+    await done();
   } catch (e) { check(false, 'threw: ' + e.message + ' ' + (e.stack || '').split('\n')[1]); }
   window.testResults = { pass: !fail.length, lines: results };
 })();

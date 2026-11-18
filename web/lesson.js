@@ -143,7 +143,9 @@
       function f(now) {
         if (my !== token) return rej(CANCELLED);
         const u = Math.min(1, (now - t0) / (dur * 1000));
-        fn(u);
+        // A frame that throws (the paper taken off the screen under the pen…) ends the op instead of leaving it
+        // waiting forever, which kept the paper "busy" and the pen on screen.
+        try { fn(u); } catch (e) { return rej(e); }
         if (u < 1) requestAnimationFrame(f); else res(true);
       }
       requestAnimationFrame(f);
@@ -155,7 +157,8 @@
     if (!isFinite(x) || !isFinite(y)) return;
     penPos = [x, y];
     pen.style.transform = `translate(${x - 3}px, ${y - 3}px)`;
-    pen.style.opacity = 1;
+    // While the drawings are hidden (their window is covered or minimized) the pen keeps drawing, unseen.
+    pen.style.opacity = X.cards.classList.contains('hidden-content') ? 0 : 1;
     clearTimeout(penHide);
   }
   async function penTo(x, y) {
@@ -166,8 +169,10 @@
   }
   // Paper units → screen points.
   function onScreen(x, y) {
+    const m = svg.getScreenCTM();
+    if (!m || !svg.isConnected) throw CANCELLED;   // the paper is gone
     const p = svg.createSVGPoint(); p.x = x; p.y = y;
-    const q = p.matrixTransform(svg.getScreenCTM());
+    const q = p.matrixTransform(m);
     return [q.x, q.y];
   }
   const same = (x, y) => [x, y];
