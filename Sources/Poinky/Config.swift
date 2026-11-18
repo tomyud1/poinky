@@ -139,6 +139,14 @@ struct AppConfig: Codable {
         excludedApps = try c.decodeIfPresent([String].self, forKey: .excludedApps) ?? d.excludedApps
     }
 
+    /// A test copy (run with `POINKY_SUPPORT_DIR`) doesn't listen to the real keyboard, so it never answers
+    /// when the person at the Mac holds the talk keys for their own Poinky. `POINKY_REAL_KEYS=1` turns that off
+    /// (a test of the real keys); scripted keys (`PushToTalk.fakeFlags`) always work.
+    static let ignoresRealKeys: Bool = {
+        let env = ProcessInfo.processInfo.environment
+        return !(env["POINKY_SUPPORT_DIR"] ?? "").isEmpty && env["POINKY_REAL_KEYS"] != "1"
+    }()
+
     static let dir: URL = {
         let fm = FileManager.default
         // Tests and pictures (`--settings-shot`, `--welcome-shot`): a scratch folder instead of the real settings.

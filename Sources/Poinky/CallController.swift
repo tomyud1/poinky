@@ -2687,7 +2687,7 @@ final class CallController: NSObject, NSMenuDelegate {
         mouseTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self, self.state != .idle else { return }
-                let f = NSEvent.modifierFlags
+                let f: NSEvent.ModifierFlags = AppConfig.ignoresRealKeys ? [] : NSEvent.modifierFlags
                 // ⌥ alone marks; ⌃⌥ (holding to talk) marks too, so you can point while you talk.
                 self.overlay.setMarking(f.contains(.option) && !f.contains(.command))
                 self.overlay.trackMouse()
