@@ -20,7 +20,18 @@ final class AudioIO {
     private(set) var running = false
     private var micEngine: AVAudioEngine?
     private var engineHasMic = false
-    var micOn: Bool { micEngine != nil }
+    var micOn: Bool { micEngine != nil || fakeMicOn }
+    /// Tests (`--listen-test`): holding the keys "opens" a mic that records nothing (words are scripted).
+    static var fakeMic = false
+    /// `POINKY_MUTE=1` (tests): everything plays as usual, at volume 0.
+    static let muted = ProcessInfo.processInfo.environment["POINKY_MUTE"] == "1"
+    private var fakeMicOn = false
+    /// Tests: `POINKY_TEST_MIC_FAIL=1`, the microphone never opens (as with no input device, or one that's busy).
+    static let testMicFail = ProcessInfo.processInfo.environment["POINKY_TEST_MIC_FAIL"] == "1"
+    /// Tests: `POINKY_TEST_AUDIO_LOST=secs`, that long after the first start the output device goes away for good
+    /// (the end of `restartIfStopped` when every retry failed).
+    private static let testLostAfter = ProcessInfo.processInfo.environment["POINKY_TEST_AUDIO_LOST"].flatMap(Double.init)
+    private static var testLostDone = false
 
     /// Whether echo cancellation is active (false if voice processing couldn't start).
     private(set) var voiceProcessing = false
@@ -37,6 +48,19 @@ final class AudioIO {
     func start(mic: Bool = true) throws {
         guard !running else { return }
         defer { if running { watchDevice() } }
+        if let s = Self.testLostAfter, !Self.testLostDone {
+            Self.testLostDone = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + s) { [weak self] in
+                MainActor.assumeIsolated {
+                    guard let self, self.running else { return }
+                    NSLog("Poinky: test: the audio device is gone")
+                    self.player.stop(); self.sfx.stop(); self.engine.stop()
+                    self.unwatchDevice()
+                    self.running = false
+                    self.onRestart?()
+                }
+            }
+        }
         // A fresh engine each time: one that ever had a mic would open it again on start.
         engine = AVAudioEngine()
         player = AVAudioPlayerNode()
@@ -68,6 +92,9 @@ final class AudioIO {
             voiceProcessing = false
         }
         running = true
+        MicDebug.shared.micInfo = ["mode": "call", "voiceProcessing": voiceProcessing,
+                                   "agc": voiceProcessing && engine.inputNode.isVoiceProcessingAGCEnabled,
+                                   "micFormat": "\(engine.inputNode.outputFormat(forBus: 0))"]
     }
 
     /// Plays an interface sound through this engine (returns false if the engine isn't running).
@@ -82,6 +109,8 @@ final class AudioIO {
 
     /// Opens the microphone (hold-to-talk). Its audio goes to `micRelay`.
     func startMic() throws {
+        if Self.testMicFail { throw BrainError("The microphone couldn't start (POINKY_TEST_MIC_FAIL).") }
+        if Self.fakeMic { fakeMicOn = true; return }
         guard micEngine == nil else { return }
         let e = AVAudioEngine()
         let input = e.inputNode
@@ -96,6 +125,7 @@ final class AudioIO {
         e.prepare()
         try e.start()
         micEngine = e
+        MicDebug.shared.micInfo = ["mode": "hold", "voiceProcessing": false, "agc": false, "micFormat": "\(format)"]
         // AirPods switch to headset mode when their mic opens, which can stop this engine right after it
         // starts: start it again on the new format, so the hold still hears you.
         micObserver = NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange, object: e, queue: .main) { [weak self] _ in
@@ -109,6 +139,7 @@ final class AudioIO {
     }
 
     func stopMic() {
+        fakeMicOn = false
         if let o = micObserver { NotificationCenter.default.removeObserver(o); micObserver = nil }
         guard let e = micEngine else { return }
         e.inputNode.removeTap(onBus: 0)
@@ -131,6 +162,7 @@ final class AudioIO {
         }
         let speakerFormat = engine.outputNode.inputFormat(forBus: 0)
         engine.connect(engine.mainMixerNode, to: engine.outputNode, format: speakerFormat)
+        if Self.muted { engine.mainMixerNode.outputVolume = 0 }
         engine.attach(player)
         engine.connect(player, to: engine.mainMixerNode, format: playbackFormat)
         engine.attach(sfx)
@@ -219,6 +251,7 @@ extension AudioIO {
         running = false
         do {
             try start(mic: mic)
+            Timeline.log("audio.restart")
             onRestart?()
         } catch {
             // The new device isn't ready yet (Bluetooth still connecting): try again shortly.

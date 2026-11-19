@@ -1,0 +1,65 @@
+<!doctype html><html><head><meta charset="utf-8">
+<!-- Hebrew (right to left) text everywhere Poinky shows words, through the real overlay: Claude's caption bubble
+     and the top captions, mark labels, and paper text. Direction goes by most of the letters (textDir), so a
+     Hebrew sentence that starts with an English word or has math in it still ends with its period on the left.
+     Run by tools/tests/run-web-tests.mjs (`node tools/tests/run-web-tests.mjs rtl-text`). -->
+<style>html,body{margin:0;height:100%;background:#fff}iframe{position:absolute;inset:0;width:1400px;height:900px;border:0}</style>
+</head><body>
+<iframe id="ov" src="../../web/overlay.html"></iframe>
+<script>
+(async () => {
+  const results = [], fail = [];
+  const check = (ok, what) => { results.push((ok ? 'ok   ' : 'FAIL ') + what); if (!ok) fail.push(what); };
+  const wait = ms => new Promise(r => setTimeout(r, ms));
+  try {
+    const W = document.getElementById('ov').contentWindow;
+    for (let i = 0; i < 100 && !(W.SB && W.SB.lessonBegin && W.textDir); i++) await wait(50);
+    const SB = W.SB, dir = W.textDir, D = W.document;
+    const HE = 'Python היא שפת תכנות.', MIX = 'הנגזרת של x² היא 2x.', EN = 'In Hebrew, hello is שלום.';
+    check(dir(HE) === 'rtl' && dir(MIX) === 'rtl' && dir(EN) === 'ltr' && dir('What is 2+2?') === 'ltr' && dir('') === 'ltr',
+      `direction by most letters (${dir(HE)}, ${dir(MIX)}, ${dir(EN)})`);
+    // Where a character is drawn, in an HTML element (its last character: the period).
+    const lastCharX = e => { const n = e.firstChild, r = D.createRange(); r.setStart(n, n.length - 1); r.setEnd(n, n.length); return r.getBoundingClientRect().left; };
+    const firstHebX = e => { const n = e.firstChild, t = n.textContent, i = t.search(/[֐-׿]/), r = D.createRange(); r.setStart(n, i); r.setEnd(n, i + 1); return r.getBoundingClientRect().left; };
+
+    // Claude's caption in the bubble by the buddy.
+    SB.buddyOn(true); SB.phase('speaking'); SB.tick(500, 400, 0); await wait(200);
+    SB.caption('claude', HE); await wait(300);
+    const b = D.getElementById('bubble');
+    check(b.dir === 'rtl' && lastCharX(b) < firstHebX(b), `the bubble reads right to left, its period on the left (dir ${b.dir})`);
+    SB.caption('claude', MIX); await wait(200);
+    check(b.dir === 'rtl' && lastCharX(b) < firstHebX(b), 'with math in it too');
+    SB.caption('claude', EN); await wait(200);
+    check(b.dir === 'ltr', 'English with a Hebrew word stays left to right');
+    // The captions at the top (hud).
+    const cap = D.getElementById('claude');
+    check(cap.dir === 'ltr' || cap.dir === '', 'top caption: left to right for English');
+    SB.caption('claude', HE);
+    check(cap.dir === 'rtl', `top caption: right to left for Hebrew (dir ${cap.dir})`);
+
+    // A mark's label.
+    SB.apply({ items: [{ id: 'lab', type: 'label', x: 400, y: 300, text: MIX }] });
+    await wait(1600);
+    const tx = D.querySelector('g[data-id="lab"] text.lbl'), bg = D.querySelector('g[data-id="lab"] rect.tagbg');
+    const tb = tx.getBBox(), rb = bg.getBBox();
+    const endX = tx.getExtentOfChar(tx.textContent.length - 1).x;
+    check(tx.getAttribute('direction') === 'rtl' && endX < tx.getExtentOfChar(0).x, `a label is laid out right to left (period at ${endX | 0}, first letter at ${tx.getExtentOfChar(0).x | 0})`);
+    check(tb.x >= rb.x - 1 && tb.x + tb.width <= rb.x + rb.width + 1, 'and stays inside its tag');
+
+    // Paper text.
+    SB.lessonBegin({ x: 700, y: 60, w: 640, h: 800 }, 'test');
+    SB.lessonStep({ ops: [{ op: 'text', id: 'he', x: 40, y: 80, text: HE, size: 26 }, { op: 'text', id: 'en', x: 40, y: 140, text: 'Plain English line.', size: 26 }] });
+    for (let i = 0; i < 200 && SB.lessonBusy(); i++) await wait(50);
+    const T = SB._lessonTest, he = T.items.he, en = T.items.en;
+    const heNode = he.tagName === 'text' ? he : he.querySelector('text');
+    const hb = he.getBBox(), eb = en.getBBox();
+    check(heNode.getAttribute('direction') === 'rtl' && heNode.getExtentOfChar(heNode.textContent.length - 1).x < heNode.getExtentOfChar(heNode.textContent.search(/[֐-׿]/)).x,
+      'paper: a Hebrew line reads right to left, its period on the left');
+    check(Math.abs(hb.x - eb.x) < 2, `paper: it starts where the teacher put it, like an English line (${hb.x | 0} vs ${eb.x | 0})`);
+  } catch (e) { check(false, 'threw: ' + e.message); }
+  document.body.textContent = results.join('\n');
+  document.title = fail.length ? 'FAIL' : 'PASS';
+  window.testResults = { pass: !fail.length, lines: results };
+})();
+</script>
+</body></html>

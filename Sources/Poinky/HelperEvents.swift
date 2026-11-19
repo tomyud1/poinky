@@ -38,6 +38,21 @@ struct HelperStream {
     private var lastStep = ""
     /// The helper's window: everything it wrote and did, in full (`HelperEntry`). Taken with `takeEntries`.
     private(set) var entries: [HelperEntry] = []
+    /// Tokens so far: what it wrote (`outputTokens`, its own sub-agents too) and how big its conversation
+    /// is now (`contextTokens`: the last reply's input, cached or not). Claude Code stamps every part of a
+    /// reply with the usage from the reply's start (its output is then 1–8 tokens), so while a turn runs
+    /// each reply counts the larger of that and a guess from what it wrote (`written`, per message id);
+    /// a turn's end gives the real total (`modelUsage`, for the whole process), `settled`.
+    private var usage: [String: Int] = [:]
+    private var written: [String: Int] = [:]
+    private var settled = 0
+    private(set) var outputTokens = 0
+    private(set) var contextTokens = 0
+    /// Each reply's tokens by kind (for the cost estimate, `HelperCost`), and the session's model.
+    private var replies: [String: HelperCost.Usage] = [:]
+    private var model = ""
+    /// What it has cost so far by list prices (nil: a model not in `HelperCost.prices`).
+    var estimatedCost: Double? { HelperCost.estimate(Array(replies.values), fallbackModel: model) }
 
     mutating func takeEntries() -> [HelperEntry] {
         defer { entries.removeAll() }
@@ -65,11 +80,25 @@ struct HelperStream {
             var seen = Set<String>()
             let cmds = (((obj["slash_commands"] as? [String]) ?? []) + ((obj["skills"] as? [String]) ?? []))
                 .filter { !skip.contains($0) && seen.insert($0).inserted }
+            model = obj["model"] as? String ?? model
             return [.started(session: obj["session_id"] as? String ?? "", model: obj["model"] as? String ?? "", commands: cmds)]
 
         case "assistant":
             // Work done by its own sub-agents counts as progress, but their chatter doesn't.
             let nested = !(obj["parent_tool_use_id"] is NSNull) && obj["parent_tool_use_id"] != nil
+            if let msg = obj["message"] as? [String: Any], let u = msg["usage"] as? [String: Any] {
+                let n = { (k: String) in (u[k] as? NSNumber)?.intValue ?? 0 }
+                let key = (msg["id"] as? String) ?? "m\(usage.count)"
+                written[key, default: 0] += Self.tokenGuess(msg["content"])
+                usage[key] = max(usage[key] ?? 0, n("output_tokens"), written[key] ?? 0)
+                outputTokens = settled + usage.values.reduce(0, +)
+                var r = replies[key] ?? HelperCost.Usage()
+                if let m = msg["model"] as? String, !m.isEmpty { r.model = m }
+                r.input = max(r.input, n("input_tokens")); r.output = max(r.output, usage[key] ?? 0)
+                r.cacheRead = max(r.cacheRead, n("cache_read_input_tokens")); r.cacheWrite = max(r.cacheWrite, n("cache_creation_input_tokens"))
+                replies[key] = r
+                if !nested { contextTokens = n("input_tokens") + n("cache_read_input_tokens") + n("cache_creation_input_tokens") }
+            }
             let content = ((obj["message"] as? [String: Any])?["content"] as? [[String: Any]]) ?? []
             var out: [HelperEvent] = []
             for c in content {
@@ -151,6 +180,16 @@ struct HelperStream {
             return []
 
         case "result":
+            // The real count: modelUsage is for the whole process (every model, sub-agents too); usage only this turn.
+            if let models = obj["modelUsage"] as? [String: [String: Any]], !models.isEmpty {
+                settled = models.values.reduce(0) { $0 + (($1["outputTokens"] as? NSNumber)?.intValue ?? 0) }
+            } else if let n = ((obj["usage"] as? [String: Any])?["output_tokens"] as? NSNumber)?.intValue {
+                settled += n
+            } else {
+                settled += usage.values.reduce(0, +)
+            }
+            usage.removeAll(); written.removeAll()
+            outputTokens = settled
             let ok = !((obj["is_error"] as? Bool) ?? false) && (obj["subtype"] as? String ?? "success") == "success"
             let summary = (obj["result"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             let ms = (obj["duration_ms"] as? NSNumber)?.doubleValue ?? 0
@@ -184,7 +223,7 @@ struct HelperStream {
         case "Task", "Agent":
             return s("description").isEmpty ? "Handing part of it to a sub-agent" : "Sub-agent: \(clip(s("description"), 60))"
         case "Skill": return "Using the \(s("skill").isEmpty ? "a" : s("skill")) skill"
-        case "TodoWrite", "ToolSearch", "TaskOutput", "BashOutput": return nil
+        case "TodoWrite", "ToolSearch", "TaskOutput", "BashOutput", "SubagentHandback": return nil
         default:
             if tool.hasPrefix("mcp__") {
                 let parts = tool.components(separatedBy: "__")
@@ -263,6 +302,34 @@ struct HelperStream {
         s.lowercased().replacingOccurrences(of: "’", with: "'")
             .replacingOccurrences(of: "[^a-z0-9 ]", with: " ", options: .regularExpression)
             .split(separator: " ").joined(separator: " ")
+    }
+
+    /// A summary short enough to be read aloud: its start (what it did), cut after the last whole sentence
+    /// that fits in `max` characters (else at a word, with "…").
+    static func spokenSummary(_ s: String, max: Int = 900) -> String {
+        let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard t.count > max else { return t }
+        let head = String(t.prefix(max))
+        var cut: String.Index?
+        var from = head.startIndex
+        while let r = head.range(of: #"[.!?…](\s|$)"#, options: .regularExpression, range: from..<head.endIndex) {
+            cut = head.index(after: r.lowerBound); from = r.upperBound
+            if from >= head.endIndex { break }
+        }
+        if let cut, head.distance(from: head.startIndex, to: cut) >= max / 3 { return String(head[..<cut]) }
+        let word = head.range(of: " ", options: .backwards).map { String(head[..<$0.lowerBound]) } ?? head
+        return word.trimmingCharacters(in: .whitespaces) + "…"
+    }
+
+    /// About how many tokens a reply's content is (4 characters a token): its text, thinking and tool inputs.
+    static func tokenGuess(_ content: Any?) -> Int {
+        guard let parts = content as? [[String: Any]] else { return ((content as? String)?.count ?? 0) / 4 }
+        var chars = 0
+        for c in parts {
+            chars += ((c["text"] as? String)?.count ?? 0) + ((c["thinking"] as? String)?.count ?? 0)
+            if let input = c["input"], let d = try? JSONSerialization.data(withJSONObject: input) { chars += d.count + 40 }
+        }
+        return chars / 4
     }
 
     static func clip(_ s: String, _ n: Int = 70) -> String {

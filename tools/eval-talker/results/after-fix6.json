@@ -1,0 +1,273 @@
+[
+ {
+  "id": "student-explain",
+  "who": "student",
+  "said": "explain this",
+  "checks": [
+   [
+    "no <visual> (the teacher already started)",
+    true
+   ],
+   [
+    "one short hand-over line",
+    true
+   ],
+   [
+    "speaks as itself (no \"the teacher\")",
+    true
+   ],
+   [
+    "doesn't act",
+    true
+   ]
+  ],
+  "generic": [
+   [
+    "has <say>",
+    true
+   ],
+   [
+    "spoken style (no markdown/URL/emoji)",
+    true
+   ],
+   [
+    "<draw> is valid JSON",
+    true
+   ],
+   [
+    "math said for the ear (no ² = ( ) symbols)",
+    true
+   ],
+   [
+    "nothing outside the tags",
+    true
+   ]
+  ],
+  "passed": true,
+  "say": "Sure, let me show you.",
+  "tags": [
+   "draw",
+   "say"
+  ],
+  "raw": "<say>Sure, let me show you.</say>\n<draw>{\"items\":[{\"type\":\"bracket\",\"id\":\"lightrxn\",\"x\":144,\"y\":165,\"h\":30,\"find\":\"The light-dependent reactions take place\",\"to\":\"resulting gradient drives ATP synthase.\"},{\"type\":\"underline\",\"id\":\"protons\",\"x\":144,\"y\":183,\"w\":900,\"label\":\"proton gradient\"}]}</draw>",
+  "first_token": 0.7441878318786621,
+  "first_sentence": 0.9120628833770752,
+  "total": 1.3205327987670898,
+  "input_tokens": 13984,
+  "run": 0
+ },
+ {
+  "id": "student-quiz",
+  "who": "student",
+  "said": "quiz me on this",
+  "checks": [
+   [
+    "asks a question",
+    true
+   ],
+   [
+    "one question at a time (short)",
+    true
+   ],
+   [
+    "no agent / teacher",
+    true
+   ]
+  ],
+  "generic": [
+   [
+    "has <say>",
+    true
+   ],
+   [
+    "spoken style (no markdown/URL/emoji)",
+    true
+   ],
+   [
+    "math said for the ear (no ² = ( ) symbols)",
+    true
+   ],
+   [
+    "nothing outside the tags",
+    true
+   ]
+  ],
+  "passed": true,
+  "say": "Sure, let's do it. Tell me the thylakoid part first: where do the light-dependent reactions happen? I'll check your answer after that.",
+  "tags": [
+   "say"
+  ],
+  "raw": "<say>Sure, let's do it. Tell me the thylakoid part first: where do the light-dependent reactions happen? I'll check your answer after that.</say>",
+  "first_token": 0.9112820625305176,
+  "first_sentence": 1.065505027770996,
+  "total": 1.3768877983093262,
+  "input_tokens": 13896,
+  "run": 0
+ },
+ {
+  "id": "homework-check",
+  "who": "student",
+  "said": "is this right",
+  "checks": [
+   [
+    "says it's not right, or hands the check to the teacher",
+    true
+   ],
+   [
+    "never calls the wrong answer right",
+    true
+   ],
+   [
+    "the teacher checks it (the app starts it), or the talker names the factoring slip",
+    true
+   ],
+   [
+    "no agent",
+    true
+   ]
+  ],
+  "generic": [
+   [
+    "has <say>",
+    true
+   ],
+   [
+    "spoken style (no markdown/URL/emoji)",
+    true
+   ],
+   [
+    "<draw> is valid JSON",
+    true
+   ],
+   [
+    "math said for the ear (no ² = ( ) symbols)",
+    true
+   ],
+   [
+    "nothing outside the tags",
+    true
+   ]
+  ],
+  "passed": true,
+  "say": "Sure, let me check the algebra for you.",
+  "tags": [
+   "draw",
+   "say"
+  ],
+  "raw": "<say>Sure, let me check the algebra for you.</say>\n<draw>{\"items\":[{\"type\":\"bracket\",\"id\":\"ans3\",\"x\":144,\"y\":230,\"h\":20,\"find\":\"3. 2x² − 8x + 6 = 0\",\"to\":\"x = 2, x = 3\"}]}</draw>",
+  "first_token": 0.7032930850982666,
+  "first_sentence": 0.7037410736083984,
+  "total": 1.1464910507202148,
+  "input_tokens": 13872,
+  "run": 0
+ },
+ {
+  "id": "writer-punchier",
+  "who": "writer",
+  "said": "make this paragraph punchier",
+  "checks": [
+   [
+    "replaces it for them (<do>) or reads the rewrite aloud",
+    true
+   ],
+   [
+    "the new text is shorter than the old",
+    true
+   ],
+   [
+    "<do> carries the new text",
+    true
+   ],
+   [
+    "offers to put it in",
+    true
+   ],
+   [
+    "no agent",
+    true
+   ]
+  ],
+  "generic": [
+   [
+    "has <say>",
+    true
+   ],
+   [
+    "spoken style (no markdown/URL/emoji)",
+    true
+   ],
+   [
+    "math said for the ear (no ² = ( ) symbols)",
+    true
+   ],
+   [
+    "nothing outside the tags",
+    true
+   ]
+  ],
+  "passed": true,
+  "say": "Sure, here's a punchier version. Onboarding often drags on, with more steps than it needs. Let's cut the friction so every new hire has a better start. Want me to swap it in?",
+  "tags": [
+   "say"
+  ],
+  "raw": "<say>Sure, here's a punchier version. Onboarding often drags on, with more steps than it needs. Let's cut the friction so every new hire has a better start. Want me to swap it in?</say>",
+  "first_token": 0.735288143157959,
+  "first_sentence": 0.8872809410095215,
+  "total": 1.185053825378418,
+  "input_tokens": 13828,
+  "run": 0
+ },
+ {
+  "id": "hebrew",
+  "who": "edge",
+  "said": "תסביר לי מה כתוב פה",
+  "checks": [
+   [
+    "answers in Hebrew",
+    true
+   ],
+   [
+    "gets the sketch: short hand-over, no <visual> (the app starts the teacher for \"תסביר\")",
+    false
+   ],
+   [
+    "doesn't act",
+    true
+   ]
+  ],
+  "generic": [
+   [
+    "has <say>",
+    true
+   ],
+   [
+    "spoken style (no markdown/URL/emoji)",
+    true
+   ],
+   [
+    "<draw> is valid JSON",
+    true
+   ],
+   [
+    "math said for the ear (no ² = ( ) symbols)",
+    true
+   ],
+   [
+    "nothing outside the tags",
+    true
+   ]
+  ],
+  "passed": false,
+  "say": "בטח, בוא אסביר לך. זה כתבה על הליכה קצרה אחרי ארוחה. מחקר מצא שמי שהלך עשרים דקות אחרי הצהריים היו עם פחות עליות של סוכר בדם, ובעיקר אם ההליכה התחילה תוך שלושים דקות מהאכילה.",
+  "tags": [
+   "draw",
+   "say"
+  ],
+  "raw": "<say>בטח, בוא אסביר לך. זה כתבה על הליכה קצרה אחרי ארוחה. מחקר מצא שמי שהלך עשרים דקות אחרי הצהריים היו עם פחות עליות של סוכר בדם, ובעיקר אם ההליכה התחילה תוך שלושים דקות מהאכילה.</say>\n<draw>{\"items\":[{\"type\":\"bracket\",\"id\":\"para1\",\"x\":144,\"y\":160,\"h\":44,\"find\":\"Researchers found that people who took a 20-minute walk\",\"to\":\"within 30 minutes of eating.\",\"label\":\"הממצא\"}]}</draw>",
+  "first_token": 0.679779052734375,
+  "first_sentence": 0.8328440189361572,
+  "total": 2.053831100463867,
+  "input_tokens": 13912,
+  "run": 0
+ }
+]

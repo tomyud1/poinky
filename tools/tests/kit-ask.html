@@ -1,0 +1,124 @@
+<!doctype html><html><head><meta charset="utf-8">
+<!-- Asking about a part you clicked: the click tells the app the part's name and code name (also after the
+     lesson cleared its label), and the teacher's answer is an ordinary follow-up on the same model: narrated
+     steps with notes, the camera moves in, what they cut open stays. Esc (or a click on empty space) goes back:
+     from a step you looked back at to where the lesson is, from a close-up to the whole model. The teacher is
+     mocked: a reply in the real format, played the way the app plays it (each <step3d> with its line). -->
+<link rel="stylesheet" href="../../web/kit.css"></head><body style="width:800px;height:600px">
+<div id="stage"></div><svg id="lines"></svg><div id="tags"></div><div id="err"></div>
+<script>
+  // The model runs in a card's frame in the app: what it posts to the overlay is kept here.
+  const posted = [];
+  window.parent = { postMessage: m => posted.push(m) };
+</script>
+<script src="../../vendor/three.min.js"></script>
+<script src="../../web/kit.js"></script>
+<script>
+(async () => {
+  const results = [], fail = [];
+  const check = (ok, what) => { results.push((ok ? 'ok   ' : 'FAIL ') + what); if (!ok) fail.push(what); };
+  const wait = ms => new Promise(r => setTimeout(r, ms));
+  const tags = () => [...document.querySelectorAll('#tags .tag')].map(t => t.textContent);
+  const tag = text => [...document.querySelectorAll('#tags .tag')].find(t => t.textContent === text);
+  const shown = text => { const t = tag(text); return !!t && +t.style.opacity === 1; };
+  const waitFor = async (fn, ms = 6000) => { for (let t = 0; t < ms && !fn(); t += 100) await wait(100); return fn(); };
+  try {
+    const kit = Kit({ reduceMotion: true }); kit.start(); window.kit = kit;
+    const T = THREE;
+    const screenOf = p => {
+      kit.camera.updateMatrixWorld();
+      const v = new T.Vector3(...p).project(kit.camera), r = kit.renderer.domElement.getBoundingClientRect();
+      return [r.left + (v.x + 1) / 2 * r.width, r.top + (1 - v.y) / 2 * r.height];
+    };
+    const camDist = () => kit.camera.position.distanceTo(kit.camera.userData.target || new T.Vector3());
+    const camPos = () => kit.camera.position.clone();
+    const azimuth = () => { const d = kit.camera.getWorldDirection(new T.Vector3()); return Math.round(Math.atan2(-d.x, -d.z) * 180 / Math.PI); };
+    const near = (a, b, tol = 12) => Math.abs(((a - b + 540) % 360) - 180) <= tol;
+    const settle = async () => { let p = camPos(); for (let t = 0; t < 6000; t += 250) { await wait(250); const q = camPos(); if (q.distanceTo(p) < 1e-3) return; p = q; } };
+
+    // The lesson (like a real teacher's heart: chambers with code names, labeled, then the labels cleared).
+    const w = kit.writer();
+    w.feed(`kit.view({az:30, el:20});
+      const lv = kit.blob({parts:[{at:[-1.2,0,0], r:1.0, stretch:[0.9,1.3,0.85], color:'#c0392b'}], name:'lv'});
+      const rv = kit.blob({parts:[{at:[1.2,0,0], r:0.9, stretch:[0.9,1.2,0.85], color:'#2980b9'}], name:'rv'});
+      const aorta = kit.tube({points:[[-1,1.2,0],[-1,2.6,0],[0,3,0]], r:0.3, color:'red', name:'aorta'});\n`);
+    w.end();
+    kit.run(`kit.label('Left Ventricle', {to: lv, color:'red'}); kit.label('Right Ventricle', {to: rv, color:'blue'});`, 0);
+    await wait(900);
+    kit.run(`kit.clearLabels(); kit.view({az:-40, el:15}, {dur:0.3}); kit.label('To body', {at:[0,3,0], color:'red'});`, 1);
+    await settle();
+    const lessonAz = azimuth(), lessonPos = camPos();
+
+    // 1. Click the left ventricle: its name comes from its earlier label, and the app gets its code name too.
+    posted.length = 0;
+    const said = kit.pick(...screenOf([-1.2, 0, 0.6]));
+    check(said === 'Left Ventricle', `a part whose label was cleared still says its name (${said})`);
+    const msg = posted.find(m => typeof m.sbPicked === 'string');
+    check(msg && msg.sbPicked === 'Left Ventricle' && msg.part === 'lv', `the app hears the name and the code name (${JSON.stringify(msg)})`);
+    check(kit.clicked() === kit.get('lv'), 'kit.clicked() is that part');
+    // A part with only a code name still tells the app which one it is.
+    posted.length = 0;
+    kit.pick(...screenOf([1.2, 0, 0.55]));
+    check(posted.some(m => m.part === 'rv'), `a part the lesson labeled 'Right Ventricle' reports 'rv' too (${JSON.stringify(posted)})`);
+    kit.pick(...screenOf([-1.2, 0, 0.6]));
+    await wait(300);
+
+    // 2. "What's this?": the teacher's answer (mocked, in the real format) plays as ordinary noted steps.
+    const reply = `<say>It squeezes hardest of all four chambers, pushing blood up into the aorta.</say>
+<step3d id="heart" note="Left ventricle → pumps to the body">const p = kit.clicked();
+kit.focus(p, {zoom:1.4}); kit.highlight(p, {color:'yellow', dur:2});
+kit.cut(p, {axis:'z', dur:0.3});
+kit.flow({path:[[-1.2,-0.8,0],[-1.2,0.6,0],[-1,2.6,0]], color:'red', count:8});
+kit.label('Squeeze!', {to:p, color:'red', temp:true});</step3d>
+<say>Its thick wall is what makes the pressure you feel as your pulse.</say>
+<step3d id="heart">kit.label('Thick wall', {at:[-2.1,0,0], color:'orange', temp:true});</step3d>`;
+    const steps = [...reply.matchAll(/<step3d id="([^"]+)"(?: note="([^"]*)")?>([\s\S]*?)<\/step3d>/g)];
+    check(steps.length === 2, 'the mocked reply has two steps');
+    kit.run(steps[0][3], 2);
+    check(!!kit.get('lv').userData.cut, 'the clicked part is cut open');
+    await settle();
+    const closePos = camPos();
+    check(closePos.distanceTo(lessonPos) > 0.5 && closePos.length() < lessonPos.length(), `the camera moved in on the part (${closePos.length().toFixed(1)} < ${lessonPos.length().toFixed(1)})`);
+    check(await waitFor(() => shown('Squeeze!'), 3000), `its moment note shows (${tags()})`);
+    check(tags().includes('To body'), "the lesson's own label stays (hidden while zoomed past it)");
+    kit.run(steps[1][3], 3);   // the second sentence: the app gives it a note of its own (its words, shortened)
+    check(await waitFor(() => shown('Thick wall'), 3000), 'the second step adds its note');
+    check(!tags().includes('Squeeze!'), "the first step's moment note went with it");
+    await wait(600);
+    check(typeof kit.endAside === 'undefined' && typeof kit.look === 'undefined', 'there is no aside mode and no double-click look');
+
+    // 3. Nothing goes back by itself: the answer stays until you move on.
+    await wait(2500);
+    check(camPos().distanceTo(closePos) < 0.4 && !!kit.get('lv').userData.cut, 'the close-up and the cut stay after the answer');
+
+    // 4. Looking back at a step, then Esc: back to where the lesson is.
+    kit.revisit(1);
+    await settle();
+    check(near(azimuth(), lessonAz), `clicking the lesson's note shows its view (${azimuth()}°)`);
+    posted.length = 0;
+    dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    await settle();
+    check(camPos().distanceTo(closePos) < 0.6, `Esc goes back to the step the lesson is on (${camPos().distanceTo(closePos).toFixed(2)} away)`);
+    check(posted.some(m => m.sbBack), 'and tells the notes it is on that step again');
+
+    // 5. Esc again (or a click on empty space): from the close-up to the whole model. The cut stays.
+    dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    await settle();
+    check(camPos().length() > closePos.length() + 0.5, `Esc pulls back to the whole model (${camPos().length().toFixed(1)} > ${closePos.length().toFixed(1)})`);
+    check(!!kit.get('lv').userData.cut, 'the cut stays (it is part of the lesson now)');
+    check(!kit.back(), 'Esc with nothing to go back from does nothing');
+    kit.run(`kit.focus(kit.get('rv'));`, 4);
+    await settle();
+    const rvClose = camPos();
+    kit.pick(5, 5);
+    await settle();
+    check(camPos().length() > rvClose.length() + 0.5, 'a click on empty space pulls back too');
+
+    // 6. The lesson's next step runs as usual on the same model.
+    kit.run(`kit.uncut(kit.get('lv')); kit.label('Aorta', {to: aorta, color:'red'});`, 5);
+    check(await waitFor(() => shown('Aorta'), 3000) && !kit.get('lv').userData.cut, "the lesson's next step carries on from there");
+  } catch (e) { check(false, 'threw: ' + (e && e.stack || e)); }
+  document.title = fail.length ? 'FAIL' : 'PASS';
+  window.testResults = { pass: !fail.length, lines: results };
+})();
+</script></body></html>

@@ -46,15 +46,16 @@ The installer sets up everything else for you, in `~/Library/Application Support
 
 ### First run
 
-1. Open Terminal, run `claude` once and sign in (skip if you use an API key).
-2. Hold <kbd>⌃ Control</kbd> <kbd>⌥ Option</kbd>, ask something, let go. macOS asks for **Microphone** and **Speech Recognition**: click Allow.
-3. **Screen Recording** has to be switched on by hand: System Settings → Privacy & Security → Screen & System Audio Recording → turn Poinky on, then reopen Poinky.
+Poinky opens a one-minute welcome: it asks for each permission with a plain reason (Microphone, Speech Recognition, Screen Recording; Accessibility only if you want it to click and type for you), checks that Claude Code is installed and signed in (with a button that fixes it if not), and has you ask your first question about a sample problem. Replay it from Settings → General.
+
+By hand, if you skipped it: run `claude` once in Terminal and sign in, then hold <kbd>⌃ Control</kbd> <kbd>⌥ Option</kbd>, ask something, let go. **Screen Recording** has to be switched on in System Settings → Privacy & Security → Screen & System Audio Recording, then reopen Poinky.
 
 ### Troubleshooting
 
 - **"Claude Code isn't installed" or a login error:** run `claude` in Terminal and sign in, or use an API key (✨ menu → Settings → Claude).
 - **It doesn't see my screen:** Screen Recording is off. Turn it on, then quit and reopen Poinky.
 - **macOS asks for permissions again after an update:** the installer makes a local signing certificate ("Poinky Local Signing") so it shouldn't. If you clicked "Don't allow" when macOS asked to let `codesign` use it, run the installer again and choose Always Allow.
+- **It stops answering or seems stuck:** say "start fresh", or Settings → General → Start Fresh (also in the ✨ menu). It restarts the voice, the mic and Claude without quitting; helpers keep working.
 - **No natural voice:** run the install command again (it only adds what's missing), or pick Apple voices in Settings → Voice.
 - **The build failed:** the installer prints the end of its log. The whole log is in `~/Library/Application Support/Poinky/install.log`; please attach it to an [issue](https://github.com/tomyud1/poinky/issues).
 

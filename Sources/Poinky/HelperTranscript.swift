@@ -9,7 +9,9 @@ struct HelperEntry: Codable, Equatable {
     /// task, note, step, todo, blocked, ask, answer, you, end, info, session (its Claude Code session id, in
     /// `id`), checkpoint (the files just before a message to it, in `id`), undone (a run's changes were put back),
     /// worktree (its own copy of the repo: `detail` the folder, `text` your repo, `id` the commit it started
-    /// from), merged (its changes were brought back into your folder: `detail` the patch)
+    /// from), merged (its changes were brought back into your folder: `detail` the patch), base (your folder
+    /// when it started, a commit in `id`: its window's diff starts there), branch (its worktree's changes were
+    /// kept on a git branch, `id`, in your repo `text`)
     var k: String
     var text: String = ""
     /// step: the exact command, file or query. ask: the exact command or question. task: the folder.

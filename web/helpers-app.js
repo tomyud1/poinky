@@ -39,7 +39,9 @@
   function frame(now) {
     idleTimer = 0;
     if (smooth) { stats.frames++; stats.gaps.push(now - last); }
-    const dt = Math.min(1 / 30, (now - last) / 1000); last = now;
+    // The real time since the last frame: the layer keeps its clock exactly (a helper's time on its card) and
+    // caps motion itself, so frames 100 ms apart, or after the page napped, still count every second.
+    const dt = Math.max(0, (now - last) / 1000); last = now;
     layer.setPointer(SB.cursorPos ? SB.cursorPos() : null);
     layer.update(dt); layer.render();
     if (layer.count !== lastCount) { lastCount = layer.count; post({ kind: 'helpers', count: lastCount }); }

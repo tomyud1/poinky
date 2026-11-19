@@ -29,19 +29,32 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp .build/release/Poinky "$APP/Contents/MacOS/Poinky"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
+# Which source this is, for Settings → General → Updates (the app updates from this folder).
+if COMMIT="$(git rev-parse HEAD 2>/dev/null)"; then
+  PB=/usr/libexec/PlistBuddy; PLIST="$APP/Contents/Info.plist"
+  DIRTY=0; [ -z "$(git status --porcelain --untracked-files=no 2>/dev/null)" ] || DIRTY=1
+  "$PB" -c "Add :PoinkyCommit string $COMMIT" -c "Add :PoinkyCommitDate string $(git log -1 --format=%cI)" \
+        -c "Add :PoinkyDirty string $DIRTY" -c "Add :PoinkySource string $PWD" "$PLIST"
+fi
 cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
-cp prompts/talker-prompt.md prompts/artist-prompt.md prompts/guide-prompt.md prompts/doer-prompt.md prompts/poinky-manual.md "$APP/Contents/Resources/"
+cp prompts/talker-prompt.md prompts/artist-prompt.md prompts/guide-prompt.md prompts/doer-prompt.md prompts/poinky-manual.md prompts/talker-helpers.md prompts/talker-video.md "$APP/Contents/Resources/"
+cp prompts/study-prompt.md prompts/study-solver-prompt.md "$APP/Contents/Resources/"   # study sessions (CallController+Study.swift)
 # The voice helper and its installer travel with the app, so the app can install the voice itself
 # (Settings → Voice → Install, or automatically when updating from the old Kokoro voice).
 mkdir -p "$APP/Contents/Resources/phonon"
 cp phonon/phonon_server.py phonon/install.sh "$APP/Contents/Resources/phonon/"
 chmod +x "$APP/Contents/Resources/phonon/install.sh"
 cp phonon/phonon_server.py "$APP/Contents/Resources/"
+# The optional local speech recognizer (Settings → Voice → Speech recognition): its source and installer.
+mkdir -p "$APP/Contents/Resources/stt/Sources/poinky-stt"
+cp stt/Package.swift stt/Package.resolved stt/install.sh stt/models.json "$APP/Contents/Resources/stt/"
+cp stt/Sources/poinky-stt/main.swift "$APP/Contents/Resources/stt/Sources/poinky-stt/"
+chmod +x "$APP/Contents/Resources/stt/install.sh"
 
 # Overlay page + 3D engine. libs.js packs three.js and the kit as text, so cards can
 # run them inside sandboxed frames that have no network access.
 mkdir -p "$APP/Contents/Resources/web"
-cp web/overlay.html web/lesson.js web/buddy.js web/sounds.js web/helpers.js web/helpers-app.js web/helper-window.html web/video.html "$APP/Contents/Resources/web/"
+cp web/overlay.html web/lesson.js web/workphoto.js web/buddy.js web/sounds.js web/helpers.js web/helpers-app.js web/helper-window.html web/video.html "$APP/Contents/Resources/web/"
 # Video explainers: the pipeline that makes them (run by a helper) and the engine that plays them.
 mkdir -p "$APP/Contents/Resources/explainer/prompts"
 cp explainer/pipeline.py explainer/engine.js explainer/player.html explainer/render.mjs explainer/align.swift explainer/render.swift "$APP/Contents/Resources/explainer/"

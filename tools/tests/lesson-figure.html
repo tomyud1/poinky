@@ -1,0 +1,41 @@
+<!doctype html><html><head><meta charset="utf-8">
+<!-- A study session's figure (lesson.js `figure` op): the sheet's own figure, cropped from the PDF by the app
+     (SB.studyFigure), is shown on the paper in its own shape instead of a re-drawing, and what comes next goes
+     below it; with no figure from the app the op draws nothing. `node tools/tests/run-web-tests.mjs lesson-figure`. -->
+<style>html,body{margin:0;height:100%;background:#fff}iframe{position:absolute;inset:0;width:1400px;height:900px;border:0}</style>
+</head><body>
+<iframe id="ov" src="../../web/overlay.html"></iframe>
+<script>
+(async () => {
+  const results = [], fail = [];
+  const check = (ok, what) => { results.push((ok ? 'ok   ' : 'FAIL ') + what); if (!ok) fail.push(what); };
+  const wait = ms => new Promise(r => setTimeout(r, ms));
+  try {
+    const W = document.getElementById('ov').contentWindow;
+    for (let i = 0; i < 100 && !(W.SB && W.SB.lessonBegin && W.SB.studyFigure); i++) await wait(50);
+    const SB = W.SB, D = W.document;
+    const done = async () => { for (let i = 0; i < 200 && SB.lessonBusy(); i++) await wait(50); await wait(80); };
+    const c = document.createElement('canvas'); c.width = 400; c.height = 200; const g = c.getContext('2d');
+    g.fillStyle = '#fff'; g.fillRect(0, 0, 400, 200); g.strokeStyle = '#000'; g.lineWidth = 3;
+    for (const r of [30, 60, 90]) { g.beginPath(); g.arc(200, 100, r, 0, 7); g.stroke(); }
+    SB.lessonBegin({ x: 60, y: 60, w: 600, h: 400, h0: 240, lo: 60, hi: 800 }, 'Question 1 · vortex', false);
+    SB.studyFigure(c.toDataURL('image/jpeg'), 2);
+    SB.lessonStep({ ops: [{ op: 'figure', x: 40, y: 40, w: 360 }, { op: 'text', text: 'ω: angular speed', size: 24 }] }, 1);
+    await done();
+    const im = D.querySelector('.lpaper svg image');
+    check(!!im, 'the sheet\'s figure is on the paper');
+    if (im) {
+      const w = +im.getAttribute('width'), h = +im.getAttribute('height');
+      check(Math.abs(w / h - 2) < 0.01, `in its own shape (${w}×${h})`);
+      const txt = [...D.querySelectorAll('.lpaper svg text')].find(t => t.textContent.includes('angular'));
+      check(txt && txt.getBBox().y >= +im.getAttribute('y') + h - 2, 'what comes next goes below it');
+    }
+    SB.lessonBegin({ x: 60, y: 60, w: 600, h: 400, h0: 240, lo: 60, hi: 800 }, 'Question 2', false);
+    SB.studyFigure(null);
+    SB.lessonStep({ ops: [{ op: 'figure', x: 40, y: 40, w: 360 }] }, 1);
+    await done();
+    check(!D.querySelector('.lpaper:not(.leaving) svg image'), 'no figure from the app: nothing is drawn');
+  } catch (e) { check(false, 'threw: ' + e.message); }
+  window.testResults = { pass: fail.length === 0, lines: results };
+})();
+</script></body></html>

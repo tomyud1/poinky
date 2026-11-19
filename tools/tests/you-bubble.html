@@ -1,0 +1,109 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>running</title>
+<!-- The "you" bubble next to the buddy (buddy.js setBubble): the SB.* calls the app sends while you hold the talk
+     keys, in the orders it sends them (from POINKY_OVERLAY_LOG runs), and what must be on screen after each.
+     Run by tools/tests/run-web-tests.mjs (`node tools/tests/run-web-tests.mjs you-bubble`). -->
+<body style="margin:0;width:1000px;height:700px">
+<div id="hud"></div>
+<script>window.SB = { caption() {}, fadeCaptions() {}, apply() {} };</script>
+<script src="../../web/buddy.js"></script>
+<script>
+(async function () {
+  const results = [], fail = [];
+  const check = (ok, what) => { results.push((ok ? 'ok   ' : 'FAIL ') + what); if (!ok) fail.push(what); };
+  const wait = ms => new Promise(r => setTimeout(r, ms));
+  const b = () => document.getElementById('bubble');
+  const showing = () => b().classList.contains('on') && getComputedStyle(b()).opacity > 0.3 ? b().textContent : '';
+  // Next to the buddy: the bubble's nearest corner is within a few dozen points of its tip.
+  const near = () => { const r = b().getBoundingClientRect(), p = SB.buddyPos();
+    const dx = Math.max(r.left - p.x, 0, p.x - r.right), dy = Math.max(r.top - p.y, 0, p.y - r.bottom);
+    return Math.hypot(dx, dy) < 40; };
+  // A fresh session, the way startSession + the first hold send it.
+  async function session() {
+    SB.phase('off'); await wait(30);
+    SB.buddyOn(true); SB.caption('you', null); SB.caption('claude', null);
+    SB.phase('starting'); SB.tick(400, 300, 0); await wait(60);
+  }
+
+  // 1. The first hold of a session: starting → listening, cleared, then live words.
+  await session();
+  SB.phase('listening'); SB.caption('you', null); SB.caption('claude', null);
+  SB.caption('you', 'what is');
+  await wait(400);
+  check(showing() === 'what is', 'the first hold of a session shows your words');
+  check(near(), 'next to the buddy at the cursor');
+
+  // 2. Let go: thinking dims your words, and the question itself (ask() sends it after the phase) stays dim.
+  SB.phase('ready'); SB.phase('thinking'); SB.caption('you', 'What is this?'); SB.caption('claude', null);
+  await wait(350);
+  check(b().textContent === 'What is this?' && b().classList.contains('dim'), 'the question stays dimmed while Claude thinks');
+
+  // 3. The last answer's captions fade (2 s after it ended) just as you start the next hold: your words stay.
+  SB.phase('speaking'); SB.caption('claude', 'Sure. That is the save button.'); SB.phase('ready');
+  SB.fadeCaptions();
+  await wait(100);
+  SB.phase('listening'); SB.caption('you', null); SB.caption('claude', null); SB.caption('you', 'and the other one');
+  await wait(450);
+  check(showing() === 'and the other one', 'a fade from the last answer does not hide the new words');
+
+  // 4. Words that arrive before the buddy knows where the cursor is appear next to it, not in the corner.
+  SB.phase('off'); await wait(30);
+  SB.phase('listening'); SB.caption('you', 'hello there');
+  await wait(50);
+  SB.tick(250, 200, 0);
+  await wait(1200);
+  { const q = b().getBoundingClientRect(); check(showing() === 'hello there' && near(), `early words move next to the buddy once it is placed ("${showing()}" at ${q.left | 0},${q.top | 0})`); }
+
+  // 5. Long questions show their latest part (the bubble doesn't grow down the screen).
+  await session(); SB.phase('listening');
+  const long = Array.from({ length: 60 }, (_, i) => 'word' + i).join(' ');
+  SB.caption('you', long);
+  await wait(300);
+  const r = b().getBoundingClientRect();
+  check(b().textContent.endsWith('word59') && b().textContent.startsWith('…'), 'a long question shows its end');
+  check(r.height < 110, `and stays a few lines tall (${r.height | 0}px)`);
+
+  // 6. Hebrew reads right to left.
+  SB.caption('you', 'מה זה הכפתור הזה?');
+  await wait(50);
+  check(getComputedStyle(b()).direction === 'rtl' || b().dir === 'auto', 'Hebrew words get right-to-left direction');
+
+  // 7. Nothing was heard: a short, quiet note in the same bubble that goes away by itself.
+  await session(); SB.phase('listening'); SB.caption('you', null);
+  SB.phase('ready');
+  if (SB.youMissed) SB.youMissed("Didn't catch that");
+  await wait(300);
+  check(showing() === "Didn't catch that", 'nothing heard: a note says so');
+  check(b().classList.contains('miss'), 'styled as a quiet note');
+  await wait(2300);
+  check(!showing(), 'and it goes away by itself');
+  // ...and a hold right after it replaces it at once.
+  if (SB.youMissed) SB.youMissed("Didn't catch that");
+  await wait(100);
+  SB.phase('listening'); SB.caption('you', null); SB.caption('you', 'second try');
+  await wait(2300);
+  check(showing() === 'second try' && !b().classList.contains('miss'), 'the next hold replaces the note (and it stays)');
+
+  // 8. Hidden buddy (auto-hide), then a hold: the app shows the buddy first, then the words.
+  SB.buddyShow(false); await wait(50);
+  SB.buddyShow(true); SB.phase('listening'); SB.caption('you', null); SB.caption('claude', null); SB.caption('you', 'back again');
+  await wait(400);
+  check(showing() === 'back again', 'after auto-hide, the next hold shows your words');
+
+  // 9. Claude's caption doesn't replace yours while you hold (a stray "claude" caption during listening).
+  SB.caption('claude', null);
+  await wait(50);
+  check(showing() === 'back again', 'clearing Claude\'s caption leaves yours');
+
+  // 10. The session ends: nothing is left on screen.
+  SB.phase('off');
+  await wait(300);
+  check(!showing(), 'the session ending clears the bubble');
+
+  document.body.textContent = results.join('\n');
+  document.title = fail.length ? 'FAIL' : 'PASS';
+  window.testResults = { pass: !fail.length, lines: results };
+})();
+</script>
+</body>

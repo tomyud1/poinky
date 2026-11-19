@@ -1,0 +1,70 @@
+<!doctype html><html><head><meta charset="utf-8">
+<!-- Plays a teacher reply (<lesson>…</lesson>) through the real overlay, the way the app does: each <say> is
+     "spoken" (shown as the caption, about 2.7 words a second) and its <step> starts with it.
+     Open it with ?bg=light|dark|code; call lab.play(replyText, {speed}) (tools/lesson-shots.mjs does, headlessly). -->
+<style>
+  html,body{margin:0;height:100%;overflow:hidden}
+  #screen{position:absolute;inset:0;font:16px/1.55 -apple-system,system-ui,sans-serif;padding:60px 0 0 70px;box-sizing:border-box}
+  #screen.light{background:#fff;color:#222}
+  #screen.dark{background:#1e1f22;color:#d7d7d7}
+  #screen.code{background:#1e1e1e;color:#d4d4d4;font:15px/1.6 Menlo,monospace}
+  #screen .doc{width:640px}
+  #screen h1{font-size:26px;margin:0 0 14px}
+  #overlay{position:absolute;inset:0;width:100%;height:100%;border:0;background:transparent}
+</style></head><body>
+<div id="screen"></div>
+<iframe id="overlay" src="../web/overlay.html"></iframe>
+<script>
+const params = new URLSearchParams(location.search);
+const bg = params.get('bg') || 'light';
+const scr = document.getElementById('screen');
+scr.className = bg;
+scr.innerHTML = bg === 'code'
+  ? '<div class="doc"><pre>' + ['import sys', '', '', '# factorial', '', 'def fact(n):', '    if n <= 1:', '        return 1', '    return n * fact(n - 1)', '', 'print(fact(4))'].join('\n') + '</pre></div>'
+  : '<div class="doc"><h1>Lecture 7: Derivatives</h1>' + 'The derivative measures how a function changes as its input changes. '.repeat(18) + '</div>';
+
+window.lab = {
+  log: [],
+  /** Plays a reply. speed > 1 speaks faster (for quick checks). Resolves when the last line ends. */
+  async play(text, opts = {}) {
+    const W = this.win = document.getElementById('overlay').contentWindow, SB = W.SB;
+    const speed = opts.speed || 1, wps = 2.7 * speed;
+    // Where the app puts the paper with nothing to avoid (Placement.paper): the right side.
+    const sw = innerWidth, sh = innerHeight, w = Math.min(760, Math.max(480, sw * .42));
+    const frame = opts.frame || { x: sw - w - 24, y: 64, w, h: sh - 88 };
+    if (opts.avoid) frame.avoid = opts.avoid;
+    // What the app picks (PaperLook): the chalkboard when the screen behind the paper is dark; ?look= forces one.
+    frame.look = opts.look || params.get('look') || (bg === 'light' ? 'paper' : 'chalk');
+    const re = /<lesson([^>]*)>|<\/lesson>|<say>([\s\S]*?)<\/say>|<step>([\s\S]*?)<\/step>/g;
+    const items = []; let m;
+    while ((m = re.exec(text))) {
+      if (m[0].startsWith('<lesson')) {
+        const t = /title="([^"]*)"/.exec(m[1] || ''), c = /continue="true"/.test(m[1] || '');
+        items.push({ kind: 'begin', title: t ? t[1] : '', continuing: c });
+      } else if (m[2] != null) items.push({ kind: 'say', text: m[2].trim() });
+      else if (m[3] != null) {
+        let ops; try { ops = JSON.parse(m[3]); } catch (e) { ops = []; this.log.push('bad step json: ' + e.message); }
+        items.push({ kind: 'step', ops });
+      }
+    }
+    const wait = s => new Promise(r => setTimeout(r, s * 1000));
+    this.t0 = performance.now();
+    // Steps right after a line start with it; the line plays for its spoken length.
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i];
+      if (it.kind === 'begin') { SB.lessonBegin(frame, it.title, it.continuing); continue; }
+      if (it.kind === 'step') { SB.lessonStep({ ops: it.ops }, opts.k || 1); continue; }
+      SB.caption('claude', it.text);
+      this.log.push(((performance.now() - this.t0) / 1000).toFixed(1) + 's ' + it.text);
+      this.line = it.text;
+      let j = i + 1;
+      while (j < items.length && items[j].kind === 'step') { SB.lessonStep({ ops: items[j].ops }, opts.k || 1); j++; }
+      i = j - 1;
+      const words = it.text.split(/\s+/).length;
+      await wait(words / wps + .35 / speed);
+    }
+    this.done = true;
+  },
+};
+</script>
+</body></html>

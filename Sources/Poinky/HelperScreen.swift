@@ -26,7 +26,7 @@ final class HelperScreen {
     }
 
     func settings(_ config: AppConfig) {
-        overlay.helperSounds(on: config.sounds, volume: config.soundVolume)
+        overlay.helperSounds(on: config.sounds && !config.quiet, volume: config.soundVolume)   // quiet mode: helpers move, silently
     }
 
     /// It buds off the main buddy, gets its task and flies to the edge.
@@ -116,8 +116,9 @@ final class HelperScreen {
             let r = ask.reply(to: text, addressed: true)
             return r == .unclear ? nil : (id, r)
         }
-        // By name: "Mint, yes", "tell Coral no, use yarn", "yes Violet".
-        for a in waiting {
+        // By name: "Mint, yes", "tell Coral no, use yarn", "yes Violet", "Mint two, yes".
+        let text = HelperTalk.canonical(text, names: names())
+        for a in waiting.sorted(by: { $0.name.count > $1.name.count }) {
             guard let ask = a.asks.first, let rest = HelperTalk.without(name: a.name, in: text) else { continue }
             if HelperTalk.intent(rest) == .stop { return nil }
             let r = ask.reply(to: rest, addressed: true)

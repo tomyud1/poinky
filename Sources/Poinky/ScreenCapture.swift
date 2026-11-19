@@ -17,6 +17,16 @@ struct Snapshot {
     let notes: [String]     // cursor + marks, in image pixels
     let text: TextIndex     // where each word is (filled in the background)
     var focus: FocusCrop? = nil   // a sharp close-up of what you marked
+
+    /// No picture (the display is asleep or off, or capturing failed): the question goes without one, and Claude
+    /// is told so, so it answers what it can or says plainly that it can't see the screen right now.
+    static func blind(screen size: CGSize, why: String) -> Snapshot {
+        let scale = ScreenCapture.imageScale(for: size)
+        return Snapshot(jpegBase64: "", width: Int((size.width * scale).rounded()), height: Int((size.height * scale).rounded()), scale: scale,
+                        notes: ["(No screenshot with this question: the screen couldn't be captured (\(why)); the display may be asleep or off. Answer from what was said if you can, and don't mark anything. If the question needs the screen, say plainly in one short sentence that you can't see the screen right now.)"],
+                        text: TextIndex())
+    }
+    var isBlind: Bool { jpegBase64.isEmpty }
 }
 
 /// A close-up of the area you marked, plus the text your Mac read inside it.
@@ -43,13 +53,29 @@ enum ScreenCapture {
     static func hasPermission() async -> Bool {
         if CGPreflightScreenCaptureAccess() { return true }
         do {
-            _ = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+            _ = try await shareable()
             return true
+        } catch is Deadline.Expired {
+            return true   // the capture service is stuck, not switched off: start anyway (questions will say so)
         } catch {
             return false
         }
     }
     static func requestPermission() { CGRequestScreenCaptureAccess() }
+
+    /// ScreenCaptureKit's service (replayd) sometimes crashes or hangs, and then these calls never
+    /// return: a question would stay "thinking" forever. Give up after a few seconds instead.
+    static let timeout: Double = 6
+    private static func shareable() async throws -> SCShareableContent {
+        try await Deadline.run(timeout, "Screen capture") {
+            try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+        }
+    }
+    private static func shot(_ filter: SCContentFilter, _ cfg: SCStreamConfiguration) async throws -> CGImage {
+        try await Deadline.run(timeout, "Screen capture") {
+            try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: cfg)
+        }
+    }
 
     /// Claude shrinks bigger images before looking at them, which would make its
     /// coordinates come back too small. Staying under both limits keeps them 1:1.
@@ -65,11 +91,13 @@ enum ScreenCapture {
     @MainActor static var excludedBundleIDs: Set<String> = []
     /// Poinky's own windows that screenshots should still show (a video playing full screen).
     @MainActor static var includedWindowNumbers: Set<Int> = []
+    /// The welcome tour's window while it's open: its sample problem is what your first question is about.
+    @MainActor static var tourWindowNumber: Int?
 
     /// The whole screen, minus our own overlay and any excluded apps.
     private static func filter(for screen: NSScreen) async throws -> SCContentFilter {
         let displayID = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID
-        let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+        let content = try await shareable()
         guard let display = content.displays.first(where: { $0.displayID == displayID }) ?? content.displays.first else {
             throw CaptureError.noDisplay
         }
@@ -77,7 +105,7 @@ enum ScreenCapture {
         let mine = content.applications.filter {
             $0.processID == ProcessInfo.processInfo.processIdentifier || excluded.contains($0.bundleIdentifier)
         }
-        let include = await MainActor.run { includedWindowNumbers }
+        let include = await MainActor.run { includedWindowNumbers.union(tourWindowNumber.map { [$0] } ?? []) }
         let keep = content.windows.filter { include.contains(Int($0.windowID)) }
         return SCContentFilter(display: display, excludingApplications: mine, exceptingWindows: keep)
     }
@@ -93,7 +121,7 @@ enum ScreenCapture {
         cfg.width = Int(r.width * k)
         cfg.height = Int(r.height * k)
         cfg.showsCursor = false
-        guard let img = try? await SCScreenshotManager.captureImage(contentFilter: filter, configuration: cfg),
+        guard let img = try? await shot(filter, cfg),
               let jpeg = NSBitmapImageRep(cgImage: img).representation(using: .jpeg, properties: [.compressionFactor: 0.8]) else { return nil }
         let scale = imageScale(for: size)
         let text = await Task.detached { TextIndex.readLines(img) }.value
@@ -102,8 +130,18 @@ enum ScreenCapture {
                          rectPoints: r)
     }
 
+    /// Tests: `POINKY_TEST_CAPTURE_FAIL=1`, every screenshot fails as with the display asleep.
+    static let testFail = ProcessInfo.processInfo.environment["POINKY_TEST_CAPTURE_FAIL"] == "1"
+
+    /// Tests: `POINKY_TEST_SCREEN=<image>`, every screenshot is that picture: a test copy never sees the real screen
+    /// (so it can run while someone uses the Mac, whatever is open).
+    static let testScreen: CGImage? = ProcessInfo.processInfo.environment["POINKY_TEST_SCREEN"].flatMap { p in
+        CGImageSourceCreateWithURL(URL(fileURLWithPath: p) as CFURL, nil).flatMap { CGImageSourceCreateImageAtIndex($0, 0, nil) }
+    }
+
     static func capture(screen: NSScreen, marks: [Mark], cursor: CGPoint?, focus: FocusCrop? = nil) async throws -> Snapshot {
-        let filter = try await filter(for: screen)
+        if testFail { throw CaptureError.noDisplay }
+        let filter: SCContentFilter? = testScreen == nil ? try await self.filter(for: screen) : nil
         let size = screen.frame.size
         let scale = imageScale(for: size)
         let w = Int((size.width * scale).rounded())
@@ -113,7 +151,8 @@ enum ScreenCapture {
         cfg.width = w
         cfg.height = h
         cfg.showsCursor = true
-        let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: cfg)
+        let image: CGImage
+        if let t = testScreen { image = t } else { image = try await shot(filter!, cfg) }
 
         guard let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
                                   space: CGColorSpaceCreateDeviceRGB(),

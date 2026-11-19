@@ -1,0 +1,96 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>running</title>
+<!-- The photo card (web/workphoto.js): waiting for the iPhone, what came (thumbnails, Retake / + Page / Check now, a
+     countdown the mouse holds), no device, sent; beside the paper without covering it; pictures dropped on the
+     overlay are read and posted, anything else dropped is refused. Run by tools/tests/run-web-tests.mjs
+     (`node tools/tests/run-web-tests.mjs work-photo`). -->
+<body style="margin:0;width:1200px;height:800px;background:#eee">
+<div id="cards"></div>
+<script>
+  const posted = [];
+  const cards = document.getElementById('cards');
+  let reports = 0;
+  window.SBX = { cards, report() { reports++; }, removeCard(c) { c.remove(); }, dragBy() {}, post: m => posted.push(m) };
+  window.SB = {};
+  window.textDir = s => /[֐-׿]/.test(s) ? 'rtl' : 'ltr';
+  // A paper in the middle of the screen, as lesson.js makes it.
+  const paper = document.createElement('div');
+  paper.className = 'card lpaper';
+  Object.assign(paper.style, { position: 'absolute', left: '520px', top: '120px', width: '480px', height: '420px', background: '#fbf8f0' });
+  cards.appendChild(paper);
+</script>
+<script src="../../web/workphoto.js"></script>
+<script>
+(async function () {
+  const wait = ms => new Promise(r => setTimeout(r, ms));
+  const lines = []; let pass = true;
+  const ok = (name, cond, info) => { lines.push((cond ? 'PASS ' : 'FAIL ') + name + (cond ? '' : '  [' + JSON.stringify(info) + ']')); if (!cond) pass = false; };
+  // A 2x2 PNG.
+  const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFElEQVR4nGNgYGD4z8DAwMDAwAAAEgIBAOs1YrQAAAAASUVORK5CYII=';
+
+  SB.workPhoto({ state: 'waiting', title: 'From your iPhone', text: 'Take it on your iPhone.', buttons: [{ id: 'cancel', label: 'Cancel' }] });
+  let s = SB.workPhotoState();
+  ok('waiting: shown with its line and Cancel', s && s.state === 'waiting' && s.thumbs === 0 && s.buttons.join() === 'cancel', s);
+  ok('waiting: a phone drawn', !!document.querySelector('.card.shot .phone'));
+  const r = s.box, p = paper.getBoundingClientRect();
+  const overlap = !(r[0] + r[2] <= p.left || r[0] >= p.right || r[1] + r[3] <= p.top || r[1] >= p.bottom);
+  ok('beside the paper, not over it', !overlap && r[0] >= 0 && r[0] + r[2] <= innerWidth, { r, p: [p.left, p.top, p.width, p.height] });
+
+  SB.workPhoto({ state: 'got', title: 'From your iPhone', text: 'I\'ll check these 2 pages in a moment.', thumbs: [png, png], countdown: 4,
+                 buttons: [{ id: 'retake', label: 'Retake' }, { id: 'add', label: '+ Page' }, { id: 'use', label: 'Check now', primary: true }] });
+  s = SB.workPhotoState();
+  ok('got: one card, two pages, three buttons, a countdown', document.querySelectorAll('.card.shot').length === 1 && s.thumbs === 2
+     && s.buttons.join() === 'retake,add,use' && s.countdown, s);
+  ok('got: stays where it was', JSON.stringify(s.box.slice(0, 2)) === JSON.stringify(r.slice(0, 2)), [s.box, r]);
+  posted.length = 0;
+  SB.workPhotoClick('add');
+  ok('a button posts its action with where it is', posted.length === 1 && posted[0].kind === 'workPhoto' && posted[0].action === 'add'
+     && posted[0].x > 0 && posted[0].y > 0, posted);
+  posted.length = 0;
+  document.querySelector('.card.shot').dispatchEvent(new MouseEvent('mouseenter'));
+  ok('the mouse on the card holds the countdown', posted.some(m => m.action === 'hold') && !!document.querySelector('.sh-bar.held'), posted);
+
+  SB.workPhoto({ state: 'got', title: 'x', thumbs: [png, png, png, png, png, png], buttons: [] });
+  s = SB.workPhotoState();
+  ok('many pages: three shown and "+3"', s.thumbs === 3 && document.querySelector('.card.shot .more').textContent === '+3', s);
+
+  SB.workPhoto({ state: 'error', title: 'לא נמצא אייפון', text: 'אין אייפון בקרבת מקום', buttons: [{ id: 'retry', label: 'נסה שוב' }, { id: 'file', label: 'בחר קובץ…', primary: true }] });
+  s = SB.workPhotoState();
+  ok('no device: its words, Try again / Choose a file', s.state === 'error' && s.buttons.join() === 'retry,file', s);
+  ok('Hebrew reads right to left', document.querySelector('.card.shot .sh-text').dir === 'rtl');
+
+  posted.length = 0;
+  document.querySelector('.card.shot .x').click();
+  ok('✕ posts cancel', posted.some(m => m.action === 'cancel'), posted);
+
+  SB.workPhoto({ state: 'sent', text: '✓ Checking' });
+  ok('sent: says so', SB.workPhotoState() && SB.workPhotoState().state === 'sent');
+  await wait(1800);
+  ok('sent: goes away by itself', !SB.workPhotoState() && !document.querySelector('.card.shot'));
+
+  // Drops: a picture is read and posted; other files are refused (and never open in the page).
+  posted.length = 0;
+  const bytes = Uint8Array.from(atob(png.split(',')[1]), c => c.charCodeAt(0));
+  const dt = new DataTransfer();
+  dt.items.add(new File([bytes], 'page1.png', { type: 'image/png' }));
+  dt.items.add(new File(['hello'], 'notes.txt', { type: 'text/plain' }));
+  dt.items.add(new File(['%PDF-1.4'], 'ipad.pdf', { type: 'application/pdf' }));
+  const over = new DragEvent('dragover', { dataTransfer: dt, cancelable: true, bubbles: true });
+  document.body.dispatchEvent(over);
+  ok('dragging over: taken (no navigation)', over.defaultPrevented);
+  const enter = new DragEvent('dragenter', { dataTransfer: dt, cancelable: true, bubbles: true });
+  document.body.dispatchEvent(enter);
+  ok('dragging a file: the paper lights up', document.body.classList.contains('photo-drop'));
+  const drop = new DragEvent('drop', { dataTransfer: dt, cancelable: true, bubbles: true });
+  document.body.dispatchEvent(drop);
+  for (let i = 0; i < 40 && !posted.length; i++) await wait(50);
+  const d = posted.find(m => m.action === 'drop');
+  ok('a drop posts the pictures (the PNG and the PDF, not the text file)', d && d.files.length === 2 && d.files[0].name === 'page1.png'
+     && d.files[0].data.startsWith('data:image/png;base64,') && d.files[1].name === 'ipad.pdf', d && d.files.map(f => f.name));
+  ok('after the drop the light goes off', !document.body.classList.contains('photo-drop'));
+
+  document.title = pass ? 'pass' : 'fail';
+  window.testResults = { pass, lines };
+})();
+</script>

@@ -32,6 +32,8 @@ With --replay-user-messages each message is echoed back with a uuid (a checkpoin
 request (undo) answers like Claude Code: with dry_run, the files it would put back (README.md in its
 folder); otherwise it writes the checkpoint it was given to .fake-undo in its folder, for tests to check.
 A line {"type": "_write", "path": "rel/path", "text": "..."} writes that file in its folder (for worktree tests).
+"spawn-child" in the first message starts a long-lived child (`sleep 600`) and writes "<child pid> <own pid>" to
+$POINKY_FAKE_CHILD_PIDS, to check that what a helper starts ends with it.
 """
 import json, os, queue, re, sys, threading, time, uuid
 
@@ -101,8 +103,16 @@ def wait_answer(rid):
             answered.wait(0.2)
         return answers.pop(rid)
 
+_replies = [0]
 def emit(obj):
     obj = {k: v for k, v in obj.items() if k != "_t"}
+    # The recordings have no usage: give each reply some, the way Claude Code reports it (per message).
+    msg = obj.get("message") if obj.get("type") == "assistant" else None
+    if isinstance(msg, dict) and "usage" not in msg:
+        _replies[0] += 1
+        msg = dict(msg, usage={"input_tokens": 4, "cache_read_input_tokens": 12000 + 900 * _replies[0], "cache_creation_input_tokens": 300, "output_tokens": 120})
+        msg.setdefault("id", "msg_fake_%d" % _replies[0])
+        obj = dict(obj, message=msg)
     with out_lock:
         sys.stdout.write(json.dumps(obj) + "\n")
         sys.stdout.flush()
@@ -132,6 +142,13 @@ def main():
     if first is None:
         return 0
     m = re.search(r"fixture:([\w-]+)", first)
+    # "spawn-child" in the task: it starts a long-lived child, as a Bash tool running `npm run dev` would, and
+    # appends its pid to $POINKY_FAKE_CHILD_PIDS (tests check it ends with the helper).
+    if "spawn-child" in first:
+        import subprocess
+        child = subprocess.Popen(["/bin/sleep", "600"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if os.environ.get("POINKY_FAKE_CHILD_PIDS"):
+            with open(os.environ["POINKY_FAKE_CHILD_PIDS"], "a") as f: f.write(f"{child.pid} {os.getpid()}\n")
     # --resume <id>: the same session goes on (as Claude Code does).
     session = argv[argv.index("--resume") + 1] if "--resume" in argv else str(uuid.uuid4())
     if "--resume" in argv and not m and not os.environ.get("POINKY_FAKE_RUN"):

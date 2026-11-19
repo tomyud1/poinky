@@ -7,6 +7,19 @@ import WebKit
 @MainActor
 final class Overlay: NSObject, WKNavigationDelegate {
     struct SceneItem { let id: String; let type: String; let label: String; let box: [Int]? }
+    /// The part of a 3D model you clicked last (its name shows on the model), so "what's this?" knows.
+    private var picked: (id: String, name: String, part: String, at: Date)?
+    /// Whether the last click on a part was already asked about (one click → one step about it).
+    private var pickAsked = false
+    /// The part you clicked in the last `within` seconds and haven't asked about yet: the model's id, the
+    /// part's name as shown, and its name in the teacher's code (for `kit.get`).
+    func freshPick(within: TimeInterval = 120) -> (id: String, name: String, part: String)? {
+        guard let p = picked, !pickAsked, Date().timeIntervalSince(p.at) < within,
+              scene.contains(where: { $0.id == p.id && $0.type == "scene3d" }) else { return nil }
+        return (p.id, p.name, p.part)
+    }
+    func markPickAsked() { pickAsked = true }
+    var lastPickName: String { picked?.name ?? "" }
 
     /// You finished drawing a mark (⌥ + click / drag).
     var onMarkAdded: (() -> Void)?
@@ -20,6 +33,12 @@ final class Overlay: NSObject, WKNavigationDelegate {
     var onHelperAsking: ((Int) -> Void)?
     /// The helper the mouse is on (holding the talk keys there talks to it), or nil.
     private(set) var pointedHelper: Int?
+    /// The bubble's Copy button: the text to put on the clipboard.
+    var onCopy: ((String) -> Void)?
+    /// The caption bubble when it takes clicks (reading an answer, Copy, ✕), in points; nil while it follows the buddy.
+    private var bubbleRect: CGRect?
+    private var bubbleClickMonitor: Any?
+    private var reading: Bool?
 
     private var panel: OverlayPanel?
     private var web: WKWebView!
@@ -40,6 +59,9 @@ final class Overlay: NSObject, WKNavigationDelegate {
         let lines = scene.map { item -> String in
             var s = "- \(item.type) id=\"\(item.id)\""
             if !item.label.isEmpty { s += " “\(item.label)”" }
+            if let p = picked, p.id == item.id, Date().timeIntervalSince(p.at) < 120 {
+                s += p.name.isEmpty ? " (the user just clicked one of its parts, `\(p.part)` in the code)" : " (the user just clicked its part “\(p.name)”)"
+            }
             if let b = item.box, b.count == 4 {
                 let px = b.map { Int((CGFloat($0) * scale).rounded()) }
                 s += " at x=\(px[0]) y=\(px[1]) w=\(px[2]) h=\(px[3])"
@@ -78,13 +100,21 @@ final class Overlay: NSObject, WKNavigationDelegate {
 
     /// "ready", "listening", "thinking", "speaking", "starting" or "off"; `guide`: a walkthrough is running.
     func setPhase(_ phase: String, guide: Bool = false) {
-        js("SB.phase(\(jsString(phase)), \(guide))")
+        lastPhase = "SB.phase(\(jsString(phase)), \(guide))"
+        js(lastPhase!)
     }
 
-    func setBuddy(_ on: Bool) { js("SB.buddyOn(\(on))") }
-    func showBuddy(_ on: Bool) { js("SB.buddyShow(\(on))") }
+    func setBuddy(_ on: Bool) { lastBuddy = "SB.buddyOn(\(on))"; js(lastBuddy!) }
+    func showBuddy(_ on: Bool) { lastShown = "SB.buddyShow(\(on))"; js(lastShown!) }
+    // The buddy's state, sent again if the page has to be loaded again (its process died).
+    private var lastPhase: String?, lastBuddy: String?, lastShown: String?, lastSounds: String?
+    /// First run ("I live here", FirstRun.swift): the buddy flies to its home, facing it, then tucks in.
+    func homeGo(_ p: CGPoint, facing f: CGPoint) { js("SB.homeGo(\(Int(p.x)), \(Int(p.y)), \(Int(f.x)), \(Int(f.y)))") }
+    func homeEnd() { js("SB.homeEnd()") }
 
     func hide() {
+        bubbleRect = nil
+        if let m = bubbleClickMonitor { NSEvent.removeMonitor(m); bubbleClickMonitor = nil }
         setMarking(false)
         clearAll()
         setCaption(you: nil, claude: nil)
@@ -176,7 +206,7 @@ final class Overlay: NSObject, WKNavigationDelegate {
     func helperReport(ids: [Int]) { if !ids.isEmpty { js("SB.helperReport(\(ids))") } }
     /// Done saying it: they merge into the buddy.
     func helperRelease(ids: [Int]) { if !ids.isEmpty { js("SB.helperRelease(\(ids))") } }
-    func helperSounds(on: Bool, volume: Double) { js("SB.helperSounds(\(on), \(volume))") }
+    func helperSounds(on: Bool, volume: Double) { lastSounds = "SB.helperSounds(\(on), \(volume))"; js(lastSounds!) }
     /// The window you're using, in this overlay's points (nil: none).
     func helperAvoid(_ r: CGRect?) {
         let s = r.map { "{x:\(Int($0.minX)),y:\(Int($0.minY)),w:\(Int($0.width)),h:\(Int($0.height))}" } ?? "null"
@@ -226,6 +256,7 @@ final class Overlay: NSObject, WKNavigationDelegate {
     func setMarking(_ on: Bool) {
         guard on != isMarking else { return }
         isMarking = on
+        Timeline.log("marking", ["on": on])
         markView?.isMarking = on
         updateMouse()
         js("SB.marking(\(on ? "true" : "false"))")
@@ -235,17 +266,28 @@ final class Overlay: NSObject, WKNavigationDelegate {
     func trackMouse() {
         guard let screen, panel?.isVisible == true else { return }
         let loc = NSEvent.mouseLocation
-        let p = CGPoint(x: loc.x - screen.frame.minX, y: screen.frame.maxY - loc.y)
-        let over = (!contentHidden && cardRects.contains { $0.insetBy(dx: -2, dy: -2).contains(p) })
-            || helperRects.contains { $0.insetBy(dx: -2, dy: -2).contains(p) }
+        let over = takesClicks(at: CGPoint(x: loc.x - screen.frame.minX, y: screen.frame.maxY - loc.y))
         if over != isHoveringCard {
             isHoveringCard = over
             updateMouse()
         }
     }
 
+    /// Whether the mouse at `p` (points, top-left origin) reaches the page: over a card, an open helper card or the
+    /// bubble while it takes clicks (the rects the page reports). Everywhere else clicks go to the app below.
+    func takesClicks(at p: CGPoint) -> Bool {
+        (!contentHidden && cardRects.contains { $0.insetBy(dx: -2, dy: -2).contains(p) })
+            || helperRects.contains { $0.insetBy(dx: -2, dy: -2).contains(p) }
+            || bubbleRect?.insetBy(dx: -2, dy: -2).contains(p) == true
+    }
+
+    /// Poinky is clicking for you: every click goes through to the app, whatever is under it.
+    var handsOff = false {
+        didSet { if handsOff != oldValue { updateMouse() } }
+    }
+
     private func updateMouse() {
-        panel?.ignoresMouseEvents = !(isMarking || isHoveringCard)
+        panel?.ignoresMouseEvents = handsOff || !(isMarking || isHoveringCard)
     }
 
     /// `json` is already-validated JSON; `scale` is screenshot pixels per screen point.
@@ -259,9 +301,16 @@ final class Overlay: NSObject, WKNavigationDelegate {
     /// Opens a fresh paper at `frame` (screen points, top-left origin).
     /// `continuing`: keep drawing on the paper that's already open (a follow-up), if there is one.
     /// `avoid`: what's being explained; the paper never moves over it when it needs more room.
-    func lessonBegin(frame: CGRect, title: String, continuing: Bool = false, avoid: CGRect? = nil) {
+    /// `look`: "paper" or "chalk" (`PaperLook`). `session`: papers of one session make one notebook.
+    func lessonBegin(frame: CGRect, title: String, continuing: Bool = false, avoid: CGRect? = nil, look: String = "paper", session: Int? = nil, minText: Double? = nil) {
         let a = avoid.map { ",avoid:{x:\(Int($0.minX)),y:\(Int($0.minY)),w:\(Int($0.width)),h:\(Int($0.height))}" } ?? ""
-        js("SB.lessonBegin({x:\(Int(frame.minX)),y:\(Int(frame.minY)),w:\(Int(frame.width)),h:\(Int(frame.height)),h0:240\(a)}, \(jsString(title)), \(continuing))")
+        let extra = ",look:\(jsString(look))" + (session.map { ",session:\($0)" } ?? "") + (minText.map { ",minText:\($0)" } ?? "")
+        // lo/hi: the band it may use (it grows down from y and never past hi, so it stays off what Placement kept it off).
+        js("SB.lessonBegin({x:\(Int(frame.minX)),y:\(Int(frame.minY)),w:\(Int(frame.width)),h:\(Int(frame.height)),h0:240,lo:\(Int(frame.minY)),hi:\(Int(frame.maxY))\(a)\(extra)}, \(jsString(title)), \(continuing))")
+    }
+    /// Moves the open paper (same width) off what the next question is about; one you dragged stays put.
+    func lessonPlace(frame: CGRect) {
+        js("SB.lessonPlace && SB.lessonPlace({x:\(Int(frame.minX)),y:\(Int(frame.minY)),lo:\(Int(frame.minY)),hi:\(Int(frame.maxY))})")
     }
 
     // MARK: Drawings follow their window
@@ -285,7 +334,7 @@ final class Overlay: NSObject, WKNavigationDelegate {
     func run3d(id: String, code: String, note: String? = nil) {
         js("SB.run3d(\(jsString(id)), \(jsString(code)), \(note.map(jsString) ?? "null"))")
     }
-
+    /// A step about a clicked part was heard: the model goes back to the lesson's view.
     /// More code of a 3D model that's still being written: it runs statement by statement as it arrives.
     func feed3d(id: String, code: String) {
         js("SB.feed3d(\(jsString(id)), \(jsString(code)))")
@@ -312,6 +361,16 @@ final class Overlay: NSObject, WKNavigationDelegate {
 
     func lessonStop() { js("SB.lessonStop()") }
 
+    /// Saves the paper because you asked out loud: the open page, or (`all`) this session's pages as one PDF.
+    /// The answer comes back through `onLessonSaved`.
+    func saveLesson(all: Bool) { js("SB.saveLesson(\(all))") }
+    /// A save you asked for by voice finished: where it went (nil: nothing to save, or it failed) and,
+    /// for the notebook, how many pages.
+    var onLessonSaved: ((URL?, Int?) -> Void)?
+    var onStudyPDF: (() -> Void)?   // a study paper's PDF button (CallController+Study.swift)
+    var onWorkPhoto: (([String: Any]) -> Void)?   // the photo card's buttons, the paper's photo button (CallController+Photo.swift)
+
+
     /// Screen rectangles of things currently drawn (cards and the paper), in points.
     var occupiedRects: [CGRect] { cardRects }
 
@@ -327,8 +386,30 @@ final class Overlay: NSObject, WKNavigationDelegate {
         setClaudeCaption(claude)
     }
     func setClaudeCaption(_ text: String?) { js("SB.caption('claude', \(jsString(text)))") }
+    /// Quiet mode or a typed answer: the bubble shows the whole answer and stays where it opened (reading),
+    /// instead of the sentence being said next to the buddy.
+    func setReading(_ on: Bool) {
+        guard on != reading else { return }
+        reading = on
+        js("SB.captionMode(\(jsString(on ? "read" : "speech")))")
+    }
+    /// The answer is complete. `copy`: what its Copy button copies. `keep`: (reading) it stays until the next
+    /// question, ✕ or a click elsewhere; otherwise (said out loud, with something to paste) it shows that with
+    /// Copy for a while.
+    func captionDone(copy: String, keep: Bool) {
+        js("SB.captionDone(\(jsString(copy)), \(keep))")
+    }
+    /// What the answer is about (points): the speech bubble keeps off it (it already keeps off marks and cards).
+    func setSubjects(_ rects: [CGRect]) {
+        js("SB.bubbleAvoid && SB.bubbleAvoid([" + rects.map { "[\(Int($0.minX)),\(Int($0.minY)),\(Int($0.width)),\(Int($0.height))]" }.joined(separator: ",") + "])")
+    }
     func setYouCaption(_ text: String?) { js("SB.caption('you', \(jsString(text)))") }
+    /// You held the keys but nothing was heard: a quiet note in your bubble (it goes away by itself).
+    func youMissed(_ text: String) { js("SB.youMissed && SB.youMissed(\(jsString(text)))") }
     func setArtistBusy(_ on: Bool) { js("SB.artist(\(on ? "true" : "false"))") }
+    /// A short glint on the buddy (or a faint glow around the screen while it's hidden) right after a
+    /// screenshot is taken for Claude, so you always know when Poinky looks.
+    func glance() { js("SB.glance && SB.glance()") }
 
     // MARK: - Setup
 
@@ -359,7 +440,10 @@ final class Overlay: NSObject, WKNavigationDelegate {
 
         let mv = MarkView()
         mv.autoresizingMask = [.width, .height]
-        mv.onMarkAdded = { [weak self] in self?.onMarkAdded?() }
+        mv.onMarkAdded = { [weak self, weak mv] in
+            Timeline.log("mark", ["kind": mv?.marks.last.map { $0.kind == .pin ? "pin" : "stroke" } ?? ""])
+            self?.onMarkAdded?()
+        }
         markView = mv
 
         container.addSubview(w)
@@ -371,6 +455,39 @@ final class Overlay: NSObject, WKNavigationDelegate {
             NSLog("Poinky: overlay.html missing from the app bundle")
         }
         panel = p
+    }
+
+    /// The page's process died (memory pressure, a crash in a card): everything on screen is gone and every
+    /// later call would go nowhere, so the buddy and captions never came back until Poinky restarted.
+    /// Load the page again and give it the buddy's state.
+    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        NSLog("Poinky: the overlay's web process ended; reloading it")
+        Timeline.log("overlay.reload")
+        loaded = false
+        lastTick = ""
+        reading = nil
+        bubbleRect = nil
+        pendingJS = [lastBuddy, lastShown, lastSounds, lastPhase].compactMap { $0 } + pendingJS
+        scene = []
+        cardRects = []
+        helperRects = []
+        if let url = Bundle.main.url(forResource: "overlay", withExtension: "html", subdirectory: "web") {
+            webView.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
+        }
+    }
+    /// Tests (`--listen-test` {"pointHelper": true}): as if the mouse rested on this helper.
+    func testPointHelper(_ id: Int?) { pointedHelper = id }
+    /// Tests (`--listen-test` {"killPage": true}): end the page's process the way macOS would.
+    func testKillPage() {
+        guard let pid = (web?.value(forKey: "_webProcessIdentifier") as? NSNumber)?.int32Value, pid > 0 else { return }
+        kill(pid, SIGKILL)
+    }
+
+    /// The page never goes anywhere else (a file dropped where nothing takes it would replace the overlay with it).
+    func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction, decisionHandler: @escaping @MainActor (WKNavigationActionPolicy) -> Void) {
+        let main = action.targetFrame?.isMainFrame ?? true
+        let ours = action.request.url?.lastPathComponent == "overlay.html"
+        decisionHandler(!main || ours ? .allow : .cancel)
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
@@ -392,6 +509,9 @@ final class Overlay: NSObject, WKNavigationDelegate {
                 r.count == 4 ? CGRect(x: r[0].doubleValue, y: r[1].doubleValue, width: r[2].doubleValue, height: r[3].doubleValue) : nil
             }
             trackMouse()
+        case "picked":
+            picked = ("\(msg["id"] ?? "")", "\(msg["name"] ?? "")", "\(msg["part"] ?? "")", Date())
+            pickAsked = false
         case "error":
             onCardError?("\(msg["id"] ?? "")", "\(msg["type"] ?? "")", "\(msg["message"] ?? "")")
         case "clear":
@@ -407,14 +527,72 @@ final class Overlay: NSObject, WKNavigationDelegate {
             pointedHelper = (msg["id"] as? String).flatMap { Int($0) } ?? (msg["id"] as? NSNumber)?.intValue
         case "helperAsking":
             if let id = Int("\(msg["id"] ?? "")") { onHelperAsking?(id) }
+        case "bubble":
+            // The bubble takes clicks (rect) or follows the buddy again (none). A click anywhere else puts it away.
+            if let r = msg["rect"] as? [NSNumber], r.count == 4 {
+                bubbleRect = CGRect(x: r[0].doubleValue, y: r[1].doubleValue, width: r[2].doubleValue, height: r[3].doubleValue)
+                if bubbleClickMonitor == nil {
+                    bubbleClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
+                        MainActor.assumeIsolated { self?.js("SB.bubbleAway && SB.bubbleAway()") }
+                    }
+                }
+            } else {
+                bubbleRect = nil
+                if let m = bubbleClickMonitor { NSEvent.removeMonitor(m); bubbleClickMonitor = nil }
+            }
+            trackMouse()
+        case "copy":
+            if let t = msg["text"] as? String { onCopy?(t) }
         case "helperAction":
             if let id = Int("\(msg["id"] ?? "")"), let action = msg["action"] as? String { onHelperAction?(id, action) }
+        case "studyPDF":
+            onStudyPDF?()
+        case "workPhoto":
+            onWorkPhoto?(msg)
+        case "saveLesson":
+            // The paper's Save button (or "save this page"): a picture of the page on the Desktop.
+            let title = msg["title"] as? String ?? "", png = msg["png"] as? String, svg = msg["svg"] as? String
+            let voice = msg["voice"] as? Bool ?? false
+            if msg["none"] as? Bool == true { if voice { onLessonSaved?(nil, nil) }; return }
+            Task.detached(priority: .userInitiated) {
+                let url = LessonSaver.save(title: title, pngDataURL: png, svg: svg)
+                await MainActor.run {
+                    self.js("SB.lessonSaved(\(self.jsString(url.map(LessonSaver.placeName) ?? "")), \(url != nil))")
+                    if voice { self.onLessonSaved?(url, nil) }
+                }
+            }
+        case "saveNotebook":
+            // "Save all" (or "save my notes"): every page of this session in one PDF.
+            let pages = (msg["pages"] as? [[String: Any]] ?? []).compactMap { p -> (title: String, png: String)? in
+                guard let png = p["png"] as? String else { return nil }
+                return (p["title"] as? String ?? "", png)
+            }
+            let voice = msg["voice"] as? Bool ?? false
+            if pages.isEmpty { if voice { onLessonSaved?(nil, 0) }; return }
+            Task.detached(priority: .userInitiated) {
+                let url = LessonSaver.saveNotebook(pages: pages)
+                await MainActor.run {
+                    self.js("SB.lessonSaved(\(self.jsString(url.map(LessonSaver.placeName) ?? "")), \(url != nil), true)")
+                    if voice { self.onLessonSaved?(url, pages.count) }
+                }
+            }
         default:
             break
         }
     }
 
+    /// `POINKY_OVERLAY_LOG=file`: every call into the page, with the time (tests: the exact order the page gets).
+    private static let callLog: FileHandle? = ProcessInfo.processInfo.environment["POINKY_OVERLAY_LOG"].flatMap { path in
+        FileManager.default.createFile(atPath: path, contents: nil)
+        return FileHandle(forWritingAtPath: path)
+    }
+    static func logCall(_ line: String) {
+        guard let h = callLog else { return }
+        h.write(Data(String(format: "%.3f %@\n", ProcessInfo.processInfo.systemUptime, line).utf8))
+    }
+
     private func js(_ script: String) {
+        if Self.callLog != nil, !script.hasPrefix("SB.tick(") { Self.logCall((web == nil ? "(dropped, no page) " : loaded ? "" : "(queued) ") + script) }
         guard web != nil else { return }
         if loaded { web.evaluateJavaScript(script, completionHandler: nil) } else { pendingJS.append(script) }
     }
@@ -460,11 +638,13 @@ final class MarkView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
+        if let e = event.cgEvent, Computer.isOurs(e) { current = []; return }   // Poinky's own click is never a mark
         current = [convert(event.locationInWindow, from: nil)]
         needsDisplay = true
     }
 
     override func mouseDragged(with event: NSEvent) {
+        guard !current.isEmpty else { return }
         current.append(convert(event.locationInWindow, from: nil))
         needsDisplay = true
     }

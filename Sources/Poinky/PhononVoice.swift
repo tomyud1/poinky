@@ -117,15 +117,17 @@ final class PhononVoice {
     /// Speaks `text`: `onChunk` gets the audio as it's generated (24 kHz mono), then `onEnd(true)`.
     /// `onEnd(false)` means it failed (the caller falls back to Apple's voice). Requests are
     /// answered in order; the helper starts on the next one as soon as this one is generated.
+    /// `tail`: seconds of silence kept after the speech (nil: the helper's 0.2 s between sentences).
     @discardableResult
-    func speak(_ text: String, voice: String, speed: Double,
+    func speak(_ text: String, voice: String, speed: Double, tail: Double? = nil,
                onChunk: @escaping (AVAudioPCMBuffer) -> Void, onEnd: @escaping (Bool) -> Void) -> Int {
         guard isRunning, let stdin else { onEnd(false); return 0 }
         nextID += 1
         let id = nextID
         pending[id] = Request(onChunk: onChunk, onEnd: onEnd)
-        let req: [String: Any] = ["id": id, "text": text, "voice": voice,
+        var req: [String: Any] = ["id": id, "text": text, "voice": voice,
                                   "speed": min(Self.speedRange.upperBound, max(Self.speedRange.lowerBound, speed))]
+        if let tail { req["tail"] = Int(tail * 1000) }
         guard var line = try? JSONSerialization.data(withJSONObject: req) else { pending[id] = nil; onEnd(false); return 0 }
         line.append(0x0A)
         do { try stdin.write(contentsOf: line) } catch { pending[id] = nil; onEnd(false) }

@@ -1,0 +1,243 @@
+[
+ {
+  "id": "writer-punchier",
+  "who": "writer",
+  "said": "make this paragraph punchier",
+  "checks": [
+   [
+    "replaces it for them (<do>) or reads the rewrite aloud",
+    true
+   ],
+   [
+    "the new text is shorter than the old",
+    true
+   ],
+   [
+    "<do> carries the new text",
+    true
+   ],
+   [
+    "offers to put it in",
+    true
+   ],
+   [
+    "no agent",
+    true
+   ]
+  ],
+  "generic": [
+   [
+    "has <say>",
+    true
+   ],
+   [
+    "spoken style (no markdown/URL/emoji)",
+    true
+   ],
+   [
+    "<draw> is valid JSON",
+    true
+   ],
+   [
+    "math said for the ear (no ² = ( ) symbols)",
+    true
+   ],
+   [
+    "nothing outside the tags",
+    true
+   ]
+  ],
+  "passed": true,
+  "say": "Here's a punchier version: Onboarding often takes too long and has steps we could simplify, so new hires get a worse start than they should. Want me to swap it in?",
+  "tags": [
+   "draw",
+   "offer",
+   "say"
+  ],
+  "raw": "<say>Here's a punchier version: Onboarding often takes too long and has steps we could simplify, so new hires get a worse start than they should. Want me to swap it in?</say>\n<draw>{\"items\":[]}</draw>\n<offer say=\"Swapping it in.\"><do>Replace the selected text with exactly: Onboarding often takes too long and has steps we could simplify, so new hires get a worse start than they should.</do></offer>",
+  "first_token": 1.3222301006317139,
+  "first_sentence": 1.459792137145996,
+  "total": 1.8667371273040771,
+  "input_tokens": 14635,
+  "run": 0
+ },
+ {
+  "id": "writer-punchier",
+  "who": "writer",
+  "said": "make this paragraph punchier",
+  "checks": [
+   [
+    "replaces it for them (<do>) or reads the rewrite aloud",
+    true
+   ],
+   [
+    "the new text is shorter than the old",
+    true
+   ],
+   [
+    "<do> carries the new text",
+    true
+   ],
+   [
+    "offers to put it in",
+    true
+   ],
+   [
+    "no agent",
+    true
+   ]
+  ],
+  "generic": [
+   [
+    "has <say>",
+    true
+   ],
+   [
+    "spoken style (no markdown/URL/emoji)",
+    true
+   ],
+   [
+    "math said for the ear (no ² = ( ) symbols)",
+    true
+   ],
+   [
+    "nothing outside the tags",
+    true
+   ]
+  ],
+  "passed": true,
+  "say": "Here's the punchier version: Onboarding takes too long, and it doesn't have to. Want me to swap it in?",
+  "tags": [
+   "offer",
+   "say"
+  ],
+  "raw": "<say>Here's the punchier version: Onboarding takes too long, and it doesn't have to. Want me to swap it in?</say>\n<offer say=\"Swapping it in.\"><do>Replace the selected text with exactly: Onboarding takes too long, and it doesn't have to.</do></offer>",
+  "first_token": 1.1628739833831787,
+  "first_sentence": 1.3193669319152832,
+  "total": 1.600188970565796,
+  "input_tokens": 14635,
+  "run": 1
+ },
+ {
+  "id": "offer-rewrite",
+  "who": "writer",
+  "said": "can you make this sound more polite",
+  "checks": [
+   [
+    "reads the new text and offers to put it in",
+    true
+   ],
+   [
+    "doesn't change it yet (no top-level <do>)",
+    true
+   ],
+   [
+    "the swap is ready: <offer> with a <do> of the same words",
+    true
+   ],
+   [
+    "the <do> says to replace the selected text",
+    true
+   ],
+   [
+    "replaces just the selection (no greeting or sign-off added)",
+    false
+   ],
+   [
+    "no agent",
+    true
+   ]
+  ],
+  "generic": [
+   [
+    "has <say>",
+    true
+   ],
+   [
+    "spoken style (no markdown/URL/emoji)",
+    true
+   ],
+   [
+    "math said for the ear (no ² = ( ) symbols)",
+    true
+   ],
+   [
+    "nothing outside the tags",
+    true
+   ]
+  ],
+  "passed": false,
+  "say": "Sure. Here's a politer version: Hi Sam, would it be possible to send me the slides by tomorrow? I've asked a couple of times now, so I'd really appreciate it. Want me to swap it in?",
+  "tags": [
+   "offer",
+   "say"
+  ],
+  "raw": "<say>Sure. Here's a politer version: Hi Sam, would it be possible to send me the slides by tomorrow? I've asked a couple of times now, so I'd really appreciate it. Want me to swap it in?</say>\n<offer say=\"Swapping it in.\"><do>Replace the selected text with exactly: Hi Sam, would it be possible to send me the slides by tomorrow? I've asked a couple of times now, so I'd really appreciate it.</do></offer>",
+  "first_token": 1.3278331756591797,
+  "first_sentence": 1.4900591373443604,
+  "total": 1.9251022338867188,
+  "input_tokens": 14652,
+  "run": 0
+ },
+ {
+  "id": "offer-rewrite",
+  "who": "writer",
+  "said": "can you make this sound more polite",
+  "checks": [
+   [
+    "reads the new text and offers to put it in",
+    true
+   ],
+   [
+    "doesn't change it yet (no top-level <do>)",
+    true
+   ],
+   [
+    "the swap is ready: <offer> with a <do> of the same words",
+    true
+   ],
+   [
+    "the <do> says to replace the selected text",
+    true
+   ],
+   [
+    "replaces just the selection (no greeting or sign-off added)",
+    false
+   ],
+   [
+    "no agent",
+    true
+   ]
+  ],
+  "generic": [
+   [
+    "has <say>",
+    true
+   ],
+   [
+    "spoken style (no markdown/URL/emoji)",
+    true
+   ],
+   [
+    "math said for the ear (no ² = ( ) symbols)",
+    true
+   ],
+   [
+    "nothing outside the tags",
+    true
+   ]
+  ],
+  "passed": false,
+  "say": "Sure. Here's a politer version: Hi Sam, could you please send me the slides by tomorrow? I've asked a couple of times, so I'd really appreciate it. Want me to swap it in?",
+  "tags": [
+   "offer",
+   "say"
+  ],
+  "raw": "<say>Sure. Here's a politer version: Hi Sam, could you please send me the slides by tomorrow? I've asked a couple of times, so I'd really appreciate it. Want me to swap it in?</say>\n<offer say=\"Swapping it in.\"><do>Replace the selected text with exactly: Hi Sam, could you please send me the slides by tomorrow? I've asked a couple of times, so I'd really appreciate it.</do></offer>",
+  "first_token": 1.257566213607788,
+  "first_sentence": 1.3895270824432373,
+  "total": 1.7935690879821777,
+  "input_tokens": 14648,
+  "run": 1
+ }
+]

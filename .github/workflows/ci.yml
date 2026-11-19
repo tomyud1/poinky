@@ -14,8 +14,8 @@ jobs:
 
       - name: Check the scripts
         run: |
-          for f in install.sh build.sh phonon/install.sh tools/test-helpers.sh; do bash -n "$f"; done
-          python3 -m py_compile phonon/phonon_server.py tools/fake-helper.py
+          for f in install.sh build.sh phonon/install.sh stt/install.sh tools/stt-test/check.sh tools/test-helpers.sh tools/test-voice.sh tools/test-talker.sh tools/test-update.sh tools/test-reminders.sh tools/test-screens.sh tools/test-launches.sh; do bash -n "$f"; done
+          python3 -m py_compile phonon/phonon_server.py tools/fake-helper.py tools/fake-claude.py tools/test-call-loop.py tools/eval-talker/run.py tools/eval-talker/scenarios.py
           node --check web/lesson.js
           node --check web/buddy.js
           node --check web/kit.js
@@ -38,6 +38,23 @@ jobs:
                    Contents/Resources/phonon/install.sh Contents/Resources/phonon/phonon_server.py; do
             test -s "$APP/$f" || { echo "missing from the app: $f"; exit 1; }
           done
+
+      - name: Test what the voice hears (spoken-text normalizer, sentence splitting)
+        run: tools/test-voice.sh
+      - name: Speech logic (language pick, context words, levels)
+        run: tools/stt-test/check.sh
+
+      - name: Test when repeating reminders come due (DST, time zones, months off, clock set back)
+        run: tools/test-reminders.sh
+
+      - name: Test which display the overlay uses (made-up layouts) and how a last run ended (no app)
+        run: tools/test-screens.sh && tools/test-launches.sh
+
+      - name: Test the talker's replies (offers; the talker eval replayed from saved replies; no tokens)
+        run: tools/test-talker.sh
+
+      - name: Test in-app updates of a developer's checkout (scratch repos; no network)
+        run: tools/test-update.sh
 
       - name: Test helpers (parser, waiting line, follow-ups, stop; no tokens)
         run: tools/test-helpers.sh

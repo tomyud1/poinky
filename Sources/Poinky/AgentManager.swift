@@ -24,7 +24,9 @@ final class AgentManager {
         let title: String
         let task: String
         let dir: URL
-        let started: Date
+        /// When it started working (for one that waited in line, when its turn came), so its time on screen
+        /// and in its window counts work, not waiting.
+        var started: Date
         var finished: Date?
         var status: Status = .running
         var summary = ""
@@ -48,6 +50,14 @@ final class AgentManager {
         var entries: [HelperEntry] = []
         /// What Claude Code says it cost so far (dollars), from its last answer.
         var cost: Double?
+        /// Tokens it has written so far, and the size of its conversation now (live, from the stream).
+        var outputTokens = 0
+        var contextTokens = 0
+        /// This run's cost by list prices so far (`HelperCost`), and what it was when `cost` last came.
+        var estimate: Double?
+        var estimateAtCost = 0.0
+        /// What to show while it works: Claude Code's figure plus an estimate since (`estimated` then).
+        var liveCost: (dollars: Double, estimated: Bool)? { HelperCost.live(cost: cost, estimate: estimate, estimateAtCost: estimateAtCost) }
 
         /// Its window's record, next to the log.
         var chat: URL { log.deletingPathExtension().appendingPathExtension("chat.jsonl") }
@@ -140,6 +150,12 @@ final class AgentManager {
 
     /// The name the next helper will get (so Poinky can say "I'll have Mint do that").
     var nextName: String { freeName() }
+    /// The names the next few helpers would get, in order (so "start three helpers" can name all three).
+    func nextNames(_ n: Int) -> [String] {
+        var extra = Set<String>(), out: [String] = []
+        for _ in 0..<n { let name = freeName(also: extra); out.append(name); extra.insert(name) }
+        return out
+    }
     /// Its place in the name list (each helper has its own note in the sounds).
     static func note(for name: String) -> Int { names.firstIndex(of: name.components(separatedBy: " ")[0]) ?? 0 }
 
@@ -168,9 +184,42 @@ final class AgentManager {
         return AppConfig.dir.appendingPathComponent("agents", isDirectory: true)
     }
 
+    /// Why the last `start` returned nil, in words to say ("The folder … isn't there anymore"); nil: Claude
+    /// Code isn't installed.
+    private(set) var refusal: String?
+    /// …and the same request with a folder that's there (the closest one above), to offer instead.
+    private(set) var refusalOffer: AgentRequest?
+
+    /// A folder that was asked for but isn't there (moved or deleted), and the closest folder above it that
+    /// is (not the home folder or the disk itself), to offer instead.
+    static func missingFolder(_ dir: String?) -> (path: URL, nearest: URL?)? {
+        guard let d = dir?.trimmingCharacters(in: .whitespaces), !d.isEmpty else { return nil }
+        let url = URL(fileURLWithPath: (d as NSString).expandingTildeInPath).standardizedFileURL
+        var isDir: ObjCBool = false
+        if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir), isDir.boolValue { return nil }
+        let home = FileManager.default.homeDirectoryForCurrentUser.standardizedFileURL.path
+        var up = url.deletingLastPathComponent()
+        while up.path.count > 1, up.path != home {
+            if FileManager.default.fileExists(atPath: up.path, isDirectory: &isDir), isDir.boolValue { return (url, up) }
+            up = up.deletingLastPathComponent()
+        }
+        return (url, nil)
+    }
+
     /// Starts a helper, or puts it in line if `maxRunning` are already working.
-    /// Returns nil if Claude Code isn't installed.
+    /// Returns nil if Claude Code isn't installed, or if the folder it should work in is gone (`refusal` says so:
+    /// it used to run in the home folder without a word, and continuing one there failed vaguely).
     func start(_ req: AgentRequest, config: AppConfig) -> Agent? {
+        refusal = nil
+        refusalOffer = nil
+        if let gone = Self.missingFolder(req.dir) {
+            let who = req.name.map { "\($0) worked in" } ?? "The helper would work in"
+            refusal = "\(who) \(AppContext.tilde(gone.path.path)), but that folder isn't there anymore."
+            // A fresh start there (a resumed session belongs to its old folder; what it did goes along as notes).
+            refusalOffer = gone.nearest.map { AgentRequest(title: req.title, dir: $0.path, task: req.task, model: req.model,
+                                                           planFirst: req.planFirst, name: req.name, earlier: req.earlier) }
+            return nil
+        }
         guard let exe = Self.executable(config: config) else { return nil }
         lastConfig = config
         maxRunning = max(1, min(Self.names.count, config.maxHelpers))
@@ -188,9 +237,9 @@ final class AgentManager {
             .replacingOccurrences(of: ":", with: "")
         let safeTitle = req.title.lowercased().map { $0.isLetter || $0.isNumber ? $0 : "-" }.prefix(40)
         let log = req.continueLog ?? Self.logDir.appendingPathComponent("\(stamp)-\(String(safeTitle)).md")
-        // Continuing an earlier helper: its old name if it's free, and everything it did so far.
-        let taken = Set(agents.filter { $0.status == .running || $0.status == .queued }.map(\.name))
-        let name = req.name.flatMap { taken.contains($0) ? nil : $0 } ?? freeName()
+        // Continuing an earlier helper: its old name if nobody in this run has it (the one it continues was
+        // taken out of the list), and everything it did so far.
+        let name = Self.pickName(used: agents.map { ($0.name, $0.status == .running || $0.status == .queued) }, reserved: reservedNames, requested: req.name)
         var agent = Agent(id: id, name: name, title: req.title, task: req.task, dir: dir, started: Date(), log: log)
         if req.continueLog != nil { agent.entries = HelperEntry.read(agent.chat) }
         if running.count >= maxRunning {
@@ -228,10 +277,13 @@ final class AgentManager {
         do { try input.write(contentsOf: line) } catch { return false }
         closeWork[id]?.cancel()
         closeWork[id] = nil
+        let wasPaused = agents[i].paused
         agents[i].paused = false
         agents[i].followUps.append(text)
         appendLog(agents[i], "\n## Follow-up\n\n\(text)\n\n")
         record(id, HelperEntry(k: "you", text: text))
+        // Its card said "Paused" until its next step (which can be a while): now it says it's going on.
+        if wasPaused { agents[i].latest = "Back to work"; onEvent?(agents[i], .step("Back to work")) }
         onChange?()
         return true
     }
@@ -459,6 +511,7 @@ final class AgentManager {
                     s += ". To-do: \(a.checklist.filter { $0.state == .done }.count) of \(a.checklist.count) done"
                 }
                 if !a.blocked.isEmpty { s += ". Wasn't allowed to: " + a.blocked.suffix(3).joined(separator: "; ") }
+                if let c = a.liveCost, c.dollars >= 0.01 { s += ". Usage so far: about $" + String(format: "%.2f", c.dollars) + (c.estimated ? " (an estimate from its tokens)" : "") }
                 if let ask = a.asks.first {
                     s += ask.kind == .question ? ". WAITING for the user to answer its question: \(ask.currentQuestion?.text ?? ask.detail)"
                                                : ". WAITING for the user's OK to: \(ask.detail)"
@@ -475,6 +528,7 @@ final class AgentManager {
 
     private func launch(id: Int, req: AgentRequest, config: AppConfig, exe: String) -> Bool {
         guard let agent = agents.first(where: { $0.id == id }) else { return false }
+        if let i = agents.firstIndex(where: { $0.id == id }) { agents[i].estimate = nil; agents[i].estimateAtCost = 0 }   // a new process counts from zero
         let home = FileManager.default.homeDirectoryForCurrentUser
         let dir = agent.dir
         let notes = """
@@ -495,7 +549,8 @@ final class AgentManager {
         var newWorktree = false
         // Another helper works in the same repo: this one gets its own copy (a git worktree). Continuing one
         // that had a worktree: made again at the same folder (Claude Code finds its session by folder).
-        if worktrees[id] == nil, req.dir != nil {
+        // (Not for one of the user's own sessions: Claude Code finds it only in its own folder.)
+        if worktrees[id] == nil, req.dir != nil, !req.fork {
             let top = repos[id] ?? HelperWorktree.top(of: dir)
             repos[id] = top
             let shared = top != nil && repos.contains { other in other.key != id && other.value == top && agents.contains { $0.id == other.key && $0.status == .running } }
@@ -511,7 +566,10 @@ final class AgentManager {
         } ?? ""
         let system = "You were started by Poinky, the user's voice assistant, to do a task in the background. On screen you're the helper called \(agent.name).\n\n\(notes)\(worktreeNote)"
         let prompt: String
-        if resuming {
+        if resuming, req.fork {
+            // The user's own session keeps its own system prompt, so the helper notes go in the message.
+            prompt = "(The user asked Poinky, their voice assistant, to have a helper continue this session in the background. On screen you're the helper called \(agent.name).)\n\n\(notes)\n\nNow the user wants: \(req.task)"
+        } else if resuming {
             prompt = req.name == agent.name ? req.task : "(On screen you're the helper called \(agent.name) now.)\n\n\(req.task)"
         } else if let earlier = req.earlier {
             prompt = "\(earlier)\n\nNow the user wants: \(req.task)"
@@ -540,12 +598,22 @@ final class AgentManager {
            let json = String(data: data, encoding: .utf8) { args += ["--settings", json] }
         if !resuming { args += ["--append-system-prompt", system] }   // a resumed session keeps its own
         if let m = req.model ?? (config.agentModel.isEmpty ? nil : config.agentModel) { args += ["--model", m] }
-        if resuming, let session = req.resume { args += ["--resume", session] }
+        if resuming, let session = req.resume {
+            args += ["--resume", session]
+            // One of the user's own sessions: work on a copy, so theirs stays as it was (it may still be open).
+            if req.fork { args += ["--fork-session"] }
+        }
         if AppConfig.efforts.contains(config.agentEffort) { args += ["--effort", config.agentEffort] }
 
         let p = Process()
-        p.executableURL = URL(fileURLWithPath: exe)
-        p.arguments = args
+        // Through Poinky's wrapper, so what the helper starts (tests, a dev server) ends with it (HelperExec).
+        if let me = Bundle.main.executableURL, Self.groupHelpers {
+            p.executableURL = me
+            p.arguments = ["--helper-exec", exe] + args
+        } else {
+            p.executableURL = URL(fileURLWithPath: exe)
+            p.arguments = args
+        }
         p.currentDirectoryURL = worktrees[id]?.workDir ?? dir
         var env = ProcessInfo.processInfo.environment
         // A clean Claude Code environment (not settings inherited from wherever Poinky was started).
@@ -572,6 +640,8 @@ final class AgentManager {
             if agent.entries.isEmpty {
                 FileManager.default.createFile(atPath: agent.chat.path, contents: nil)
                 record(id, HelperEntry(k: "task", text: req.task, detail: dir.path, kind: agent.name, title: req.title))
+                // Where its changes start, for "what it changed" in its window (a worktree has its own).
+                if !newWorktree, let b = HelperChanges.startPoint(dir) { record(id, HelperEntry(k: "base", id: b)) }
             }
         }
         if newWorktree, let w = worktrees[id] {
@@ -608,10 +678,12 @@ final class AgentManager {
                     }
                 }
                 let events = stream.feed(data)
+                let tokens = (stream.outputTokens, stream.contextTokens)
+                let estimate = stream.estimatedCost
                 var entries = stream.takeEntries()
                 let now = Date().timeIntervalSince(t0)
                 for k in entries.indices { entries[k].t = now }
-                DispatchQueue.main.async { MainActor.assumeIsolated { self?.received(id: id, events: events, entries: entries) } }
+                DispatchQueue.main.async { MainActor.assumeIsolated { self?.received(id: id, events: events, entries: entries, tokens: tokens, estimate: estimate) } }
             }
             p.waitUntilExit()
             try? rawHandle?.close()
@@ -622,11 +694,17 @@ final class AgentManager {
     }
 
     /// New output from a helper (possibly no events: it's still a sign of life).
-    private func received(id: Int, events: [HelperEvent], entries: [HelperEntry] = []) {
+    private func received(id: Int, events: [HelperEvent], entries: [HelperEntry] = [], tokens: (Int, Int)? = nil, estimate: Double? = nil) {
         // Anything new means the helper is busy again: don't let it finish yet.
         closeWork[id]?.cancel()
         closeWork[id] = nil
         guard let i = agents.firstIndex(where: { $0.id == id }), agents[i].status == .running else { return }
+        if let (out, ctx) = tokens, out != agents[i].outputTokens || (ctx > 0 && ctx != agents[i].contextTokens) {
+            agents[i].outputTokens = out
+            if ctx > 0 { agents[i].contextTokens = ctx }
+            onChange?()
+        }
+        if let estimate { agents[i].estimate = estimate }
         // Requests for the mouse that Poinky answers itself (you already said yes) aren't shown as questions.
         let handled = Set(events.compactMap { e -> String? in
             if case .asking(let a) = e, a.isHands, handsAllowed.contains(id) { return a.requestID }
@@ -688,7 +766,7 @@ final class AgentManager {
                 onAsksChanged?(agents[i])
             case .turnEnded(let ok, let summary, _, let cost):
                 agents[i].turns += 1
-                if let cost { agents[i].cost = cost }
+                if let cost { agents[i].cost = cost; agents[i].estimateAtCost = agents[i].estimate ?? 0 }
                 // Paused: the interrupted turn ended; it waits for what you say next.
                 if agents[i].paused { onEvent?(agents[i], e); continue }
                 lastTurn[id] = (ok, summary)
@@ -743,10 +821,11 @@ final class AgentManager {
         agents[i].finished = Date()
         var s = (turn?.summary ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         if s.isEmpty { s = agents[i].latest.isEmpty ? "It stopped without saying why." : "It stopped while: \(agents[i].latest)" }
+        // Short enough to be read aloud: its start (what it did; the card shows its first sentence). Its window keeps all of it.
+        var spoken = HelperStream.spokenSummary(s)
         // Its own copy of the repo: its changes come back into your folder (or onto a branch).
-        if let w = worktrees.removeValue(forKey: id), let note = finishWorktree(i, w, ok: ok) { s += " " + note }
-        // Keep the summary short enough to be read aloud.
-        agents[i].summary = s.count > 900 ? "…" + s.suffix(900) : s
+        if let w = worktrees.removeValue(forKey: id), let note = finishWorktree(i, w, ok: ok) { s += " " + note; spoken += " " + note }
+        agents[i].summary = spoken
         appendLog(agents[i], "\n## Result (\(agents[i].status.rawValue))\n\n\(agents[i].summary)\n")
         record(id, HelperEntry(k: "end", text: s, kind: ok ? "done" : "failed", cost: agents[i].cost,
                                seconds: agents[i].finished!.timeIntervalSince(agents[i].started)))
@@ -809,6 +888,7 @@ final class AgentManager {
         case .kept(let branch, let files):
             let why = ok ? "they overlap with other changes in \(w.top.lastPathComponent)" : "it didn't finish"
             record(a.id, HelperEntry(k: "info", text: "Its changes to \(HelperUndo.names(files)) are on the git branch \(branch), because \(why)."))
+            record(a.id, HelperEntry(k: "branch", text: w.top.path, id: branch))   // its window's diff shows that branch
             appendLog(a, "- Kept its changes on the branch \(branch) (\(why)).\n")
             return ok ? "Its changes overlap with other changes in the folder, so they're on the git branch \(branch)." : nil
         case .failed(let why):
@@ -823,6 +903,7 @@ final class AgentManager {
             let next = waiting.removeFirst()
             guard let i = agents.firstIndex(where: { $0.id == next.id }), agents[i].status == .queued else { continue }
             agents[i].status = .running
+            agents[i].started = Date()
             if let exe = Self.executable(config: next.config), launch(id: next.id, req: next.req, config: next.config, exe: exe) {
                 onChange?()
                 onStarted?(agents[i])
@@ -841,9 +922,17 @@ final class AgentManager {
     /// Names in use by helpers that aren't agents (a video being made).
     var reservedNames: Set<String> = []
 
-    private func freeName() -> String {
-        let taken = Set(agents.filter { $0.status == .running || $0.status == .queued }.map(\.name)).union(reservedNames)
-        if let n = Self.names.first(where: { !taken.contains($0) }) { return n }
+    private func freeName(also: Set<String> = []) -> String {
+        Self.pickName(used: agents.map { ($0.name, $0.status == .running || $0.status == .queued) }, reserved: reservedNames.union(also))
+    }
+
+    /// A name for a new helper that nobody in this run has had, so the Helpers window never lists two
+    /// "Mint"s: Mint, Coral… then "Mint 2", "Coral 2"… (same colors). `used`: this run's helpers.
+    /// `requested`: the name of the earlier helper it continues, if that's free.
+    static func pickName(used: [(name: String, active: Bool)], reserved: Set<String> = [], requested: String? = nil) -> String {
+        let taken = Set(used.map(\.name)).union(reserved)
+        if let r = requested, !r.isEmpty, !taken.contains(r) { return r }
+        if let n = names.first(where: { !taken.contains($0) }) { return n }
         var k = 2
         while true {
             for n in Self.names where !taken.contains("\(n) \(k)") { return "\(n) \(k)" }
@@ -872,6 +961,9 @@ final class AgentManager {
         h.write(Data(text.utf8))
         try? h.close()
     }
+
+    /// Helpers run in a process group of their own (`POINKY_HELPER_GROUPS=0`: directly, as before).
+    static let groupHelpers = ProcessInfo.processInfo.environment["POINKY_HELPER_GROUPS"] != "0"
 
     static func executable(config: AppConfig) -> String? {
         if let fake = ProcessInfo.processInfo.environment["POINKY_HELPER_CMD"], !fake.isEmpty,

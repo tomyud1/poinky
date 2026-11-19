@@ -1,0 +1,135 @@
+<!doctype html><html><head><meta charset="utf-8">
+<!-- Category data on the paper (web/lesson.js): a graph with "categories" names each slot under the axis (no
+     numbers), plot/point/bars address categories by order or by name, long names shrink or tilt and stay on the
+     paper, bars stand on the axis with their values above. The case that started it: "compute by lab, as a line". -->
+<style>html,body{margin:0;height:100%;background:#fff}iframe{position:absolute;inset:0;width:1400px;height:900px;border:0}</style>
+</head><body>
+<iframe id="ov" src="../../web/overlay.html"></iframe>
+<script>
+(async () => {
+  const results = [], fail = [];
+  const check = (ok, what) => { results.push((ok ? 'ok   ' : 'FAIL ') + what); if (!ok) fail.push(what); };
+  const wait = ms => new Promise(r => setTimeout(r, ms));
+  try {
+    const W = document.getElementById('ov').contentWindow;
+    for (let i = 0; i < 100 && !(W.SB && W.SB.lessonBegin); i++) await wait(50);
+    const SB = W.SB, T = SB._lessonTest;
+    const done = async () => { for (let i = 0; i < 600 && SB.lessonBusy(); i++) await wait(50); await wait(400); };
+    const item = id => T.items[id];
+    const hit = (a, b) => a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+    const labs = ['Google', 'Meta', 'OpenAI', 'Anthropic', 'xAI', 'Mistral'], gw = [5, 2.6, 1.9, 1.4, 1.0, 0.044];
+
+    SB.lessonBegin({ x: 700, y: 60, w: 640, h: 800, look: 'chalk' }, 'compute by lab');
+    SB.lessonStep({ ops: [
+      { op: 'text', id: 'h', x: 40, y: 60, text: 'AI compute by lab (GW)', size: 34, bold: true },
+      { op: 'graph', id: 'g', x: 90, y: 110, w: 620, h: 300, categories: labs, yrange: [0, 6], ylabel: 'GW' },
+      { op: 'plot', id: 'p', graph: 'g', values: gw, color: 'blue' },
+      { op: 'point', id: 'pm', graph: 'g', at: ['Meta', 2.6], label: '2.6 GW', color: 'purple' },
+      { op: 'point', id: 'pa', graph: 'g', at: ['anthropic', 1.4], label: '1.4', color: 'orange' },
+    ] }, 1);
+    await done();
+    const gr = T.graphs.g;
+    const names = [...item('g').querySelectorAll('g.cats text')];
+    check(names.map(n => n.textContent).join(',') === labs.join(','), `every category is named under the axis, in order (${names.map(n => n.textContent).join(', ')})`);
+    const centers = names.map(n => { const b = n.getBBox(); return b.x + b.width / 2; });
+    const off = centers.map((c, i) => Math.abs(c - gr.X(i)));
+    check(Math.max(...off) < 3, `each name is centered under its own tick (off by at most ${Math.max(...off).toFixed(1)})`);
+    const nb = names.map(n => n.getBBox());
+    check(nb.every((b, i) => i === 0 || b.x > nb[i - 1].x + nb[i - 1].width + 2), 'neighbouring names never touch ("Anthropic" and "OpenAI")');
+    check(nb.every(b => b.y > gr.y + gr.h), 'the names are below the axis');
+    const nums = [...item('g').querySelectorAll(':scope > g:not(.cats) text')].filter(t => t.getAttribute('text-anchor') === 'middle');
+    check(nums.length === 0, `no number ticks along a category axis (${nums.map(t => t.textContent).join(' ')})`);
+    const yt = [...item('g').querySelectorAll(':scope > g:not(.cats) text')].map(t => t.textContent);
+    check(yt.includes('6') && yt.includes('3'), `the value axis keeps its numbers (${yt.join(' ')})`);
+    // The line's corners are at the categories' ticks, at their values.
+    const d = item('p').querySelector('path').getAttribute('d'), vs = [...d.matchAll(/[ML]([\d.]+),([\d.]+)/g)].map(m => [+m[1], +m[2]]);
+    check(vs.length === 6 && vs.every(([x, y], i) => Math.abs(x - gr.X(i)) < .6 && Math.abs(y - gr.Y(gw[i])) < .6), 'the line goes through each category at its value');
+    // The y axis is at the left edge, not at the first category.
+    check(Math.abs(item('g').querySelectorAll('path')[1].getBBox().x + 5 - gr.x) < 3, 'the value axis is on the left edge');
+    const pm = item('pm').querySelector('path').getBBox(), pa = item('pa').querySelector('path').getBBox();
+    check(Math.abs(pm.x + pm.width / 2 - gr.X(1)) < 2 && Math.abs(pm.y + pm.height / 2 - gr.Y(2.6)) < 2, 'a point can name its category ("Meta")');
+    check(Math.abs(pa.x + pa.width / 2 - gr.X(3)) < 2, 'names match without caring about capitals ("anthropic")');
+    const pml = item('pm').querySelector('text').getBBox(), line = item('p').querySelector('path'), LL = line.getTotalLength();
+    let under = 0;
+    for (let k = 0; k <= 120; k++) { const q = line.getPointAtLength(LL * k / 120); if (q.x > pml.x && q.x < pml.x + pml.width && q.y > pml.y + 3 && q.y < pml.y + pml.height - 3) under++; }
+    check(under === 0, `a point's label stays off the line between data points (${under} line points under it)`);
+    const fill = names[0].getAttribute('fill');
+    check(/^#e|^#f/i.test(fill), `on the chalkboard the names are chalk-white (${fill})`);
+
+    // Bars: six countries, values above, on a light paper.
+    SB.lessonBegin({ x: 700, y: 60, w: 640, h: 800 }, 'population');
+    const pop = [1430, 1410, 340, 278, 240, 224];
+    SB.lessonStep({ ops: [
+      { op: 'graph', id: 'gb', x: 90, y: 60, w: 620, h: 280, categories: ['India', 'China', 'USA', 'Indonesia', 'Pakistan', 'Nigeria'], yrange: [0, 1600], ylabel: 'millions' },
+      { op: 'bars', id: 'b', graph: 'gb', values: pop, color: 'orange', labels: true },
+    ] }, 1);
+    await done();
+    const gb = T.graphs.gb, rects = [...item('b').querySelectorAll('rect')];
+    check(rects.length === 6, `one bar per value (${rects.length})`);
+    const okBars = rects.every((r, i) => { const b = r.getBBox(); return Math.abs(b.x + b.width / 2 - gb.X(i)) < 1 && Math.abs(b.y - gb.Y(pop[i])) < 1 && Math.abs(b.y + b.height - gb.Y(0)) < 1; });
+    check(okBars, 'each bar is centered on its category and goes from the axis up to its value');
+    const vals = [...item('b').querySelectorAll('text')];
+    check(vals.length === 6 && vals.every((t, i) => t.textContent === String(pop[i]) && t.getBBox().y + t.getBBox().height <= rects[i].getBBox().y + 4), `each value is written above its bar (${vals.map(t => t.textContent).join(' ')})`);
+    check(rects.every((r, i) => i === 0 || r.getBBox().x > rects[i - 1].getBBox().x + rects[i - 1].getBBox().width + 4), 'bars have gaps between them');
+    const yticks = [...item('gb').querySelectorAll(':scope > g:not(.cats) text')].map(t => t.textContent);
+    check(yticks.length >= 4 && yticks.length <= 10, `the value axis gets a sensible number of ticks (${yticks.join(' ')})`);
+
+    // Many long names: they tilt, stay on the paper, don't overlap, and the graph makes room for them below.
+    SB.lessonBegin({ x: 700, y: 60, w: 640, h: 800 }, 'long names');
+    const states = ['California', 'Texas', 'Florida', 'New York', 'Pennsylvania', 'Illinois', 'Ohio', 'Georgia', 'North Carolina', 'Michigan'];
+    SB.lessonStep({ ops: [
+      { op: 'graph', id: 'gl', x: 60, y: 60, w: 680, h: 240, categories: states, yrange: [0, 40] },
+      { op: 'bars', id: 'bl', graph: 'gl', points: [['California', 39], ['Texas', 30], ['Florida', 22], ['New York', 20]], color: 'teal', labels: ['39M', '30M', '22M', '20M'] },
+      { op: 'text', id: 'after', x: 40, y: 330, text: 'written right under the graph', size: 24 },
+    ] }, 1);
+    await done();
+    const ln = [...item('gl').querySelectorAll('g.cats text')];
+    check(ln.every(t => /rotate/.test(t.getAttribute('transform') || '')), 'names too long for their slots are tilted');
+    const lr = ln.map(t => t.getBoundingClientRect()), card = W.document.querySelector('.card.lpaper:not(.leaving)').getBoundingClientRect();
+    check(lr.every(r => r.left >= card.left && r.right <= card.right), 'tilted names stay on the paper');
+    const after = item('after').getBBox(), lowest = Math.max(...ln.map(t => { const r = t.getBoundingClientRect(); return r.bottom; }));
+    const afterTop = item('after').querySelector('text').getBoundingClientRect().top;
+    check(afterTop > lowest, `text written under the graph moves below the tilted names (${Math.round(afterTop)} vs ${Math.round(lowest)})`);
+    const blr = [...item('bl').querySelectorAll('rect')].map(r => r.getBBox());
+    check(blr.length === 4 && Math.abs(blr[3].x + blr[3].width / 2 - T.graphs.gl.X(3)) < 1, 'bars given as [name, value] points land on their categories');
+
+    // Bars built up a few at a time with zeros as placeholders ([0, 0, 0, 42, 0] recolors Q4): zeros draw nothing.
+    SB.lessonBegin({ x: 700, y: 60, w: 640, h: 800 }, 'scores');
+    SB.lessonStep({ ops: [
+      { op: 'graph', id: 'gq', x: 90, y: 60, w: 620, h: 300, categories: ['Q1', 'Q2', 'Q3', 'Q4', 'Q5'], yrange: [0, 100] },
+      { op: 'bars', id: 'bq', graph: 'gq', values: [88, 76, 81, 42, 70], color: 'blue', labels: true },
+      { op: 'bars', id: 'bq4', graph: 'gq', values: [0, 0, 0, 42, 0], color: 'red' },
+      { op: 'mark', id: 'mq', target: 'bq4', style: 'circle' },
+      { op: 'text', id: 'note', x: 120, y: 90, text: 'easiest', size: 22, color: 'green' },
+    ] }, 1);
+    await done();
+    const q4 = [...item('bq4').querySelectorAll('rect')];
+    check(q4.length === 1 && Math.abs(q4[0].getBBox().x + q4[0].getBBox().width / 2 - T.graphs.gq.X(3)) < 1, `zeros next to real values are placeholders: only Q4 is redrawn (${q4.length} bars)`);
+    const mq = item('mq').querySelector('path').getBBox();
+    check(mq.width < 200, `so a mark on it circles just that bar (${Math.round(mq.width)} wide)`);
+    const nt = item('note').getBBox();
+    check(nt.y < T.graphs.gq.y + T.graphs.gq.h, `a note written inside the graph stays where it was put (y ${Math.round(nt.y)})`);
+
+    // Bars the teacher draws by hand as boxes inside a numeric graph (a real reply) stay where they were put.
+    SB.lessonBegin({ x: 700, y: 60, w: 640, h: 800 }, 'hand bars');
+    SB.lessonStep({ ops: [
+      { op: 'text', id: 'hh', x: 40, y: 60, text: 'Groceries vs eating out', size: 34, bold: true },
+      { op: 'graph', id: 'gh', x: 90, y: 130, w: 620, h: 380, xrange: [0, 4], yrange: [0, 700], ylabel: 'spent' },
+      { op: 'text', id: 'k1', x: 120, y: 110, text: 'Groceries', size: 22, color: 'green' },
+      { op: 'box', id: 'hb1', x: 150, y: 272, w: 60, h: 238, color: 'green', text: '520', size: 20 },
+      { op: 'box', id: 'hb2', x: 215, y: 404, w: 60, h: 106, color: 'orange', text: '230', size: 20 },
+    ] }, 1);
+    await done();
+    const hb1 = item('hb1').querySelector('rect').getBBox(), hb2 = item('hb2').querySelector('rect').getBBox();
+    check(Math.abs(hb1.y - 272) < 1 && Math.abs(hb2.y - 404) < 1, `boxes drawn as bars inside a graph stay on it (tops ${Math.round(hb1.y)}, ${Math.round(hb2.y)})`);
+
+    // An x label on a plain graph that wouldn't fit at the end of the axis goes under it instead.
+    SB.lessonStep({ ops: [{ op: 'graph', id: 'gx', x: 80, y: 500, w: 640, h: 160, xrange: [0, 10], yrange: [0, 5], xlabel: 'time in seconds' }] }, 1);
+    await done();
+    const xl = [...item('gx').querySelectorAll('text')].pop().getBBox();
+    check(xl.x + xl.width <= 800 && xl.y > T.graphs.gx.y + T.graphs.gx.h, `a long x label goes under the axis instead of off the paper (${Math.round(xl.x)}–${Math.round(xl.x + xl.width)})`);
+  } catch (e) { check(false, 'threw: ' + e.message + ' ' + (e.stack || '').split('\n')[1]); }
+  window.testResults = { pass: !fail.length, lines: results };
+})();
+</script>
+</body></html>

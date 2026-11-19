@@ -1,0 +1,173 @@
+[
+ {
+  "id": "homework-check",
+  "who": "student",
+  "said": "is this right",
+  "checks": [
+   [
+    "says it's not right, or hands the check to the teacher",
+    true
+   ],
+   [
+    "never calls the wrong answer right",
+    true
+   ],
+   [
+    "the teacher checks it (the app starts it), or the talker names the factoring slip",
+    true
+   ],
+   [
+    "no agent",
+    true
+   ]
+  ],
+  "generic": [
+   [
+    "has <say>",
+    true
+   ],
+   [
+    "spoken style (no markdown/URL/emoji)",
+    true
+   ],
+   [
+    "<draw> is valid JSON",
+    true
+   ],
+   [
+    "math said for the ear (no ² = ( ) symbols)",
+    true
+   ],
+   [
+    "nothing outside the tags",
+    true
+   ]
+  ],
+  "passed": true,
+  "say": "Sure, let me sketch it out.",
+  "tags": [
+   "draw",
+   "say"
+  ],
+  "raw": "<say>Sure, let me sketch it out.</say>\n<draw>{\"items\":[{\"type\":\"underline\",\"id\":\"step3\",\"x\":144,\"y\":243,\"w\":442,\"h\":16,\"find\":\"x = 2, x = 3\",\"label\":\"check this\"}]}</draw>",
+  "first_token": 0.8356420993804932,
+  "first_sentence": 0.9756228923797607,
+  "total": 1.2861182689666748,
+  "input_tokens": 13876,
+  "run": 0
+ },
+ {
+  "id": "homework-check",
+  "who": "student",
+  "said": "is this right",
+  "checks": [
+   [
+    "says it's not right, or hands the check to the teacher",
+    true
+   ],
+   [
+    "never calls the wrong answer right",
+    true
+   ],
+   [
+    "the teacher checks it (the app starts it), or the talker names the factoring slip",
+    true
+   ],
+   [
+    "no agent",
+    true
+   ]
+  ],
+  "generic": [
+   [
+    "has <say>",
+    true
+   ],
+   [
+    "spoken style (no markdown/URL/emoji)",
+    true
+   ],
+   [
+    "<draw> is valid JSON",
+    true
+   ],
+   [
+    "math said for the ear (no ² = ( ) symbols)",
+    true
+   ],
+   [
+    "nothing outside the tags",
+    true
+   ]
+  ],
+  "passed": true,
+  "say": "Sure, let me sketch it.",
+  "tags": [
+   "draw",
+   "say"
+  ],
+  "raw": "<say>Sure, let me sketch it.</say>\n<draw>{\"items\":[{\"type\":\"underline\",\"id\":\"ans3\",\"x\":144,\"y\":236,\"w\":442,\"h\":14,\"find\":\"x = 2, x = 3\",\"label\":\"check the roots\"}]}</draw>",
+  "first_token": 0.758234977722168,
+  "first_sentence": 0.7583510875701904,
+  "total": 1.193230152130127,
+  "input_tokens": 13874,
+  "run": 1
+ },
+ {
+  "id": "homework-check",
+  "who": "student",
+  "said": "is this right",
+  "checks": [
+   [
+    "says it's not right, or hands the check to the teacher",
+    true
+   ],
+   [
+    "never calls the wrong answer right",
+    true
+   ],
+   [
+    "the teacher checks it (the app starts it), or the talker names the factoring slip",
+    true
+   ],
+   [
+    "no agent",
+    true
+   ]
+  ],
+  "generic": [
+   [
+    "has <say>",
+    true
+   ],
+   [
+    "spoken style (no markdown/URL/emoji)",
+    true
+   ],
+   [
+    "<draw> is valid JSON",
+    true
+   ],
+   [
+    "math said for the ear (no ² = ( ) symbols)",
+    true
+   ],
+   [
+    "nothing outside the tags",
+    true
+   ]
+  ],
+  "passed": true,
+  "say": "Sure, let me sketch it out.",
+  "tags": [
+   "draw",
+   "say"
+  ],
+  "raw": "<say>Sure, let me sketch it out.</say>\n<draw>{\"items\":[{\"type\":\"underline\",\"id\":\"hw3\",\"x\":144,\"y\":243,\"w\":442,\"find\":\"x = 2, x = 3\",\"label\":\"check this\"}]}</draw>",
+  "first_token": 0.8709073066711426,
+  "first_sentence": 1.02335524559021,
+  "total": 1.273712158203125,
+  "input_tokens": 13878,
+  "run": 2
+ }
+]

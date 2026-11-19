@@ -9,7 +9,12 @@ const here = dirname(fileURLToPath(import.meta.url));
 const chromePath = process.env.CHROME || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const prof = mkdtempSync(join(tmpdir(), 'poinky-webtest-'));
 const port = 9400 + Math.floor(Math.random() * 400);
-const chrome = spawn(chromePath, ['--headless=new', `--remote-debugging-port=${port}`, `--user-data-dir=${prof}`, '--allow-file-access-from-files', 'about:blank'], { stdio: 'ignore' });
+// No throttling: on GitHub's virtual Macs headless Chrome otherwise draws a few frames a second, and the
+// motion tests (frames counted, cameras arriving) measured the runner instead of the page.
+const noThrottle = ['--disable-background-timer-throttling', '--disable-renderer-backgrounding',
+  '--disable-backgrounding-occluded-windows', '--disable-features=CalculateNativeWinOcclusion'];
+const chrome = spawn(chromePath, ['--headless=new', `--remote-debugging-port=${port}`, `--user-data-dir=${prof}`, '--allow-file-access-from-files',
+  ...noThrottle, 'about:blank'], { stdio: 'ignore' });
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 let ws, opened;
 for (let i = 0; i < 60 && !ws; i++) {
@@ -23,16 +28,32 @@ for (let i = 0; i < 60 && !ws; i++) {
 if (!ws) { console.log('Chrome did not start'); chrome.kill(); process.exit(2); }
 await opened;
 let id = 0; const pending = new Map();
-ws.onmessage = e => { const m = JSON.parse(e.data); if (m.id && pending.has(m.id)) { pending.get(m.id)(m.result); pending.delete(m.id); } };
+// The page's uncaught errors, printed when it doesn't finish (so a bug isn't mistaken for slowness).
+let pageErrors = [];
+ws.onmessage = e => {
+  const m = JSON.parse(e.data);
+  if (m.method === 'Runtime.exceptionThrown') pageErrors.push(m.params.exceptionDetails?.exception?.description || m.params.exceptionDetails?.text || 'error');
+  if (m.id && pending.has(m.id)) { pending.get(m.id)(m.result); pending.delete(m.id); }
+};
 const send = (method, params = {}) => new Promise(r => { const i = ++id; pending.set(i, r); ws.send(JSON.stringify({ id: i, method, params })); });
 await send('Page.enable');
+await send('Runtime.enable');
 let failed = false;
-for (const f of readdirSync(here).filter(f => f.endsWith('.html')).sort()) {
+for (const f of readdirSync(here).filter(f => f.endsWith('.html') && (!process.argv[2] || f.includes(process.argv[2]))).sort()) {
+  pageErrors = [];
   await send('Page.navigate', { url: 'file://' + join(here, f) });
   let r = null;
-  for (let i = 0; i < 80 && !r; i++) { await sleep(250); r = (await send('Runtime.evaluate', { expression: 'window.testResults', returnByValue: true })).result?.value; }
+  // Up to 60 s a page: CI machines have no GPU, so WebGL and animations run several times slower.
+  for (let i = 0; i < 240 && !r; i++) { await sleep(250); r = (await send('Runtime.evaluate', { expression: 'window.testResults', returnByValue: true })).result?.value; }
   console.log(f);
-  if (!r) { console.log('  FAIL did not finish'); failed = true; continue; }
+  if (!r) {
+    console.log('  FAIL did not finish');
+    // What it got through, when the page keeps its lines in `window.testLines` as it goes.
+    const part = (await send('Runtime.evaluate', { expression: 'window.testLines', returnByValue: true })).result?.value;
+    for (const l of Array.isArray(part) ? part : []) console.log('  ' + l);
+    for (const e of pageErrors.slice(0, 5)) console.log('    ' + String(e).split('\n')[0]);
+    failed = true; continue;
+  }
   for (const l of r.lines) console.log('  ' + l);
   if (!r.pass) failed = true;
 }

@@ -1,0 +1,76 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>running</title>
+<!-- Edge cases in a helper's life on screen: answered (or the question withdrawn) while it flies to you,
+     stopped in the middle of its hand-off. Nothing may get stuck, and the main buddy must not keep facing
+     a helper that's gone. Run by tools/tests/run-web-tests.mjs. -->
+<body style="margin:0;width:1400px;height:900px;position:relative">
+<script src="../../web/helpers.js"></script>
+<script>
+(function () {
+  const results = [], fail = [];
+  const check = (ok, what) => { results.push((ok ? 'ok   ' : 'FAIL ') + what); if (!ok) fail.push(what); };
+  const root = document.createElement('div'); root.style.cssText = 'position:absolute;inset:0'; document.body.appendChild(root);
+  const main = { x: 620, y: 520 }, events = [];
+  let look = null;   // what buddy.js would be facing (its buddyReact)
+  const react = (k, d) => {
+    events.push([k, d && d.id]);
+    if (k === 'handoff' || k === 'report') look = d && d.id; else if (k === 'handoffEnd' || k === 'absorb') look = null;
+  };
+  const layer = new HelperLayer(root, { main: { pos: () => main, react }, sound: () => {}, params: { dock: 'right', hold: true } });
+  // Like buddy.js: it stops facing a helper whose position is gone.
+  const run = secs => { for (let t = 0; t < secs; t += 1 / 60) { layer.update(1 / 60); layer.render(); if (look && !layer.pos(look)) look = null; } };
+  const phase = id => { const h = layer.helpers.get(id); return h ? h.phase + (h.phase === 'fly' ? '>' + h.fly.kind : '') : 'gone'; };
+
+  // 1. Answered while it flies to you (from its window, a notification or the phone): it turns back to work.
+  layer.spawn('a', { name: 'Mint', color: '#34c98e', task: 'Fix it' });
+  layer.spawn('b', { name: 'Coral', color: '#ff7a59', task: 'Docs' });
+  run(9);
+  layer.raiseHand('a', 'Can I run npm install?');
+  run(.2);
+  const flying = phase('a');
+  layer.resolveHand('a', true);
+  run(4);
+  check(flying === 'fly>out' && phase('a') === 'dock', `answered on its way to you: back at work (${flying} → ${phase('a')})`);
+  check(!events.some(e => e[0] === 'ask' && e[1] === 'a'), 'and it never asks the app a question that was already answered');
+  layer.raiseHand('b', 'Can I run npm test?');
+  run(3);
+  check(phase('b') === 'asking', `the next helper's question isn't blocked by it (${phase('b')})`);
+  layer.resolveHand('b', true); run(3);
+
+  // 2. Withdrawn while it flies (Claude Code cancelled the request): same.
+  layer.raiseHand('a', 'Can I open example.com?');
+  run(.2);
+  layer.resolveHand('a', false);
+  run(4);
+  check(phase('a') === 'dock', `a question withdrawn on its way: back at work (${phase('a')})`);
+
+  // 3. Stopped in the middle of its hand-off: the buddy stops facing it.
+  layer.spawn('c', { name: 'Violet', color: '#9b6bff', task: 'Tests' });
+  run(1.2);
+  const during = phase('c'), lookDuring = look;
+  layer.stop('c');
+  run(1);
+  check(during === 'handoff' && lookDuring === 'c' && look === null, `stopped during its hand-off: the buddy looks away (${during}, facing ${lookDuring} → ${look})`);
+  // And the next one still buds.
+  layer.spawn('d', { name: 'Amber', color: '#ffb020', task: 'More' });
+  run(1.5);
+  check(phase('d') === 'handoff', `the next hand-off still happens (${phase('d')})`);
+  run(4);
+
+  // 4. Finished during its hand-off, then reported and released: it gets there and merges.
+  layer.spawn('e', { name: 'Rose', color: '#ff5c9a', task: 'Quick' });
+  run(1);
+  layer.done('e', { ok: true, summary: 'Done quickly.' });
+  run(6);
+  const ready = phase('e');
+  layer.report('e'); run(3); layer.release('e'); run(3);
+  check(ready === 'ready' && phase('e') === 'gone', `finished mid hand-off: waits at the edge, then reports and merges (${ready} → ${phase('e')})`);
+
+  root.remove();
+  document.body.textContent = results.join('\n');
+  document.title = fail.length ? 'FAIL' : 'PASS';
+  window.testResults = { pass: !fail.length, lines: results };
+})();
+</script>
+</body>

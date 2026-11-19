@@ -1,0 +1,97 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>running</title>
+<!-- "I live here" (first run): the buddy flies from the cursor up to the notch, faces it, shows its caption, then
+     tucks in; with Reduced Motion it fades across instead of flying (the same page in a frame with ?calm=1).
+     Run by tools/tests/run-web-tests.mjs. -->
+<body style="margin:0">
+<div id="hud"></div>
+<script>
+  // Both runs set Reduced Motion themselves: GitHub's macOS runners report it as on.
+  {
+    const mm = window.matchMedia.bind(window), calm = location.search.includes('calm');
+    window.matchMedia = q => q.includes('reduced-motion') ? { matches: calm } : mm(q);
+  }
+  window.SB = { caption() {}, fadeCaptions() {}, apply() {} };
+</script>
+<script src="../../web/buddy.js"></script>
+<script>
+(async function () {
+  const calm = location.search.includes('calm');
+  const results = [], fail = [];
+  const check = (ok, what, got) => { results.push((ok ? 'ok   ' : 'FAIL ') + what + (ok || got === undefined ? '' : ` (got ${JSON.stringify(got)})`)); if (!ok) fail.push(what); };
+  const wait = ms => new Promise(r => setTimeout(r, ms));
+  const rot = t => +((/rotate\((-?[\d.]+)deg\)/.exec(t) || [])[1] || 0);
+  const tag = calm ? '[reduced motion] ' : '';
+
+  SB.tick(500, 400, 0);
+  SB.phase('ready');
+  await wait(400);
+  let s = SB.homeState();
+  check(s.visible && Math.abs(s.x - 520) < 3 && Math.abs(s.y - 423) < 3, tag + 'it starts next to the cursor', s);
+
+  const target = { x: Math.round(innerWidth / 2), y: 46 };
+  SB.homeGo(target.x, target.y, target.x, 0);
+  // Halfway: flying (moving up) or, with Reduced Motion, faded out — never a jump you can see.
+  // Wait for the first change (frames come slower on CI runners than on a Mac), then judge that moment.
+  for (let t = 0; t < 2000; t += 16) {
+    await wait(16);
+    s = SB.homeState();
+    if (calm ? !s.visible : s.y < 423 - 5) break;
+  }
+  if (calm) check(!s.visible && s.blink, tag + 'it fades out instead of flying', s);
+  else check(s.visible && s.y < 423 - 5 && s.y > target.y + 20, tag + 'it is on its way up', s);
+
+  // The flight path never leaves the screen.
+  let minY = Infinity, maxY = -Infinity;
+  for (let i = 0; i < 30; i++) { await wait(40); const q = SB.homeState(); minY = Math.min(minY, q.y); maxY = Math.max(maxY, q.y); }
+  check(minY >= 8, tag + 'it stays on screen while it flies', minY);
+  await wait(600);
+  s = SB.homeState();
+  check(s.visible && Math.hypot(s.x - target.x, s.y - target.y) < 3, tag + 'it arrives under the notch', s);
+  // Its tip points up at the notch: the arrow normally points up-left (-135°), so it turns about +45°.
+  if (!calm) check(Math.abs(rot(s.transform) - 45) < 8, tag + 'it turns to face the notch', rot(s.transform));
+
+  // The cursor moving doesn't pull it away while it's home.
+  SB.tick(150, 300, 0);
+  await wait(400);
+  s = SB.homeState();
+  check(Math.hypot(s.x - target.x, s.y - target.y) < 3, tag + 'it stays home when the mouse moves', s);
+
+  SB.caption('claude', "I'll be up here.");
+  await wait(100);
+  s = SB.homeState();
+  check(s.bubble.startsWith("I'll be up here"), tag + 'its caption shows beside it', s.bubble);
+  const b = document.getElementById('bubble').getBoundingClientRect();
+  check(b.top > target.y && b.right < innerWidth && b.left > 0, tag + 'the caption sits below the notch, on screen', { top: b.top, left: b.left, right: b.right });
+
+  SB.homeEnd();
+  await wait(700);
+  s = SB.homeState();
+  check(s.tucked && !s.visible && !s.bubble, tag + 'it tucks into the notch and its caption goes', s);
+
+  SB.phase('off');
+  SB.tick(500, 400, 0);
+  SB.phase('ready');
+  await wait(450);
+  s = SB.homeState();
+  check(s.visible && !s.home && Math.abs(s.x - 520) < 3, tag + 'the next session starts at the cursor again', s);
+
+  // Reduced Motion: the same checks in a frame.
+  if (!calm) {
+    const f = document.createElement('iframe');
+    f.style.cssText = 'position:absolute;left:0;top:0;width:100%;height:100%;border:0;opacity:0';
+    f.src = location.pathname + '?calm=1';
+    document.body.appendChild(f);
+    for (let i = 0; i < 100 && !(f.contentWindow && f.contentWindow.testResults); i++) await wait(100);
+    const r = f.contentWindow && f.contentWindow.testResults;
+    if (!r) check(false, '[reduced motion] page finished');
+    else for (const l of r.lines) { results.push(l); if (l.startsWith('FAIL')) fail.push(l); }
+  }
+
+  document.title = fail.length ? 'FAIL' : 'PASS';
+  window.testResults = { pass: !fail.length, lines: results };
+  if (!calm) document.body.insertAdjacentText('beforeend', results.join('\n'));
+})();
+</script>
+</body>

@@ -1,0 +1,37 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>running</title>
+<!-- The "Poinky looked" cue (buddy.js SB.glance): a glint at the buddy, or an edge glow while it's hidden; both go away. Run by tools/tests/run-web-tests.mjs. -->
+<body style="margin:0;width:800px;height:600px">
+<div id="hud"></div>
+<script>window.SB = { caption() {}, fadeCaptions() {}, apply() {} };</script>
+<script src="../../web/buddy.js"></script>
+<script>
+(async function () {
+  const results = [], fail = [];
+  const check = (ok, what) => { results.push((ok ? 'ok   ' : 'FAIL ') + what); if (!ok) fail.push(what); };
+  const wait = ms => new Promise(r => setTimeout(r, ms));
+  SB.phase('thinking'); SB.tick(300, 200, 0);
+  await wait(400);
+  SB.glance();
+  const g = document.querySelector('.sb-glance');
+  check(!!g && !document.querySelector('.sb-edge'), 'a glint at the buddy while it shows');
+  if (g) {
+    const x = parseFloat(g.style.left), y = parseFloat(g.style.top);
+    check(Math.hypot(x - 328, y - 231) < 30, `the glint sits on the buddy (${x | 0}, ${y | 0})`);
+    check(getComputedStyle(g).pointerEvents === 'none', 'clicks pass through it');
+  }
+  await wait(900);
+  check(!document.querySelector('.sb-glance'), 'the glint is gone after a moment');
+  SB.buddyOn(false);
+  await wait(400);
+  SB.glance();
+  check(!!document.querySelector('.sb-edge') && !document.querySelector('.sb-glance'), 'an edge glow while the buddy is hidden');
+  await wait(900);
+  check(!document.querySelector('.sb-edge'), 'the edge glow is gone after a moment');
+  document.body.textContent = results.join('\n');
+  document.title = fail.length ? 'FAIL' : 'PASS';
+  window.testResults = { pass: !fail.length, lines: results };
+})();
+</script>
+</body>

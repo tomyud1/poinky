@@ -1,0 +1,34 @@
+<!doctype html><html><head><meta charset="utf-8">
+<!-- Dense text for marks (tools/test-screen.sh): a paragraph whose middle sentence runs over three lines, a word in a
+     tightly spaced list, and labels on a diagram right next to its lines. Nothing a mark draws may touch the
+     text around its target. -->
+<style>
+  body{margin:0;background:#fff;font:15px/1.28 -apple-system,Helvetica,Arial,sans-serif;color:#1d1d1f}
+  .col{position:absolute;left:120px;top:90px;width:520px}
+  h2{font-size:19px;margin:0 0 8px}
+  p{margin:0 0 14px}
+  ul{margin:0;padding-left:20px;line-height:1.18}
+  .fig{position:absolute;left:760px;top:110px}
+  .fig text{font:16px -apple-system,Helvetica,Arial,sans-serif;fill:#1d1d1f}
+</style></head><body>
+<div class="col">
+  <h2>Cell biology: reading notes</h2>
+  <p>Cells are the basic unit of life, and every living thing is made of one or more of them. The cell membrane controls what enters and leaves the cell, letting nutrients in and waste out while keeping harmful substances away from the interior. Inside, the nucleus stores the genetic material and directs the activity of the whole cell.</p>
+  <p>Organelles each have a job:</p>
+  <ul>
+    <li>Ribosomes build proteins from amino acids</li>
+    <li>Mitochondria release energy from glucose</li>
+    <li>Chloroplasts capture light in plant cells</li>
+    <li>Vacuoles store water and dissolved salts</li>
+  </ul>
+</div>
+<svg class="fig" width="420" height="300" viewBox="0 0 420 300">
+  <polygon points="40,250 340,250 340,60" fill="none" stroke="#1d1d1f" stroke-width="2.5"/>
+  <path d="M100,250 A60,60 0 0 0 95,232" fill="none" stroke="#1d1d1f" stroke-width="2"/>
+  <rect x="322" y="232" width="18" height="18" fill="none" stroke="#1d1d1f" stroke-width="1.5"/>
+  <text x="112" y="242">θ</text>
+  <text x="168" y="140" transform="rotate(-32 168 140)">hypotenuse</text>
+  <text x="350" y="160">opposite</text>
+  <text x="165" y="272">adjacent</text>
+</svg>
+</body></html>

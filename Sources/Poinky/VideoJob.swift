@@ -12,8 +12,9 @@ final class VideoJob {
     enum Status: Equatable { case cooking, done, failed(String), cancelled }
 
     /// Where videos are kept (each in its own folder with its transcript), and the pipeline's measurements.
-    static let root = FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent("Library/Application Support/Poinky/videos", isDirectory: true)
+    /// Videos, the forecast's history, the compiled frame checkers and the log: in the support folder
+    /// (`POINKY_SUPPORT_DIR` for tests, like everything else).
+    static var root: URL { AppConfig.dir.appendingPathComponent("videos", isDirectory: true) }
 
     let id: Int            // its helper's id on screen
     let name: String       // its helper's name
@@ -83,6 +84,7 @@ final class VideoJob {
         env["PATH"] = ["\(home)/.local/bin", "/opt/homebrew/bin", "/usr/local/bin", env["PATH"] ?? "/usr/bin:/bin"].joined(separator: ":")
         env["EXPLAINER_HISTORY"] = Self.root.appendingPathComponent("history.json").path
         env["EXPLAINER_BUILD"] = Self.root.appendingPathComponent(".build").path
+        env["POINKY_SUPPORT_DIR"] = AppConfig.dir.path   // its voice and settings (Phonon, config.json)
         env["PYTHONUNBUFFERED"] = "1"
         p.environment = env
         let input = Pipe(), out = Pipe(), err = Pipe()

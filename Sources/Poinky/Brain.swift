@@ -11,20 +11,69 @@ protocol Brain: AnyObject {
     func ask(_ question: BrainQuestion, onText: @escaping (String) -> Void) async throws -> String
     /// Ends the session (called when the call ends).
     func stop()
+    /// Nobody wants the reply being written now (you interrupted or asked something else):
+    /// end it soon so the next question doesn't wait behind it. Keeps the session.
+    func cancelCurrent()
+    /// How many tokens the last answer had to read (the conversation so far), 0 if unknown. The talker is
+    /// swapped for a fresh one when this gets large (`CallController.talkerRotateTokens`).
+    var contextTokens: Int { get }
+}
+
+extension Brain {
+    func cancelCurrent() {}
+    var contextTokens: Int { 0 }
+}
+
+/// Runs `op`, but gives up after `seconds` (for system calls that can hang, like ScreenCaptureKit
+/// when its service crashed). The work itself may keep running; its late result is dropped.
+enum Deadline {
+    struct Expired: LocalizedError {
+        let what: String
+        var errorDescription: String? { "\(what) didn't respond." }
+    }
+
+    private final class Once<T>: @unchecked Sendable {
+        let lock = NSLock()
+        var cont: CheckedContinuation<T, Error>?
+        init(_ c: CheckedContinuation<T, Error>) { cont = c }
+        func finish(_ r: Result<T, Error>) {
+            lock.lock(); let c = cont; cont = nil; lock.unlock()
+            c?.resume(with: r)
+        }
+    }
+
+    static func run<T>(_ seconds: Double, _ what: String, _ op: @escaping () async throws -> T) async throws -> T {
+        try await withCheckedThrowingContinuation { (c: CheckedContinuation<T, Error>) in
+            let once = Once<T>(c)
+            Task { do { once.finish(.success(try await op())) } catch { once.finish(.failure(error)) } }
+            Task {
+                try? await Task.sleep(nanoseconds: UInt64(seconds * 1e9))
+                if once.cont != nil { Timeline.log("timeout", ["what": what, "secs": seconds]) }
+                once.finish(.failure(Expired(what: what)))
+            }
+        }
+    }
 }
 
 struct BrainQuestion {
     let text: String
-    let snapshot: Snapshot
+    /// Nil: text only (a follow-up with what a lookup found, or a web search: the screen was already sent).
+    let snapshot: Snapshot?
+    /// More pictures after the screenshot (JPEG base64): a study session's sheet pages and photos of your work.
+    var extraImages: [String] = []
 
     /// The screenshot, plus the close-up of what you marked (if any).
     var imageBlocks: [[String: Any]] {
+        guard let snapshot, !snapshot.isBlind else { return extraBlocks }
         var blocks: [[String: Any]] = [["type": "image",
                                         "source": ["type": "base64", "media_type": "image/jpeg", "data": snapshot.jpegBase64]]]
         if let f = snapshot.focus {
             blocks.append(["type": "image", "source": ["type": "base64", "media_type": "image/jpeg", "data": f.jpegBase64]])
         }
-        return blocks
+        return blocks + extraBlocks
+    }
+    private var extraBlocks: [[String: Any]] {
+        extraImages.map { ["type": "image", "source": ["type": "base64", "media_type": "image/jpeg", "data": $0]] }
     }
 
     /// Lines describing the close-up, for the text part of the message.
@@ -39,21 +88,61 @@ struct BrainQuestion {
 
 struct BrainError: LocalizedError {
     let message: String
+    /// Claude Code said the usage limit was hit; when it resets (if it said).
+    var limitResetsAt: Date?
+    var limitHit = false
     init(_ message: String) { self.message = message }
     var errorDescription: String? { message }
+}
+
+/// What to say out loud when a question fails: one short sentence that says what to do,
+/// instead of "something went wrong". The exact error still goes in the caption.
+enum SpokenError {
+    static func line(for error: Error, now: Date = Date()) -> String {
+        if let b = error as? BrainError, b.limitHit { return limitLine(b.limitResetsAt, now: now) }
+        if error is Deadline.Expired { return "The screen capture got stuck. Ask again, and if it keeps happening, restart Poinky from the notch." }
+        let m = error.localizedDescription.lowercased()
+        func has(_ words: String...) -> Bool { words.contains { m.contains($0) } }
+        if has("usage limit", "hit your limit", "limit reached", "rate limit", "rate_limit", "api error: 429") { return limitLine(nil, now: now) }
+        if has("/login", "not logged in", "invalid api key", "authentication", "api error: 401", "oauth") { return notSignedIn }
+        if has("isn't installed") { return notInstalled }
+        // Claude Code itself: it quit (crashed) or went quiet (the watchdog restarted it). An interrupt isn't spoken.
+        if has("stopped unexpectedly", "isn't running", "couldn't talk to claude code") { return claudeQuit }
+        if has("stopped answering") { return claudeStalled }
+        if has("overloaded", "api error: 5") { return "Claude's servers are busy right now. Try again in a moment." }
+        if has("connection", "network", "offline", "timed out", "could not resolve", "internet") {
+            return "I can't reach Claude. Check your internet connection and ask again."
+        }
+        return "Sorry, that didn't work. The details are on screen."
+    }
+
+    static let claudeQuit = "Claude Code quit in the middle of that. Ask me again and I'll start it fresh."
+    static let claudeStalled = "Claude Code stopped answering, so I restarted it. Ask me again."
+
+    // These two also open the window with the button that fixes it (WelcomeWindowController.offerFix).
+    static let notSignedIn = "Claude Code isn't signed in. I've opened a window with a Sign in button; ask me again after."
+    static let notInstalled = "I can't find Claude Code. I've opened a window with a button that installs it."
+
+    static func limitLine(_ resets: Date?, now: Date = Date()) -> String {
+        guard let r = resets, r > now else { return "You've hit your Claude usage limit. I'll work again once it resets." }
+        let f = DateFormatter()
+        f.dateFormat = Calendar.current.isDate(r, inSameDayAs: now) ? "h:mm a" : "EEEE h:mm a"
+        return "You've hit your Claude usage limit. It resets at \(f.string(from: r))."
+    }
 }
 
 @MainActor
 enum BrainFactory {
     static func make(config: AppConfig, role: PromptRole) throws -> Brain {
         var prompt = SystemPrompt.load(role)
-        // The talker also knows Poinky itself (to answer "how do I…" about the app) and,
-        // like the guide, what it remembers about the user.
-        if role == .talker, let url = Bundle.main.url(forResource: "poinky-manual", withExtension: "md"),
-           let manual = try? String(contentsOf: url, encoding: .utf8) {
-            prompt += "\n\n" + manual
+        // The talker, like the guide, knows what it remembers about the user. (What it needs only for some
+        // questions, like the app manual, goes with those questions: `TalkerExtras`.)
+        if role == .talker || role == .guide || role == .doer {
+            prompt += Identity.promptSection()
+            prompt += Memory.promptSection(enabled: config.memoryEnabled, notes: role != .talker)
         }
-        if role == .talker || role == .guide || role == .doer { prompt += Memory.promptSection(enabled: config.memoryEnabled) }
+        if role == .talker { prompt += LookUp.promptSection(config) }
+        if role == .talker { Receipts.sessionParts = Receipts.parts(memoryEnabled: config.memoryEnabled) }
         switch config.brain {
         case .claudeCode:
             return ClaudeCodeBrain(model: config.model(for: role), effort: config.effort(for: role),
@@ -80,6 +169,7 @@ struct TalkEvents {
     var visual: String?            // a request for the artist
     var guide: String?             // start guide mode toward this goal
     var doTask: String?            // do this task for the user (clicks and types)
+    var replace: ReplaceRequest?   // put new text in place of the selection (or a span named by its first/last words)
     var done: String?              // (guide) the task is finished
     var acts: [String] = []        // (doer) JSON actions to perform: click, type, key, scroll
     var ask: String?               // (doer) a question for the user; wait for their answer
@@ -87,14 +177,79 @@ struct TalkEvents {
     var settings: [String] = []    // JSON objects of settings to change
     var remember: [String] = []    // things to remember about the user
     var forget: [String] = []      // things to forget
+    var aboutUser: [String] = []   // <remember about="user">: a core fact for user.md (role, projects, how they like answers)
+    var aboutSelf: [String] = []   // <remember about="poinky">: the user asked Poinky to change how it is (identity.md)
+    var unlearnUser: [String] = [] // <forget about="user">
+    var unlearnSelf: [String] = [] // <forget about="poinky">
+    /// `<remind at="2026-11-09 09:00" every="weekdays" agent="Title" dir="…">text</remind>`
+    var reminders: [(text: String, at: String, every: String?, agent: String?, dir: String?)] = []
+    var reminderCancels: [String] = []   // <remind-cancel>what</remind-cancel> ("all" for every one)
     var agents: [AgentRequest] = []
     var tells: [(name: String, text: String)] = []   // a follow-up for a working helper, by name
     var stops: [String] = []                          // helpers to stop, by name
     var undos: [String] = []                          // helpers whose last changes to undo, by name or key
+    var recall: String?            // look up earlier conversations, helpers and Claude Code sessions
+    var search: String?            // look this up on the web (a separate session with only web tools)
+
+    /// A reply that answers from what a lookup found: web pages and old transcripts are data, so only
+    /// speaking, marking the screen and asking the teacher for a sketch count. Nothing that acts
+    /// (clicks, helpers, settings, memory, ending the session) and no second lookup.
+    func onlySpeech() -> TalkEvents {
+        var e = TalkEvents()
+        e.sentences = sentences
+        e.draws = draws
+        e.visual = visual
+        return e
+    }
+    /// Has anything that would act (for logging what a lookup reply tried to do).
+    var wouldAct: Bool {
+        guide != nil || doTask != nil || replace != nil || !settings.isEmpty || !remember.isEmpty || !forget.isEmpty || !agents.isEmpty
+            || !aboutUser.isEmpty || !aboutSelf.isEmpty || !unlearnUser.isEmpty || !unlearnSelf.isEmpty
+            || !reminders.isEmpty || !reminderCancels.isEmpty
+            || !tells.isEmpty || !stops.isEmpty || !undos.isEmpty || end || video != nil || recall != nil || search != nil
+            || offer != nil
+            || saveLesson != nil
+    }
     var video: (title: String, brief: String)?        // make a video explainer about this
     var videoCancel = false                           // stop the video being made
     var videoClose = false                            // close the video on screen
     var videoPlay = false                             // continue the paused video
+    /// `<offer say="…">action tags</offer>`: prepared for a yes, not run now (see `PendingOffer`).
+    var offer: (say: String?, body: String)?
+    var saveLesson: String?                           // <save-lesson/>: "page" (the open paper) or "all" (the session's notebook, one PDF)
+}
+
+/// `<replace>new text</replace>` (the selected text) or `<replace from="its first words" to="its last words">`:
+/// new wording put straight into the user's document by pasting it (`CallController.replaceText`), no doer.
+struct ReplaceRequest: Equatable {
+    var text: String
+    var from: String?
+    var to: String?
+    /// It says which text it replaces (otherwise: whatever is selected).
+    var named: Bool { !(from ?? "").isEmpty }
+
+    /// The new text without a greeting or sign-off that the text it replaces didn't have (the model often
+    /// adds the "Hi Sam," it sees above a selected sentence, and a swap would then repeat it). `old`: the
+    /// selection, or "" when unknown (then nothing is trimmed).
+    func trimmed(replacing old: String) -> ReplaceRequest {
+        let o = old.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !o.isEmpty else { return self }
+        var t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let greeting = #"^(hi|hello|hey|dear|good (morning|afternoon|evening))\b[^,\n!.]{0,30}[,!]\s*"#
+        if o.range(of: greeting, options: [.regularExpression, .caseInsensitive]) == nil,
+           let r = t.range(of: greeting, options: [.regularExpression, .caseInsensitive]), r.upperBound < t.endIndex {
+            t = String(t[r.upperBound...])
+            if let f = t.first, f.isLowercase { t = f.uppercased() + t.dropFirst() }
+        }
+        let signoff = #"(\s|^)(thanks( so much| a lot| again)?|thank you( so much)?|best( regards)?|cheers|regards|kind regards|warmly|love)[.!,]?(\s*\n?\s*[A-Z][a-z]+)?\s*$"#
+        if o.range(of: signoff, options: [.regularExpression, .caseInsensitive]) == nil,
+           let r = t.range(of: signoff, options: [.regularExpression, .caseInsensitive]), r.lowerBound > t.startIndex {
+            t = String(t[..<r.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        var copy = self
+        copy.text = t.isEmpty ? text : t
+        return copy
+    }
 }
 
 /// A background job for a Claude Code agent, asked for by the talker.
@@ -116,6 +271,9 @@ struct AgentRequest: Equatable {
     var earlier: String? = nil
     /// Continuing a helper that worked in its own git worktree: that folder (made again there).
     var worktreePath: String? = nil
+    /// Continuing one of the user's own Claude Code sessions: resume a copy of it (`--fork-session`), so
+    /// the original stays as it was in their terminal.
+    var fork = false
 
     /// "opus", "Sonnet 5.5", "claude-haiku-5-5" → a full model name Claude Code knows. Nil if it isn't one.
     static func modelName(_ s: String?) -> String? {
@@ -140,7 +298,8 @@ struct TalkParser {
     private var doneDone = false
 
     mutating func feed(_ delta: String) -> TalkEvents {
-        text += delta
+        self.text += delta
+        let text = Self.withoutOffers(self.text)   // an offer's tags wait for a yes
         var ev = TalkEvents()
         ev.sentences = takeSentences(final: false)
         if !drew, let d = Self.between(text, "<draw>", "</draw>") {
@@ -172,13 +331,19 @@ struct TalkParser {
     /// Called when the reply is complete; recovers if the format wasn't followed exactly.
     mutating func finish() -> TalkEvents {
         var ev = TalkEvents()
+        if let o = Self.blocks(self.text, "offer").first, !o.body.isEmpty {
+            ev.offer = (Self.attr("say", in: o.attrs), o.body)
+        }
+        let text = Self.withoutOffers(self.text)
         if text.contains("<say>") {
             ev.sentences = takeSentences(final: true)
         } else if sayEmitted == 0 {
             var s = text
-            for tag in ["<draw>", "<visual>", "<guide>", "<do>", "<act", "<ask>", "<done>", "<end", "<set>", "<remember>", "<forget>", "<agent", "<tell", "<stop", "<undo", "<video"] {
+            for tag in ["<draw>", "<visual>", "<guide>", "<do>", "<act", "<ask>", "<done>", "<end", "<set>", "<remember", "<forget", "<agent", "<tell", "<stop", "<undo", "<video", "<recall", "<search", "<remind", "<offer", "<replace"] {
                 if let r = s.range(of: tag) { s = String(s[..<r.lowerBound]) }
             }
+            // (A reply cut off inside its first tag: "<sa" isn't speech.)
+            if let r = s.range(of: #"<[A-Za-z/][A-Za-z0-9-]*$"#, options: .regularExpression) { s = String(s[..<r.lowerBound]) }
             s = s.trimmingCharacters(in: .whitespacesAndNewlines)
             if !s.isEmpty { ev.sentences = [s] }
             sayEmitted = 1
@@ -201,9 +366,31 @@ struct TalkParser {
         ev.acts = Self.blocks(text, "act").compactMap { JSONRepair.clean($0.body) }
         ev.ask = Self.blocks(text, "ask").first.map(\.body).flatMap { $0.isEmpty ? nil : $0 }
         if !doDone, let g = Self.blocks(text, "do").first?.body, !g.isEmpty { doDone = true; ev.doTask = g }
+        if let r = Self.blocks(text, "replace").first, !r.body.isEmpty {
+            func a(_ k: String) -> String? { Self.attr(k, in: r.attrs).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.flatMap { $0.isEmpty ? nil : $0 } }
+            ev.replace = ReplaceRequest(text: r.body, from: a("from"), to: a("to"))
+        }
         ev.settings = Self.blocks(text, "set").compactMap { JSONRepair.clean($0.body) }
-        ev.remember = Self.blocks(text, "remember").map(\.body).filter { !$0.isEmpty }
-        ev.forget = Self.blocks(text, "forget").map(\.body).filter { !$0.isEmpty }
+        // `about="user"` / `about="poinky"` go to user.md / identity.md; plain ones to memory.md.
+        for b in Self.blocks(text, "remember") where !b.body.isEmpty {
+            switch Self.attr("about", in: b.attrs)?.lowercased() {
+            case "user", "me": ev.aboutUser.append(b.body)
+            case "poinky", "self", "you": ev.aboutSelf.append(b.body)
+            default: ev.remember.append(b.body)
+            }
+        }
+        for b in Self.blocks(text, "remind") where !b.body.isEmpty {
+            guard let at = Self.attr("at", in: b.attrs) else { continue }
+            ev.reminders.append((b.body, at, Self.attr("every", in: b.attrs), Self.attr("agent", in: b.attrs), Self.attr("dir", in: b.attrs)))
+        }
+        ev.reminderCancels = Self.blocks(text, "remind-cancel").map(\.body).filter { !$0.isEmpty }
+        for b in Self.blocks(text, "forget") where !b.body.isEmpty {
+            switch Self.attr("about", in: b.attrs)?.lowercased() {
+            case "user", "me": ev.unlearnUser.append(b.body); ev.forget.append(b.body)
+            case "poinky", "self", "you": ev.unlearnSelf.append(b.body)
+            default: ev.forget.append(b.body)
+            }
+        }
         ev.agents = Self.blocks(text, "agent").compactMap { b in
             guard !b.body.isEmpty else { return nil }
             let dir = Self.attr("dir", in: b.attrs).flatMap { $0.isEmpty ? nil : $0 }
@@ -223,9 +410,16 @@ struct TalkParser {
         ev.videoCancel = text.range(of: #"<video-cancel\s*/?>"#, options: .regularExpression) != nil
         ev.videoClose = text.range(of: #"<video-close\s*/?>"#, options: .regularExpression) != nil
         ev.videoPlay = text.range(of: #"<video-play\s*/?>"#, options: .regularExpression) != nil
+        // <save-lesson/> keeps the open page; <save-lesson pages="all"/> the whole session as one PDF.
+        if let r = text.range(of: #"<save-lesson(\s[^>]*)?/?>"#, options: .regularExpression) {
+            let tag = text[r].lowercased()
+            ev.saveLesson = tag.range(of: #"pages\s*=\s*"(all|notes|notebook|session)"|\sall\b"#, options: .regularExpression) != nil ? "all" : "page"
+        }
         if let b = Self.blocks(text, "video").first, !b.body.isEmpty {
             ev.video = (Self.attr("title", in: b.attrs).flatMap { $0.isEmpty ? nil : $0 } ?? String(b.body.prefix(60)), b.body)
         }
+        ev.recall = Self.blocks(text, "recall").first.map(\.body).flatMap { $0.isEmpty ? nil : $0 }
+        ev.search = Self.blocks(text, "search").first.map(\.body).flatMap { $0.isEmpty ? nil : $0 }
         if let re = try? NSRegularExpression(pattern: #"<undo\s+agent\s*=\s*"([^"]+)"\s*/?>"#) {
             let ns = text as NSString
             ev.undos = re.matches(in: text, range: NSRange(location: 0, length: ns.length)).map { ns.substring(with: $0.range(at: 1)) }
@@ -258,24 +452,64 @@ struct TalkParser {
     /// All <say> blocks so far, joined (a long reading sometimes continues in a second block).
     private func sayBody() -> (body: String, closed: Bool) {
         var parts: [String] = []
-        var rest = Substring(text)
+        var rest = Substring(Self.withoutOffers(text))
         var closed = false
         while let open = rest.range(of: "<say>") {
             let after = rest[open.upperBound...]
             if let close = after.range(of: "</say>") {
-                parts.append(String(after[..<close.lowerBound]))
+                parts.append(Self.spokenPart(String(after[..<close.lowerBound]), complete: true))
                 rest = after[close.upperBound...]
                 closed = true
             } else {
-                var body = String(after)
-                // Don't speak half of a closing tag that's still arriving.
-                if let lt = body.lastIndex(of: "<"), !body[lt...].contains(">") { body = String(body[..<lt]) }
-                parts.append(body)
+                parts.append(Self.spokenPart(String(after), complete: false))
                 closed = false
                 break
             }
         }
         return (parts.joined(separator: " "), closed)
+    }
+
+    /// Tags whose contents are never spoken (an unclosed `<say>` runs into them, or a model puts one inside).
+    private static let actionTags: Set<String> = ["draw", "visual", "guide", "do", "act", "ask", "done", "end", "set",
+        "remember", "forget", "agent", "tell", "stop", "undo", "video", "video-cancel", "video-close", "video-play",
+        "recall", "search", "remind", "remind-cancel", "offer", "replace", "save-lesson", "step", "step3d", "scene3d", "lesson", "panel"]
+    private static let tagRegex = try! NSRegularExpression(pattern: #"^<(/?)([A-Za-z][A-Za-z0-9-]{0,15})((?:\s+[A-Za-z-]+\s*=\s*"[^"]*")*)\s*(/?)>"#)
+
+    /// What of a `<say>` body is speech: other tags (and an action tag's contents) taken out. The haiku
+    /// talker sometimes forgets `</say>`, so `<draw>{…JSON…}</draw>` was read out, and `<b>`, a nested `<say>`
+    /// were spoken too. Only ever cuts at or removes whole tags, so what's already spoken stays a prefix while
+    /// the reply streams in. `complete`: the body won't grow (otherwise a tag still arriving is held back).
+    static func spokenPart(_ body: String, complete: Bool) -> String {
+        guard body.contains("<") else { return body }
+        var out = ""
+        var rest = Substring(body)
+        while let lt = rest.firstIndex(of: "<") {
+            out += rest[..<lt]
+            let tail = rest[lt...]
+            let ns = String(tail) as NSString
+            if let m = tagRegex.firstMatch(in: String(tail), range: NSRange(location: 0, length: min(ns.length, 400))) {
+                let closing = ns.substring(with: m.range(at: 1)) == "/"
+                let name = ns.substring(with: m.range(at: 2)).lowercased()
+                let selfClosing = ns.substring(with: m.range(at: 4)) == "/"
+                let tagEnd = tail.index(tail.startIndex, offsetBy: ns.substring(to: m.range.upperBound).count)
+                if actionTags.contains(name), !closing, !selfClosing, !["end", "video-cancel", "video-close", "video-play", "save-lesson"].contains(name) {
+                    // Its contents aren't speech: skip to its end, or stop here until it comes.
+                    guard let close = tail[tagEnd...].range(of: "</\(name)>") else { return out }
+                    rest = tail[close.upperBound...]
+                    if out.last == " ", rest.first == " " { rest = rest.dropFirst() }
+                } else {
+                    rest = tail[tagEnd...]   // a nested <say>, </say>, <b>, <end/>: the tag goes, the words stay
+                }
+                continue
+            }
+            // Not a whole tag. While the body is still arriving, a "<" followed by letters may be one
+            // (or the closing </say>): hold it back. Otherwise it's just text ("x < 5").
+            let next = tail.dropFirst().first
+            if !complete, !tail.contains(">"), next == nil || next!.isLetter || next == "/" { return out }
+            out += "<"
+            rest = tail.dropFirst()
+        }
+        return out + rest
     }
 
     private mutating func takeSentences(final: Bool) -> [String] {
@@ -286,44 +520,23 @@ struct TalkParser {
             if final { sayClosed = true }
             return []
         }
-        var out: [String] = []
-        var start = sayEmitted
-        var i = sayEmitted
-        let enders: Set<Character> = [".", "!", "?", "…", "\n"]
-        // The very first piece can also end at a comma (once it has a few words), so the
-        // voice starts right away instead of waiting for a whole sentence.
-        let softEnders: Set<Character> = [",", ";", ":", "—"]
-        while i < chars.count {
-            let first = sayEmitted == 0 && out.isEmpty && start == 0
-            if first, softEnders.contains(chars[i]),
-               String(chars[start...i]).split(separator: " ").count >= 3,
-               i + 1 < chars.count, chars[i + 1].isWhitespace {
-                out.append(String(chars[start...i]))
-                start = i + 1
-                i += 1
-                continue
-            }
-            if enders.contains(chars[i]) {
-                var j = i + 1
-                while j < chars.count, "\"')]”’".contains(chars[j]) { j += 1 }
-                // A sentence ends at punctuation followed by a space (or the end, once </say> arrived).
-                if j < chars.count, chars[j].isWhitespace {
-                    out.append(String(chars[start..<j]))
-                    start = j
-                    i = j
-                    continue
-                }
-            }
-            i += 1
-        }
-        if closed || final {
-            // The block ended: its last words are a sentence too. (More blocks may follow.)
-            if start < chars.count { out.append(String(chars[start...])) }
-            start = chars.count
-            if final { sayClosed = true }
-        }
+        // Sentence ends, abbreviations and the early first piece: SentenceSplit (SpokenText.swift).
+        let (out, start) = SentenceSplit.split(chars, from: sayEmitted, first: sayEmitted == 0, closed: closed || final)
+        if final { sayClosed = true }
         sayEmitted = start
-        return out.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        return out
+    }
+
+    /// The reply without its `<offer>` blocks (and without one that's still arriving): what's in an offer
+    /// is neither said nor done now.
+    static func withoutOffers(_ s: String) -> String {
+        guard s.contains("<offer") else { return s }
+        var out = s
+        if let re = try? NSRegularExpression(pattern: #"<offer(\s[^>]*)?>[\s\S]*?</offer>"#) {
+            out = re.stringByReplacingMatches(in: out, range: NSRange(out.startIndex..., in: out), withTemplate: "")
+        }
+        if let r = out.range(of: "<offer") { out = String(out[..<r.lowerBound]) }
+        return out
     }
 
     static func between(_ s: String, _ open: String, _ close: String) -> String? {
@@ -510,7 +723,7 @@ struct ArtistStream {
             } else if tail.hasPrefix("<say>") {
                 guard let close = tail.range(of: "</say>") else { break }
                 let inner = tail[tail.index(tail.startIndex, offsetBy: 5)..<close.lowerBound]
-                let s = inner.trimmingCharacters(in: .whitespacesAndNewlines)
+                let s = TalkParser.spokenPart(String(inner), complete: true).trimmingCharacters(in: .whitespacesAndNewlines)
                 if !s.isEmpty { out.append(.say(s)) }
                 pos = lt.location + (tail[tail.startIndex..<close.upperBound] as Substring).utf16.count
             } else if tail.hasPrefix("<step>") {

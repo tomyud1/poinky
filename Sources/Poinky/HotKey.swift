@@ -30,6 +30,7 @@ final class HotKey {
             return noErr
         }, 1, &eventType, selfPtr, &handlerRef)
 
+        if AppConfig.ignoresRealKeys { return }   // a test copy takes no global shortcuts
         let id = EventHotKeyID(signature: OSType(0x5342_4459), id: hotKeyID) // "SBDY"
         let status = RegisterEventHotKey(keyCode, modifiers, id, GetApplicationEventTarget(), 0, &hotKeyRef)
         if status != noErr { return nil }

@@ -27,12 +27,30 @@ enum HelperTalk {
     /// Speaking about a helper by name ("how's Mint doing?", "stop Coral", "tell Violet to also add a test",
     /// "Mint, also add a test"): its name and what you meant. Nil when it isn't clearly about one of `names`.
     static func byName(_ text: String, names: [String]) -> (name: String, intent: Intent)? {
+        // "Mint two", "mint-2", "@Mint2" → "Mint 2" (a second Mint gets that name, see `AgentManager.pickName`).
+        var text = canonical(text, names: names)
+        // Longest first, so "Mint 2" is tried before "Mint".
+        let names = names.sorted { $0.count > $1.count }
+        // Typed "@Mint add tests" (or "@mint: stop", "@Mint 2 add tests"): the same as "Mint, add tests".
+        if let at = text.range(of: "^\\s*@", options: .regularExpression) {
+            let after = text[at.upperBound...]
+            for n in names {
+                guard let r = after.range(of: "^\(NSRegularExpression.escapedPattern(for: n))[,:]?(\\s+|$)", options: [.regularExpression, .caseInsensitive]) else { continue }
+                let rest = String(after[r.upperBound...])
+                if plain(rest).split(separator: " ").count == 1, !isStop(plain(rest)), !isPause(plain(rest)), !isResume(plain(rest)), !isUndo(plain(rest)), !isStatus(plain(rest)) {
+                    return (n, .message(sentence(rest.trimmingCharacters(in: .whitespacesAndNewlines))))   // "@Mint /review": one word is fine when typed
+                }
+                text = "\(n), " + rest
+                break
+            }
+        }
         let t = plain(text)
         let words = t.split(separator: " ").map(String.init)
         for name in names {
             let n = name.lowercased()
-            guard words.contains(n) else { continue }
-            let rest = t.replacingOccurrences(of: "\\b\(n)\\b", with: "", options: .regularExpression)
+            // "mint" must not match "mint 2" (another helper).
+            guard t.range(of: "\\b\(n)\\b(?! \\d)", options: .regularExpression) != nil else { continue }
+            let rest = t.replacingOccurrences(of: "\\b\(n)\\b(?! \\d)", with: "", options: .regularExpression)
                 .replacingOccurrences(of: "  ", with: " ").trimmingCharacters(in: .whitespaces)
             // "stop mint", "cancel mint please"
             if words.count <= 5, isStop(rest) { return (name, .stop) }
@@ -51,12 +69,12 @@ enum HelperTalk {
             if statusPatterns.contains(where: { t.range(of: $0, options: .regularExpression) != nil }) { return (name, .status) }
             // "tell mint to also add a test", "ask coral to use the json flag"
             let original = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            if let r = original.range(of: "^(please )?(tell|ask) \(name)( to| that)? ", options: [.regularExpression, .caseInsensitive]) {
+            if let r = original.range(of: "^(please )?(tell|ask) \(name)(?! ?\\d)( to| that)? ", options: [.regularExpression, .caseInsensitive]) {
                 let msg = String(original[r.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
                 if !msg.isEmpty { return (name, .message(sentence(msg))) }
             }
             // "Mint, also add a test" (a few words after the name)
-            if let r = original.range(of: "^(hey )?\(name)[,:] ", options: [.regularExpression, .caseInsensitive]) {
+            if let r = original.range(of: "^(hey )?\(name)[,:] ", options: [.regularExpression, .caseInsensitive]) {   // "Mint 2, …" can't match "Mint"
                 let msg = String(original[r.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
                 let p = plain(msg)
                 if isStop(p) { return (name, .stop) }
@@ -70,10 +88,25 @@ enum HelperTalk {
         return nil
     }
 
+    /// A numbered helper's name the way you'd say or type it ("Mint two", "mint-2", "Mint2", "Mint number 2")
+    /// written as its name ("Mint 2"), for the names in use.
+    static func canonical(_ text: String, names: [String]) -> String {
+        let spoken = ["2": "two", "3": "three", "4": "four", "5": "five", "6": "six", "7": "seven", "8": "eight", "9": "nine"]
+        var t = text
+        for name in names {
+            let parts = name.split(separator: " ")
+            guard parts.count == 2, let k = Int(parts[1]) else { continue }
+            let word = spoken[String(k)].map { "|\($0)" } ?? ""
+            t = t.replacingOccurrences(of: "\\b\(NSRegularExpression.escapedPattern(for: String(parts[0])))(?:[ -]?|\\s+number\\s+)(?:\(k)\(word))\\b",
+                                       with: name, options: [.regularExpression, .caseInsensitive])
+        }
+        return t
+    }
+
     /// What you said to a helper by name, without the name ("Mint, yes" → "yes", "tell Coral no, use yarn" →
     /// "no, use yarn", "yes Violet" → "yes"). Nil if the name isn't in it.
     static func without(name: String, in text: String) -> String? {
-        let n = NSRegularExpression.escapedPattern(for: name)
+        let n = NSRegularExpression.escapedPattern(for: name) + "(?![ -]?(\\d|two\\b))"   // "Mint" isn't "Mint 2"
         guard text.range(of: "\\b\(n)\\b", options: [.regularExpression, .caseInsensitive]) != nil else { return nil }
         var t = text.trimmingCharacters(in: .whitespacesAndNewlines)
         t = t.replacingOccurrences(of: "^(please |hey |okay |ok )?(tell|ask|let) \(n)( to| that)?[,:]?\\s*", with: "", options: [.regularExpression, .caseInsensitive])

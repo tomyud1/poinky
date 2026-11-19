@@ -24,6 +24,8 @@ final class PushToTalk {
     private var downAt: TimeInterval = 0
     private var timer: Timer?
     private static let commitDelay: TimeInterval = 0.18
+    /// Tests (`--listen-test`): the keys held right now, instead of the real keyboard.
+    var fakeFlags: NSEvent.ModifierFlags?
 
     /// "ctrl+option", "ctrl+shift", "option+cmd"…, or "off".
     func configure(_ spec: String) {
@@ -77,12 +79,19 @@ final class PushToTalk {
         timer = nil
     }
 
+    /// Tests: scripted keys are seen at once (a quick tap can't fall between two polls of a busy main thread).
+    func pollNow() { poll() }
+
     private func poll() {
-        let flags = NSEvent.modifierFlags.intersection([.control, .option, .command, .shift])
+        // Poinky's hands just pressed a shortcut (⌃⌥… included): what the keys read now is its own press, not you.
+        if fakeFlags == nil, Computer.ownModifiersNow { return }
+        // (A test copy only hears scripted keys: `AppConfig.ignoresRealKeys`.)
+        let flags = fakeFlags ?? (AppConfig.ignoresRealKeys ? [] : NSEvent.modifierFlags.intersection([.control, .option, .command, .shift]))
+        let otherKeyDown = fakeFlags == nil && !AppConfig.ignoresRealKeys && Self.otherKeyDown()
         let now = ProcessInfo.processInfo.systemUptime
         if !isDown {
             // Exactly the combination, and no other key: a hold starts.
-            guard flags == combo, !Self.otherKeyDown() else { return }
+            guard flags == combo, !otherKeyDown else { return }
             isDown = true
             committed = false
             cancelled = false
@@ -102,7 +111,7 @@ final class PushToTalk {
         }
         guard !cancelled else { return }
         // An extra modifier or any other key: it's a keyboard shortcut, not talking.
-        if flags != combo || Self.otherKeyDown() {
+        if flags != combo || otherKeyDown {
             cancel()
             return
         }
@@ -115,7 +124,7 @@ final class PushToTalk {
     /// Is any non-modifier key held right now? (Reading key state needs no permission.)
     private static func otherKeyDown() -> Bool {
         for code in 0..<0x7F where !modifierCodes.contains(code) {
-            if CGEventSource.keyState(.combinedSessionState, key: CGKeyCode(code)) { return true }
+            if Computer.userKeyDown(code) { return true }
         }
         return false
     }

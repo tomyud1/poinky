@@ -6,11 +6,12 @@ The full tour. For a quick start, see the [README](../README.md).
 
 - **Your voice stays on your Mac.** Speech-to-text is Apple's on-device engine; the voice (Phonon or Apple) runs locally.
 - **Screenshots and your transcribed question go to Claude** (through Claude Code or the Anthropic API), only when you ask something (and at each step while it's guiding you or acting for you). Nothing is captured in between.
+- **See exactly what was sent:** hover the notch and click **What I saw** (or Settings → Privacy → Show What Poinky Saw). Each of the last 20 questions has a receipt: the screenshot, every line about the app in front, which of your files (personality, About me, memory, notes) were in Claude's instructions, and any web search. Receipts stay on your Mac; turn them off (which deletes them) in Settings → Privacy. A quick glint on the buddy shows each time Poinky takes a screenshot.
 - **Password managers are never captured** (Passwords, Keychain, 1Password, Bitwarden, LastPass by default; add more in Settings → Privacy).
 - Memory, settings and agent logs are plain files in `~/Library/Application Support/Poinky/`.
+- **Photos you show Poinky** (from your iPhone, dropped, pasted, or "the photo I just AirDropped") are sent with that one question only. They're deleted from the Mac once sent, except in a homework session, where your work stays in that homework's folder (`study/`, readable only by you). Your own files are never moved or changed. Asking for "the photo I just AirDropped" is the only time Poinky looks in Downloads and on the Desktop (macOS asks you first).
 - When a lesson shows a photo of something, Poinky searches Wikipedia for it (only the search words are sent, not your screen).
 - No analytics, no accounts, no server of ours.
-- Away mode is off unless you turn it on (Settings → Claude → When you're away). Then, while you're away, a helper's question goes to your phone through ntfy (ntfy.sh, or your own server), on a random topic only you know. Turn off "Say what it wants" to send only that a helper is waiting.
 
 ## Safety when it acts for you
 
@@ -29,7 +30,7 @@ Hold two keys and talk with Claude about what's on your screen. It answers out l
 2. **Hold ⌃⌥** (Control + Option) and talk. **Let go** and Claude answers. The mic is on only while you hold the keys.
    - A little blue **buddy** follows your cursor with a springy wobble. While you talk it shows your words next to it; while Claude thinks it turns into three orbiting dots; then Claude's words appear in its bubble as they're spoken, and it **flies over to point** at whatever Claude marks.
    - The **notch grows wings** with a soft glow: Listening (blue, with live mic bars), Thinking (violet dots), Speaking (orange bars). On screens without a notch, a tab appears at the top center.
-   - Messages next to the buddy fade 2 s after Claude finishes.
+   - Messages next to the buddy fade 2 s after Claude finishes (in quiet mode they stay until you're done; see "Quiet" below).
    - Soft sounds mark pressing, sending and nothing-heard (turn them off in Settings). They play through Poinky's own audio, so echo cancellation in hands-free calls doesn't swallow them.
    - **Hold again** to cut Claude off and ask something else. Holding again before Claude starts answering adds to your question. A **quick tap** of ⌃⌥ just stops it (nothing is sent).
    - **⌃⌥B** hides the buddy until your next question (also in the notch, and it can hide itself after some idle time: Settings → General).
@@ -50,6 +51,18 @@ Hold two keys and talk with Claude about what's on your screen. It answers out l
    - Scrolling the page clears the quick marks (they'd no longer line up), but the close-up of what you circled is kept, so you can still ask about it. Cards stay.
    - Drawings belong to the window they're about: they hide when it's minimized, covered or on another desktop, come back with it, and move along when you drag it.
    - The paper is placed (and sized) in the largest free space next to what's being explained; captions move to the top when the bottom is busy, and fade out when Claude is done.
+
+### Quiet: when you can't talk out loud
+In a library, a lecture, an open office or a call, turn on **quiet mode**: the speaker button in the notch's row, **⌃⌥Q**, the ✨ menu, Settings → Voice, or just say or type "be quiet" ("you can talk again" turns it off). Then nothing is played: no voice, no interface or helper sounds, videos play muted with subtitles, and helper notifications come without a sound. A slashed speaker beside the notch shows it's on, and while it answers the notch says *Writing*.
+- The answer is written in a bubble next to where the buddy was: the whole answer, not just the latest sentence, coming in at about reading speed. It stays where it opened while you move the mouse, scrolls when it's long, and stays until your next question, ✕, or a click somewhere else. **Copy** copies it (or just the rewrite or command in it).
+- Drawings work the same: each lesson step is drawn with its sentence, 3D steps get their time on screen.
+- You can still ask out loud (whispering works), or type.
+
+### Typed in, text out
+A question typed in the box (⌃⌥T) is answered **in the box**, in writing, never out loud: your question, then the answer as it comes, then **Copy** (select part of it and ⌘C works too). Type the next question right there as a follow-up. Esc or a click elsewhere closes it. Marks and papers still appear on screen. "@Mint …" still goes to that helper.
+
+### The last answer doesn't disappear
+Hover the notch: the last answer is one line with a copy button; click it to read all of it, with ‹ › for the few before. When a spoken answer has something to paste (a rewrite, a command, a line for an email), the bubble keeps just that part with **Copy** for a few seconds after Poinky stops talking.
 
 ### It knows you
 Poinky remembers things about you between sessions (your name, what you're working on, what interests you, how you like answers) and uses them to feel like a friend who remembers. It's a plain list stored only on this Mac: read, edit or clear it in Settings → Memory, or say "forget that" / "what do you remember about me?".
@@ -73,7 +86,7 @@ Because it runs on Claude Code, Poinky can start an **agent**: a separate Claude
 - **Git:** "commit this", "open a PR and watch the checks". Pushing and opening a PR always ask you first.
 - **The mouse:** a helper that uses your mouse and keyboard (or Chrome) asks the first time; only one uses them at a time, the others wait their turn.
 - **Usage:** "how much have the helpers used today?" Each helper's window shows what each run used.
-- **Away mode:** with it on, a question from a helper while you're away (screen locked, or no keyboard or mouse for a few minutes) reaches your phone in the ntfy app, with buttons to answer.
+- **Notifications:** a question from a helper while you're not talking to Poinky becomes a Mac notification with Allow / Don't Allow (Settings → Claude → Notifications).
 
 ### Demo
 `python3 demo/serve.py` opens six realistic, made-up scenes for showing Poinky off: a social feed, a code editor, a notes doc with a checklist, a transit dashboard, an encyclopedia article and a notes app. They all work like the real thing (click, type, check things off), so Poinky can walk you through actions. The code editor shows the real files in `demo/sample-project` live and its terminal really runs the tests, so you can watch a background agent fix the bug. `demo/DEMO-SCRIPT.md` is a recording script.
@@ -82,6 +95,15 @@ Because it runs on Claude Code, Poinky can start an **agent**: a separate Claude
 Ask Poinky to *do* something and it uses your mouse and keyboard while telling you what it's doing: fill a form, write an email or a note, type a prompt into another AI tool, change a setting. The cursor glides to each spot (a small ring shows each click). It reads the app through macOS accessibility (its buttons, fields and menus), so it clicks the real thing and formats text the way the app expects.
 
 Safety: it asks out loud before anything that sends, posts, buys, deletes or submits (and the app itself holds clicks on buttons like Send or Buy until you say yes); it never types into password fields; it won't press shortcuts that quit apps or delete things. Tap ⌃⌥ or press Esc to stop it instantly; start talking to pause it. It needs Accessibility permission (macOS asks the first time), and you can turn it off in Settings → General.
+
+### Homework together: "let's do this homework together"
+Open the problem sheet (a PDF in Preview, a web page) and say "let's do this homework together", "walk me through question 2" or "בוא נפתור את שאלה 1 ביחד". Poinky reads the question, tells you what it's about and sketches the setup (without the parts), then shows part א and waits. From there you lead: ask anything about it, say "a hint" (three, each a little further: the idea, the equations, the next step), "I'll try it myself", "show me" (the full worked solution: assumptions, a figure with axes, the derivation, the result boxed), "next", "skip", "go back to א", "where are we?" or "let's stop for today".
+To check your own work on paper, click **📷 My work** on the paper (or say "check my work" while the sheet is on screen, or "I'll take a picture"): a menu opens with your iPhone; pick **Scan Documents** (best for paper: it finds the page and straightens it) or **Take Photo**, and point the phone at your page. A small card shows what came, with Retake and + Page (several pages of one part, in order); after a few seconds it's checked (rest the mouse on the card to look longer, or click Check now). Work that's on screen ("check my work" with your notes app or a photo open in front) is checked from the screen as before. Poinky rewrites your solution on the paper line by line, ticks each right line, and stops at the first wrong one with a red ✗ and a short note, then offers a hint to fix it or the corrected way on. If it can't read a line it asks instead of guessing. Before any hint past the first, a check or a full solution, a stronger model works the question out by itself, so Poinky never judges your work by how it looks.
+No iPhone at hand? Drop a photo or a PDF (an iPad export of your notes) on the paper or the notch, paste one into the type box (⌃⌥T, then ⌘V), or AirDrop it to the Mac and say "use the photo I just AirDropped" (Poinky shows you the newest picture in Downloads or on the Desktop and asks before using it). Your photos stay on this Mac in the homework's own folder (original and cleaned-up copy, only readable by you) and the Receipts window says when one was sent.
+Everything is saved as you go (Poinky's support folder, `study/`): if the session ends or you come back days later, say "let's continue the homework" and it picks up where you were. After every finished part it rebuilds **the solved PDF** next to your sheet ("<sheet> – solved.pdf", or "– פתרון" for a Hebrew sheet): the sheet's own pages, then each part under its heading with your own work (when you solved it) or Poinky's worked pages. Say "put my work in" / "use yours" / "both" to choose for a part, "open the PDF" or "where is it?", or click PDF on the paper. Poinky only ever replaces a PDF it made itself.
+
+### Show it something on paper: a photo from your iPhone
+Outside homework too: click the camera in the notch (or press ⌃⌥P, or say "I'll take a picture of it"), pick your iPhone's **Take Photo** or **Scan Documents** in the menu, and shoot. The picture goes with your next question ("what's wrong with this circuit?"); say the question together with "I'll take a picture of the circuit, what's wrong with it?" and it's asked as soon as the photo arrives. The iPhone needs to be near the Mac, unlocked, signed in to the same Apple ID, with Wi‑Fi and Bluetooth on; when none is found, the card says so and offers the other ways in (drop a picture or PDF on the paper or the notch, paste one into the type box, "use the photo I just AirDropped", or Choose a file).
 
 ### Guide mode: "how do I…?"
 Ask how to do something in the app you're in ("how do I export this as a PDF?", "where do I change the font?"). Poinky says the first step and circles exactly what to click, then **waits for you to click it**, looks again, and gives the next step until you're done. Hold ⌃⌥ and say "next" after typing something, ask a question any time, or say "stop" to end it. For a one-click task it just points at the button.
@@ -120,15 +142,13 @@ Poinky is signed with a local certificate ("Poinky Local Signing", created by `b
 
 ## Settings
 
-✨ menu → **Settings…** (⌘,) opens the settings window: hold-to-talk keys, call shortcut, language and pause length, buddy and sounds, voice picker with ▶ preview and speed, Claude connection and models, **Privacy** (apps that are never captured; password managers are excluded by default), and prompt editing. Everything is stored in `~/Library/Application Support/Poinky/config.json`:
+✨ menu → **Settings…** (⌘,) opens the settings window: hold-to-talk keys, call shortcut, language and pause length, buddy and sounds, voice picker with ▶ preview and speed, Claude connection and Quick / Careful, **Privacy** (apps that are never captured; password managers are excluded by default), and prompt editing. Everything is stored in `~/Library/Application Support/Poinky/config.json`:
 
 | Key | Default | What it does |
 |---|---|---|
 | `brain` | `claudeCode` | `claudeCode` (your subscription) or `api` (API key) |
-| `claudeCodeModel` | `haiku` | Talker model. Haiku is fastest. |
 | `artistEnabled` | `true` | Turn the diagram/3D artist on or off (also in the menu) |
-| `artistModel` | `sonnet` | Artist model. `sonnet` gives detailed models (~30 s for 3D); `haiku` is ~8 s but simpler. |
-| `apiModel` / `apiArtistModel` | `claude-haiku-5-5` / `claude-sonnet-5-5` | The same two roles for the API brain |
+| `claudeCodeModel`, `artistModel`, `guideModel`, `doerModel` (and `api…` for the API brain), `talkerEffort`, `artistEffort`, `guideEffort`, `doerEffort` | Quick | Each part's model and effort. Settings → Claude sets them all at once with **Quick** (the defaults: Haiku talks, Sonnet teaches and does things) or **Careful** (Sonnet talks, the teacher thinks first, Opus does things); any other mix shows as Custom and is edited under Settings → Advanced. |
 | `apiKey` | | Anthropic API key (API brain only) |
 | `language` | `en-US` | e.g. `he-IL` for Hebrew (uses Apple's dictation engine). Claude replies in the language you speak. |
 | `voiceEngine` | `phonon` | `phonon` (free local neural voice) or `apple` |
@@ -139,13 +159,14 @@ Poinky is signed with a local certificate ("Poinky Local Signing", created by `b
 | `pushToTalk` | `ctrl+option` | Keys to hold while talking: `ctrl+option`, `ctrl+shift`, `option+cmd`, or `off` |
 | `buddy` | `true` | The buddy at your cursor (captions appear next to it instead of at the bottom) |
 | `sounds` | `true` | Soft interface sounds |
+| `quiet` | `false` | Quiet mode: answers are written (with Copy), nothing is played |
+| `quietHotkey` | `ctrl+option+q` | Turns quiet mode on / off |
 | `menuBarIcon` | `false` | Also show ✨ in the menu bar (always shown when no screen has a notch) |
 | `buddyHotkey` | `ctrl+option+b` | Hides / shows the buddy |
 | `buddyAutoHide` | `0` | Hide the buddy this many seconds after it finishes (0 = never, 3 = right after it answers); it comes back when you hold ⌃⌥ |
 | `memoryEnabled` | `true` | Remember things about you between sessions |
 | `agentPermission` | `auto` | Background agents: `auto` (Claude Code's auto mode; falls back to `acceptEdits` if it can't start), `acceptEdits` or `plan` |
 | `computerControl` | `true` | Let Poinky click and type for you when you ask it to do something |
-| `doerModel` / `apiDoerModel` | `sonnet` / `claude-sonnet-5-5` | The model that clicks and types for you |
 | `agentModel` | | Background agents' model (empty = your Claude Code default) |
 | `silenceSeconds` | `1.0` | Hands-free calls: how long a pause ends your question |
 | `hotkey` | `ctrl+option+space` | Starts / ends a hands-free call, e.g. `cmd+shift+k`, `f13` |
@@ -178,7 +199,6 @@ The 3D kit (`web/kit.js`) gives the artist simple building blocks on top of thre
 | `HelperTranscript.swift` | What the window shows (`.chat.jsonl` entries) and earlier helpers (`PastHelper`) |
 | `HelperUndo.swift` / `HelperWorktree.swift` | Undo with Claude Code's checkpoints; worktrees for helpers sharing a repo |
 | `TypeBox.swift` | ⌃⌥T: typing to Poinky or a helper |
-| `AwayNotifier.swift` | Away mode: helpers' questions to your phone (ntfy) |
 | `prompts/poinky-manual.md` | The app's own manual, given to the talker |
 | `AudioIO.swift` | Playback, the hold-to-talk mic, and the hands-free mic with voice processing |
 | `SpeechListener.swift` | On-device speech-to-text; ends a question on a pause (calls) or when you let go |

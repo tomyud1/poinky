@@ -1,0 +1,12 @@
+{"about": "The mic can't open (no input device, busy, POINKY_TEST_MIC_FAIL): holding the keys says so in your bubble, on the first hold of a session and on a later one.",
+ "env": {"POINKY_TEST_MIC_FAIL": "1"},
+ "steps": [
+  {"at": 1.5, "keys": "down"},
+  {"at": 2.8, "probe": "first hold: the note", "expect": {"kind": "you", "miss": true, "text": "Couldn't open the mic"}},
+  {"at": 3.0, "keys": "up"},
+  {"at": 7.0, "probe": "the note went away", "expect": {"kind": "none", "state": "ready"}},
+  {"at": 7.2, "keys": "down"},
+  {"at": 8.2, "probe": "a later hold: the note again", "expect": {"kind": "you", "miss": true, "text": "Couldn't open the mic"}},
+  {"at": 8.4, "keys": "up"},
+  {"at": 9.5, "quit": true}
+ ]}

@@ -1,0 +1,233 @@
+<!doctype html><html><head><meta charset="utf-8">
+<!-- The paper lessons (web/lesson.js) through the real overlay: math is laid out (fractions, powers, roots,
+     a JSON "\frac" that arrived as a form feed), graphs plot only safe math, labels stay off their arrows
+     and curves, chemical formulas get subscripts, nothing runs off the paper or lands on something else. -->
+<style>html,body{margin:0;height:100%;background:#fff}iframe{position:absolute;inset:0;width:1400px;height:900px;border:0}</style>
+</head><body>
+<iframe id="ov" src="../../web/overlay.html"></iframe>
+<script>
+(async () => {
+  const results = [], fail = [];
+  const check = (ok, what) => { results.push((ok ? 'ok   ' : 'FAIL ') + what); if (!ok) fail.push(what); };
+  const wait = ms => new Promise(r => setTimeout(r, ms));
+  try {
+    const W = document.getElementById('ov').contentWindow;
+    for (let i = 0; i < 100 && !(W.SB && W.SB.lessonBegin); i++) await wait(50);
+    const SB = W.SB, T = SB._lessonTest;
+    const done = async () => { for (let i = 0; i < 400 && SB.lessonBusy(); i++) await wait(50); await wait(80); };
+    const item = id => T.items[id];
+    const bbox = id => item(id).getBBox();
+    const hit = (a, b) => a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+
+    // Safe function parser.
+    const f = (s, x) => T.compileFn(s)(x);
+    check(f('x^2', 3) === 9 && f('2x+1', 2) === 5 && Math.abs(f('sin(pi/2)', 0) - 1) < 1e-9 && f('3(x+1)^2', 1) === 12, 'functions of x evaluate (x^2, 2x+1, sin(pi/2), 3(x+1)^2)');
+    check(Math.abs(f('e^x', 1) - Math.E) < 1e-9 && f('-x^2', 2) === -4 && f('sqrt(x)/2', 16) === 2, 'e^x, -x^2 is -(x^2), sqrt(x)/2');
+    const flatTex = src => JSON.stringify(T.parseTex(src)).match(/"s":"[^"]*"/g).map(m => m.slice(5, -1)).join('');
+    const kinds = src => JSON.stringify(T.parseTex(src)).match(/"t":"cdot"/g) || [];
+    check(kinds('5\\cdot 2').length === 1 && kinds('5*2').length === 1 && kinds('5·2').length === 1, 'a middle dot (\\cdot, *, ·) is its own drawn dot, not the font\'s speck');
+    check(flatTex('5\\cdot 5 - 9') === '55−9' || flatTex('5\\cdot 5 - 9') === '55 − 9', `and the space after \\cdot doesn't make one side wider (${flatTex('5\\cdot 5 - 9')})`);
+    check(flatTex('2 \\times 3') === '2 × 3' && flatTex('a\\le b') === 'a ≤ b', `so do \\times and \\le (${flatTex('2 \\times 3')}, ${flatTex('a\\le b')})`);
+    const near = (a, b) => Math.abs(a - b) < 1e-9;
+    check(near(f('sin x', Math.PI / 2), 1) && f('x²', 3) === 9 && f('|x|', -4) === 4 && f('sqrt x', 9) === 3 && near(f('2pi x', 1), 2 * Math.PI),
+      'functions as people type them: sin x, x², |x|, sqrt x, 2pi x');
+    check(near(f('100*0.5^t', 2), 25) && f('n^2', 3) === 9 && f('f(t) = 3t', 2) === 6 && near(f('e^(-t)', 0), 1), 'a function of t or n is drawn like one of x');
+    let threw = false; try { T.compileFn('alert(1)')(0); } catch (e) { threw = true; }
+    check(threw, 'anything that is not math is refused (no code runs)');
+
+    SB.lessonBegin({ x: 700, y: 60, w: 640, h: 800 }, 'test');
+    SB.lessonStep({ ops: [
+      { op: 'text', id: 'h', x: 40, y: 60, text: 'Chain rule', size: 34, bold: true },
+      { op: 'math', id: 'fr', x: 40, y: 150, text: '\f' + 'rac{dy}{dx} = 5u^4', size: 30 },   // what "\frac" in JSON becomes
+      { op: 'math', id: 'pw', x: 400, y: 150, text: 'x^10 + e^(2x) - \\sqrt{x}', size: 30 },
+      { op: 'text', id: 'ch', x: 40, y: 230, text: 'Water is H2O, not a PS5', size: 24 },
+      { op: 'text', id: 'dup', x: 40, y: 230, text: 'drawn on the same spot', size: 24 },
+      { op: 'text', id: 'wide', x: 40, y: 330, text: 'A very long line of handwriting that would never fit across the paper at this size', size: 30 },
+    ] }, 1);
+    await done();
+    const fr = item('fr');
+    check(fr.querySelectorAll('path').length >= 1 && [...fr.querySelectorAll('text')].map(t => t.textContent).join('|').includes('dy'), 'a \\frac that arrived as a form feed is still a fraction');
+    const texts = [...fr.querySelectorAll('text')], dy = texts.find(t => t.textContent === 'dy'), dx = texts.find(t => t.textContent === 'dx');
+    const bar = fr.querySelector('path').getBBox(), mid = b => b.y + b.height / 2;
+    check(dy && dx && mid(dy.getBBox()) < bar.y && mid(dx.getBBox()) > bar.y + bar.height, 'the numerator sits above the bar, the denominator below');
+    const pw = [...item('pw').querySelectorAll('text')].map(t => t.textContent);
+    check(pw.includes('10') && pw.includes('2x'), `unbraced powers take the whole number and e^(2x) its parentheses (${pw.join('|')})`);
+    check(pw.some(t => t.includes('−')), 'math uses a real minus sign');
+    check(item('pw').querySelector('path') != null, 'a square root draws its sign');
+    const chem = T.parseTex('6CO2 + 6H2O -> C6H12O6 + x^2');
+    const flat = JSON.stringify(chem);
+    check(/"sub":\[\{"t":"text","s":"12"/.test(flat.replace(/\s/g, '')) || flat.includes('"12"') && flat.includes('"sub"'), 'chemical formulas inside math get subscripts (C6H12O6)');
+    check(!/"sub"[^\]]*"6"\}\],"sup"/.test(flat) && flat.includes('"sup"'), 'a coefficient stays full size and x^2 is still a power');
+    const ch = item('ch').querySelector('text'), spans = [...ch.querySelectorAll('tspan')];
+    check(spans.some(s => s.textContent === '2' && +s.getAttribute('font-size') < 24) && !spans.some(s => s.textContent === '5' && s.getAttribute('font-size')), 'H2O gets a small 2, "PS5" stays as it is');
+    check(!hit(bbox('ch'), bbox('dup')), 'text drawn on the same spot moves below instead of on top');
+    const wb = bbox('wide');
+    check(wb.x + wb.width <= 800, `a line too long for the paper shrinks to fit (right edge ${Math.round(wb.x + wb.width)})`);
+
+    SB.lessonStep({ ops: [
+      { op: 'graph', id: 'g', x: 80, y: 420, w: 320, h: 220, xrange: [-1, 3], yrange: [-1, 9], xlabel: 'x', ylabel: 'y' },
+      { op: 'plot', id: 'p', graph: 'g', fn: 'x^2', color: 'blue' },
+      { op: 'plot', id: 'bad', graph: 'g', fn: 'fetch("x")', color: 'red' },
+      { op: 'point', id: 'pt', graph: 'g', at: [2, 4], label: '(2, 4)' },
+      { op: 'arrow', id: 'a', from: [480, 450], to: [740, 450], label: 'gets steeper' },
+    ] }, 1);
+    await done();
+    const gb = bbox('g'), pb = bbox('p');
+    check(pb.width > 100 && pb.x >= gb.x - 2 && pb.x + pb.width <= gb.x + gb.width + 2 && pb.y >= gb.y - 2, 'the curve is drawn inside its graph');
+    check(!item('bad') || !item('bad').querySelector('path'), 'a plot that is not math draws nothing');
+    // The dot is at (2,4): x = 80 + 3/4*320 = 320, y = 420 + 220 - 5/10*220 = 530.
+    const dot = item('pt').querySelector('path').getBBox();
+    check(Math.abs(dot.x + dot.width / 2 - 320) < 3 && Math.abs(dot.y + dot.height / 2 - 530) < 3, 'a point lands at its coordinates');
+    const lab = item('pt').querySelector('text').getBBox();
+    const p = item('p').querySelector('path'), L = p.getTotalLength();
+    let onCurve = 0;
+    for (let k = 0; k <= 60; k++) { const q = p.getPointAtLength(L * k / 60); if (q.x > lab.x && q.x < lab.x + lab.width && q.y > lab.y && q.y < lab.y + lab.height) onCurve++; }
+    check(onCurve === 0, `the point's label doesn't sit on the curve (${onCurve} curve points under it)`);
+    const al = item('a').querySelector('text').getBBox();
+    check(al.y + al.height < 450 || al.y > 450, `an arrow's label sits beside the arrow, not on it (label ${Math.round(al.y)}–${Math.round(al.y + al.height)}, arrow at 450)`);
+
+    // A mark on a point circles its dot, not the dashed guides down to the axes; operator names in math get room.
+    SB.lessonStep({ ops: [
+      { op: 'point', id: 'pg', graph: 'g', at: [1, 1], guides: true, color: 'green' },
+      { op: 'mark', id: 'pgm', target: 'pg', style: 'circle' },
+      { op: 'math', id: 'sn', x: 480, y: 640, text: 'mg\\sin\\theta', size: 30 },
+      { op: 'math', id: 'cd', x: 480, y: 700, text: '5\\cdot 2', size: 30 },
+      { op: 'text', id: 'cdt', x: 480, y: 760, text: 'Test: 5·2 − 9 = 1', size: 24 },
+    ] }, 1);
+    await done();
+    const mk = item('pgm').querySelector('path').getBBox();
+    check(mk.width < 70 && mk.height < 70, `a mark on a point circles the dot (${Math.round(mk.width)}×${Math.round(mk.height)})`);
+    const cdot = item('cd').querySelector('circle'), cdt = [...item('cd').querySelectorAll('text')].map(t => t.getBBox());
+    const cb = cdot && cdot.getBBox(), gapL = cb && cb.x - (cdt[0].x + cdt[0].width), gapR = cb && cdt[1].x - (cb.x + cb.width);
+    check(cdot && +cdot.getAttribute('r') >= 1.7 && gapL > 2 && gapR > 2 && Math.abs(gapL - gapR) < 4, `5·2 shows a clear dot with room on both sides (${cb && Math.round(gapL)} / ${cb && Math.round(gapR)})`);
+    check(item('cdt').querySelector('circle') != null, 'a middle dot between numbers in plain text is drawn as a real dot too');
+    const snt = [...item('sn').querySelectorAll('text')].map(t => t.textContent).join('');
+    check(/g\u2009sin\u2009θ/.test(snt), `operator names get a little room in math (${JSON.stringify(snt)})`);
+
+    // Tables: columns fit the paper, later rows fit their columns, the header is filled.
+    SB.lessonStep({ ops: [
+      { op: 'table', id: 't', x: 40, y: 700, rows: [['', 'Plant', 'Animal'], ['Cell wall', 'yes', 'no']], color: 'green' },
+      { op: 'row', table: 't', cells: ['Makes food', '6CO2 \\to C_6H_{12}O_6 with sunlight and water', 'no'] },
+    ] }, 1);
+    await done();
+    const tb = bbox('t'), tt = T.tables.t;
+    check(tb.x + tb.width <= 790 && tt.colW.length === 3, `the table fits the paper (${Math.round(tb.x)}–${Math.round(tb.x + tb.width)})`);
+    check(item('t').querySelector('rect') != null, 'the header row is filled');
+    const cellTexts = [...item('t').children].filter(n => n.tagName === 'text' || n.classList.contains('math'));
+    const long = cellTexts.find(n => (n.textContent || '').includes('sunlight'));
+    const c1 = tt.x + tt.colW[0], c2 = c1 + tt.colW[1], lb = long && long.getBBox();
+    check(lb && lb.x >= c1 - 1 && lb.x + lb.width <= c2 + 1, `a long cell in a later row shrinks into its column (${lb && Math.round(lb.x)}–${lb && Math.round(lb.x + lb.width)} in ${Math.round(c1)}–${Math.round(c2)})`);
+    check(Math.round(tt.bottom - tt.y) === 3 * tt.rowH, 'the added row goes under the others');
+
+    // Nothing already drawn fades while a later step draws (or while a past step is drawn again): the owner found
+    // dimming confusing. Every frame, every group drawn before the step must stay fully opaque.
+    const lowest = (groups, ms, untilIdle = true) => new Promise(res => {
+      let min = 1, t0 = performance.now();
+      (function f() {
+        for (const g of groups) min = Math.min(min, +W.getComputedStyle(g).opacity);
+        if (performance.now() - t0 < ms && (!untilIdle || SB.lessonBusy() || performance.now() - t0 < 300)) W.requestAnimationFrame(f); else res(min);
+      })();
+    });
+    const drawn = () => [...W.document.querySelectorAll('.card.lpaper svg.lsvg > g[data-step]')];
+    const before = drawn();
+    SB.lessonStep({ ops: [{ op: 'mark', id: 'mk', target: 'fr', style: 'underline' }, { op: 'text', id: 'later', x: 420, y: 230, text: 'a later step', size: 22 }, { op: 'wait', s: 0.6 }] }, 1);
+    const minDuring = await lowest(before, 6000);
+    check(before.length > 5 && minDuring === 1, `while a later step draws, nothing drawn before it fades (lowest opacity ${minDuring} over ${before.length} groups)`);
+    await done();
+    const minAfter = await lowest(drawn(), 600);
+    check(minAfter === 1, `after the step, everything is fully opaque (${minAfter})`);
+    check(!W.document.querySelector('.card.lpaper .past'), 'no group is marked as a past step');
+    // Clicking a past step draws it again; the rest stays as it is.
+    const t0 = performance.now();
+    const others = drawn().filter(g => g.dataset.step !== item('ch').dataset.step);
+    const replay = T.replayStep(+item('ch').dataset.step);
+    const minReplay = await lowest(others, 1500, false);
+    check(minReplay === 1, `replaying a step doesn't fade the others (${minReplay})`);
+    await replay;
+    check(performance.now() - t0 > 300 && !item('ch').querySelector('[clip-path]') && !item('ch').querySelector('[style*="opacity: 0"]'), 'the step is inked again and left fully drawn');
+
+    // Save: the page becomes a picture for the app to keep.
+    const msgs = [];
+    W.webkit = { messageHandlers: { sb: { postMessage: m => msgs.push(m) } } };
+    const paperEl = W.document.querySelector('.card.lpaper');
+    paperEl.querySelector('.save').click();
+    for (let i = 0; i < 100 && !msgs.some(m => m.kind === 'saveLesson'); i++) await wait(50);
+    const saved = msgs.find(m => m.kind === 'saveLesson');
+    check(saved && /^data:image\/png;base64,/.test(saved.png || '') && saved.title === 'test', 'Save sends a PNG of the page with its title');
+    if (saved && saved.png) {
+      const img = new Image(); img.src = saved.png; await img.decode();
+      check(img.width === 1600 && img.height > 1200, `the picture is sharp (2×) and holds everything drawn (${img.width}×${img.height})`);
+    }
+    SB.lessonSaved('Desktop', true);
+    check(/Desktop/.test(paperEl.querySelector('.save').textContent), 'the button says where it went');
+    check(paperEl.querySelector('.save.all').hidden, '"Save all" stays hidden while the session has one page');
+
+    // The chalkboard: a dark paper picked when what's behind it is dark (the app passes look: 'chalk').
+    const lum = hex => { const h = hex.replace('#', ''); const [r, g, b] = [0, 2, 4].map(i => parseInt(h.slice(i, i + 2), 16) / 255).map(v => v <= .03928 ? v / 12.92 : Math.pow((v + .055) / 1.055, 2.4)); return .2126 * r + .7152 * g + .0722 * b; };
+    const rgbHex = c => { const m = c.match(/\d+/g); return '#' + m.slice(0, 3).map(v => (+v).toString(16).padStart(2, '0')).join(''); };
+    const contrast = (a, b) => (Math.max(lum(a), lum(b)) + .05) / (Math.min(lum(a), lum(b)) + .05);
+    SB.lessonBegin({ x: 700, y: 60, w: 640, h: 800, look: 'chalk' }, 'chalk page');
+    await wait(50);
+    const board = [...W.document.querySelectorAll('.card.lpaper')].pop();
+    check(board.classList.contains('chalk') && board.querySelector('.grain'), 'a dark screen gets the chalkboard, with its chalk grain');
+    const boardColor = rgbHex(W.getComputedStyle(board).backgroundColor);
+    check(lum(boardColor) < .05, `the board is dark (${boardColor})`);
+    SB.lessonStep({ ops: [
+      { op: 'text', id: 'ct', x: 40, y: 60, text: 'Photosynthesis', size: 32, bold: true },
+      { op: 'text', id: 'cdark', x: 40, y: 120, text: 'written in dark ink', size: 24, color: '#222222' },
+      { op: 'box', id: 'cb', x: 40, y: 160, w: 260, h: 70, text: 'light energy', color: 'yellow' },
+      { op: 'arrow', id: 'ca', from: [320, 195], to: [520, 195], label: 'makes sugar' },
+      { op: 'mark', id: 'cm', target: 'ct' },
+    ] }, 1);
+    await done();
+    const fillOf = id => item(id).querySelector('text').getAttribute('fill');
+    check(contrast(fillOf('ct'), boardColor) > 7, `chalk-white writing reads well on the board (contrast ${contrast(fillOf('ct'), boardColor).toFixed(1)})`);
+    check(contrast(fillOf('cdark'), boardColor) > 7, `a dark color the teacher asked for becomes chalk white (${fillOf('cdark')})`);
+    const penInk = item('cm').querySelector('path').getAttribute('stroke');
+    check(contrast(penInk, boardColor) > 7, `the yellow pen stays bright on the board (${penInk}, contrast ${contrast(penInk, boardColor).toFixed(1)})`);
+    const boxStroke = item('cb').querySelector('path').getAttribute('stroke'), boxFill = item('cb').querySelector('rect').getAttribute('fill');
+    check(lum(boxFill) < .1 && contrast(boxStroke, boxFill) > 5, `boxes get a dark tinted fill and a bright outline (${boxFill}, ${boxStroke})`);
+    const cpic = await SB.lessonPicture();
+    check(cpic && cpic.look === 'chalk' && /^data:image\/png/.test(cpic.png), 'the saved picture is a chalkboard too');
+    if (cpic && cpic.png) {
+      const img = new Image(); img.src = cpic.png; await img.decode();
+      const cv = W.document.createElement('canvas'); cv.width = img.width; cv.height = img.height;
+      const cx = cv.getContext('2d'); cx.drawImage(img, 0, 0);
+      const corner = cx.getImageData(1500, img.height - 20, 1, 1).data;
+      check(lum(rgbHex(`rgb(${corner[0]},${corner[1]},${corner[2]})`)) < .05, `the picture's background is the board (${corner.slice(0, 3).join(',')})`);
+      const title = cx.getImageData(80, 70, 400, 60).data;
+      let bright = 0; for (let i = 0; i < title.length; i += 4) if (title[i] > 180 && title[i + 1] > 180) bright++;
+      check(bright > 300, `the chalk writing is in the picture (${bright} bright pixels in the title)`);
+    }
+
+    // The session's notebook: every paper is kept, in order; "Save all N" makes one PDF of them.
+    const allBtn = board.querySelector('.save.all');
+    check(allBtn && !allBtn.hidden && /2/.test(allBtn.textContent), `a second page shows "Save all 2" (${allBtn && allBtn.textContent})`);
+    SB.lessonStep({ ops: [{ op: 'clear' }, { op: 'text', id: 'p3', x: 40, y: 60, text: 'After the board was wiped', size: 28 }] }, 1);
+    await done();
+    const nb = SB.lessonNotebook();
+    check(nb.length === 3 && nb[0].title === 'test' && nb[1].title === 'chalk page' && nb[0].look === 'paper' && nb[1].look === 'chalk',
+      `the notebook keeps every page in order, wiped boards too (${nb.map(p => p.title + '/' + p.look).join(', ')})`);
+    msgs.length = 0;
+    SB.saveLesson(true);
+    for (let i = 0; i < 100 && !msgs.some(m => m.kind === 'saveNotebook'); i++) await wait(50);
+    const book = msgs.find(m => m.kind === 'saveNotebook');
+    check(book && book.voice === true && book.pages.length === 3 && book.pages.every(p => /^data:image\/png/.test(p.png)) && book.pages[1].title === 'chalk page',
+      `"save my notes" sends all ${book ? book.pages.length : 0} pages as pictures, with their titles`);
+    msgs.length = 0;
+    SB.saveLesson(false);
+    for (let i = 0; i < 100 && !msgs.some(m => m.kind === 'saveLesson'); i++) await wait(50);
+    const one = msgs.find(m => m.kind === 'saveLesson');
+    check(one && one.voice === true && /^data:image\/png/.test(one.png || '') && one.title === 'chalk page', '"save this page" sends the open page, marked as asked by voice');
+    SB.lessonSaved('Desktop', true, true);
+    check(/Desktop/.test(allBtn.textContent), 'the "Save all" button says where the PDF went');
+    // A new session starts a new notebook.
+    SB.lessonBegin({ x: 700, y: 60, w: 640, h: 800, session: 99 }, 'next session');
+    SB.lessonStep({ ops: [{ op: 'text', x: 40, y: 60, text: 'Fresh start', size: 28 }] }, 1);
+    await done();
+    check(SB.lessonNotebook().length === 1 && !W.document.querySelector('.card.lpaper:not(.leaving)').classList.contains('chalk'), 'a new session starts a new notebook (and the light paper comes back)');
+  } catch (e) { check(false, 'threw: ' + e.message); }
+  window.testResults = { pass: !fail.length, lines: results };
+})();
+</script>
+</body></html>

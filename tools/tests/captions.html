@@ -1,0 +1,26 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>running</title>
+<!-- Checks which part of the answer the caption bubble shows (buddy.js latestSentence). Run by tools/tests/run-web-tests.mjs. -->
+<body>
+<script>window.SB = { caption() {}, fadeCaptions() {}, apply() {} };</script>
+<script src="../../web/buddy.js"></script>
+<script>
+(function () {
+  const results = [], fail = [];
+  const check = (got, want, what) => { const ok = got === want; results.push((ok ? 'ok   ' : 'FAIL ') + what + (ok ? '' : ` (got "${got}")`)); if (!ok) fail.push(what); };
+  const f = SB.captionSentence;
+  check(f('Sure, that is it. Click Save.'), 'Sure, that is it. Click Save.', 'a short last sentence keeps the one before');
+  check(f('That is the save button. Click it once and wait.'), 'Click it once and wait.', 'the latest sentence');
+  check(f('Use a short name, e.g. notes or todo for the file.'), 'Use a short name, e.g. notes or todo for the file.', 'no cut after e.g.');
+  check(f('It was made in the U.S. by hand in a big factory.'), 'It was made in the U.S. by hand in a big factory.', 'no cut before a lowercase word');
+  check(f('First one is done. Ask Dr. Smith about the second one.'), 'Ask Dr. Smith about the second one.', 'no cut after Dr.');
+  check(f('This is **really** important. Use `git status` before you commit.'), 'Use git status before you commit.', 'markdown marks are dropped');
+  check(f('That one is right. 3 more are left on the page.'), '3 more are left on the page.', 'a sentence can start with a digit');
+  check(f('In Hebrew it is written like this. שלום means hello and goodbye.'), 'שלום means hello and goodbye.', 'a sentence can start in another script');
+  document.body.textContent = results.join('\n');
+  document.title = fail.length ? 'FAIL' : 'PASS';
+  window.testResults = { pass: !fail.length, lines: results };
+})();
+</script>
+</body>

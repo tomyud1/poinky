@@ -1,0 +1,49 @@
+[
+  {"page": "tools/e2e/pages/tiny.html", "screen": [1710, 1107], "note": "9 px small print (a 7 px line in the screenshot): Vision read only its first words", "marks": [
+    {"item": {"type": "underline", "id": "trial", "x": 125, "y": 200, "w": 690, "find": "30-day free trial of Premium Audio", "label": "auto-renews"}, "phrase": "30-day free trial of Premium Audio"},
+    {"item": {"type": "underline", "id": "restock", "x": 600, "y": 200, "w": 150, "find": "Restocking fee of 15%", "label": "15% fee"}, "phrase": "Restocking fee of 15%"},
+    {"item": {"type": "underline", "id": "guess", "x": 600, "y": 201, "w": 70}, "phrase": "Restocking fee of 15%", "check": "under", "note": "no find, the model's y runs through the letters"}
+  ]},
+  {"page": "tools/e2e/pages/homework.html", "screen": [1440, 900], "marks": [
+    {"item": {"type": "bracket", "id": "q1", "x": 330, "y": 120, "h": 110, "find": "Solve by factoring", "to": "x = -2 or x = -3"}, "phrase": "1. Solve by factoring", "to": "x = −2 or x = −3"},
+    {"item": {"type": "underline", "id": "sign", "x": 340, "y": 222, "w": 150, "find": "x = -2 or x = -3"}, "phrase": "x = −2 or x = −3"},
+    {"item": {"type": "highlight", "id": "q3", "x": 330, "y": 470, "w": 400, "h": 30, "find": "Find the slope of the line through"}, "phrase": "Find the slope of the line through"},
+    {"item": {"type": "underline", "id": "q4", "x": 330, "y": 610, "w": 160, "find": "Sketch y = x² − 4"}, "phrase": "Sketch y = x² − 4"},
+    {"item": {"type": "underline", "id": "twice", "x": 400, "y": 420, "w": 150, "find": "or x = -2"}, "phrase": "or x = −2", "note": "also in question 1: the one near the mark"},
+    {"item": {"type": "circle", "id": "work", "x": 470, "y": 370, "r": 95, "find": "x = (-3 ± √(9 + 16)) / 4", "to": "x = 1/2 or x = -2"}, "phrase": "x = (−3 ± √(9 + 16)) / 4", "to": "x = 1/2 or x = −2", "note": "three lines of working right under the question: enclosed, without cutting the question line (a rounded box)"},
+    {"item": {"type": "circle", "id": "pen", "x": 440, "y": 372, "r": 95}, "phrase": "x = (−3 ± √(9 + 16)) / 4", "to": "x = 1/2 or x = −2", "note": "the teacher's screen circle (no find) around the same lines, too small (the owner's screenshot)"},
+    {"item": {"type": "box", "id": "line2", "x": 345, "y": 356, "w": 160, "h": 22, "find": "x = (-3 ± 5) / 4"}, "phrase": "x = (−3 ± 5) / 4", "note": "handwriting: OCR's box is smaller than the ink"},
+    {"item": {"type": "underline", "id": "line1", "x": 341, "y": 346, "w": 250, "find": "x = (-3 ± √(9 + 16)) / 4"}, "phrase": "x = (−3 ± √(9 + 16)) / 4", "note": "the next line starts right below"},
+    {"item": {"type": "bracket", "id": "q2", "x": 330, "y": 285, "h": 24, "find": "Use the quadratic formula to solve"}, "phrase": "2. Use the quadratic formula to solve", "note": "the bracket goes left of the \"2.\", not on it"},
+    {"item": {"type": "arrow", "id": "slope", "x1": 400, "y1": 522, "x2": 430, "y2": 526, "find": "m = (10 - 4) / (3 - 1) = 6 / 2 = 3"}, "phrase": "m = (10 − 4) / (3 − 1) = 6 / 2 = 3", "note": "the model put the tail inside the target"},
+    {"item": {"type": "label", "id": "note", "x": 350, "y": 520, "text": "sign flips here"}, "phrase": "m = (10 − 4) / (3 − 1) = 6 / 2 = 3", "note": "a note the model put on the line it's about"}
+  ]},
+  {"page": "tools/e2e/pages/lecture.html", "screen": [1512, 982], "marks": [
+    {"item": {"type": "underline", "id": "net", "x": 100, "y": 240, "w": 300, "find": "Net force: 10 N − 4 N = 6 N", "label": "subtract"}, "phrase": "Net force: 10 N − 4 N = 6 N"},
+    {"item": {"type": "box", "id": "fr", "x": 420, "y": 180, "w": 220, "h": 30, "find": "friction is 4 N to the left"}, "phrase": "friction is 4 N to the left"},
+    {"item": {"type": "circle", "id": "fric4", "x": 270, "y": 372, "r": 30, "find": "4 N", "label": "-4 N"}, "phrase": "4 N@3", "note": "the diagram's 4 N (the first reading missed it); the sentence's 4 N is far from the mark"}
+  ]},
+  {"page": "tools/tests/snap/pages/edges.html", "screen": [1440, 900], "note": "a window flush with the screen's edges, small checkboxes and icons", "marks": [
+    {"item": {"type": "circle", "id": "file", "x": 30, "y": 10, "r": 30, "find": "File menu", "label": "here"}, "phrase": "File menu"},
+    {"item": {"type": "arrow", "id": "wifi", "x1": 1420, "y1": 60, "x2": 1330, "y2": 12, "find": "Wi-Fi off", "label": "off"}, "phrase": "Wi-Fi off", "note": "the tail was off the screen"},
+    {"item": {"type": "underline", "id": "dl", "x": 2, "y": 848, "w": 70, "find": "Downloads"}, "phrase": "Downloads", "note": "no room under it: the screen ends"},
+    {"item": {"type": "box", "id": "sync", "x": 1270, "y": 828, "w": 85, "h": 18, "find": "Sync paused", "label": "paused"}, "phrase": "Sync paused"},
+    {"item": {"type": "underline", "id": "days", "x": 495, "y": 206, "w": 91, "find": "fourteen days"}, "phrase": "fourteen days", "note": "16 px text, tight lines"},
+    {"item": {"type": "box", "id": "share", "x": 296, "y": 411, "w": 113, "h": 13, "find": "Share data with partners"}, "phrase": "Share data with partners", "note": "11 px text"},
+    {"item": {"type": "circle", "id": "cb", "x": 288, "y": 418, "r": 12}, "phrase": "#cb2", "note": "a 10 px checkbox, no find"},
+    {"item": {"type": "circle", "id": "gear", "x": 292, "y": 498, "r": 14}, "phrase": "#gear", "note": "an icon, no find"},
+    {"item": {"type": "arrow", "id": "trash", "x1": 380, "y1": 540, "x2": 330, "y2": 500}, "phrase": "#trash", "note": "an icon, no find"}
+  ]},
+  {"page": "tools/e2e/pages/chart.html", "screen": [1440, 900], "marks": [
+    {"item": {"type": "circle", "id": "billing", "x": 240, "y": 180, "r": 40, "find": "668", "label": "most: 668"}, "phrase": "668"},
+    {"item": {"type": "underline", "id": "low", "x": 600, "y": 440, "w": 70, "find": "148", "label": "lowest: 148"}, "phrase": "148"}
+  ]},
+  {"page": "tools/tests/snap/pages/dense.html", "screen": [1440, 900], "note": "dense text and a diagram: marks never touch what's around their target", "marks": [
+    {"item": {"type": "circle", "id": "membrane", "x": 358, "y": 155, "r": 57, "find": "The cell membrane controls", "to": "substances away from the", "label": "membrane"}, "phrase": "The cell membrane controls", "note": "a sentence over two lines in the middle of a dense paragraph: the loop may not cut the lines above and below", "to": "substances away from the"},
+    {"item": {"type": "circle", "id": "genetic", "x": 389, "y": 178, "r": 28, "find": "the genetic material"}, "phrase": "the genetic material", "note": "a phrase between two close lines"},
+    {"item": {"type": "circle", "id": "mito", "x": 226, "y": 274, "r": 38, "find": "Mitochondria release energy from glucose"}, "phrase": "Mitochondria release energy from glucose", "note": "a list item with the items above and below 3 pt away"},
+    {"item": {"type": "box", "id": "chloro", "x": 132, "y": 283, "w": 179, "h": 16, "find": "Chloroplasts capture light in plant cells"}, "phrase": "Chloroplasts capture light in plant cells", "note": "a box in a tight list"},
+    {"item": {"type": "circle", "id": "opp", "x": 1074, "y": 250, "r": 28, "find": "opposite", "label": "opposite side"}, "phrase": "opposite", "note": "a diagram label right next to its line"},
+    {"item": {"type": "circle", "id": "adj", "x": 899, "y": 355, "r": 28, "find": "adjacent"}, "phrase": "adjacent", "note": "a diagram label just under the triangle's base"}
+  ]}
+]

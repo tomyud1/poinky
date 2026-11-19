@@ -1,0 +1,326 @@
+[
+ {
+  "id": "student-quiz",
+  "who": "student",
+  "said": "quiz me on this",
+  "checks": [
+   [
+    "asks a question",
+    true
+   ],
+   [
+    "one question at a time (short)",
+    true
+   ],
+   [
+    "no agent / teacher",
+    true
+   ]
+  ],
+  "generic": [
+   [
+    "has <say>",
+    true
+   ],
+   [
+    "spoken style (no markdown/URL/emoji)",
+    true
+   ],
+   [
+    "math said for the ear (no ² = ( ) symbols)",
+    true
+   ],
+   [
+    "nothing outside the tags",
+    true
+   ]
+  ],
+  "passed": true,
+  "say": "Sure, here's your first one. In the light-dependent reactions, where does the energy come from that starts the electron flow?",
+  "tags": [
+   "say"
+  ],
+  "raw": "<say>Sure, here's your first one. In the light-dependent reactions, where does the energy come from that starts the electron flow?</say>",
+  "first_token": 0.8358180522918701,
+  "first_sentence": 1.235386848449707,
+  "total": 1.255025863647461,
+  "input_tokens": 13778,
+  "run": 0
+ },
+ {
+  "id": "student-quiz",
+  "who": "student",
+  "said": "quiz me on this",
+  "checks": [
+   [
+    "asks a question",
+    true
+   ],
+   [
+    "one question at a time (short)",
+    true
+   ],
+   [
+    "no agent / teacher",
+    true
+   ]
+  ],
+  "generic": [
+   [
+    "has <say>",
+    true
+   ],
+   [
+    "spoken style (no markdown/URL/emoji)",
+    true
+   ],
+   [
+    "math said for the ear (no ² = ( ) symbols)",
+    true
+   ],
+   [
+    "nothing outside the tags",
+    true
+   ]
+  ],
+  "passed": true,
+  "say": "Sure, Alex. Let's go. Question one: what are the two photosystems called, and which one comes first in the light-dependent reactions?",
+  "tags": [
+   "say"
+  ],
+  "raw": "<say>Sure, Alex. Let's go. Question one: what are the two photosystems called, and which one comes first in the light-dependent reactions?</say>",
+  "first_token": 0.8934299945831299,
+  "first_sentence": 1.0713000297546387,
+  "total": 1.3298842906951904,
+  "input_tokens": 13781,
+  "run": 1
+ },
+ {
+  "id": "homework-check",
+  "who": "student",
+  "said": "is this right",
+  "checks": [
+   [
+    "says it's not right, or hands the check to the teacher",
+    true
+   ],
+   [
+    "never calls the wrong answer right",
+    true
+   ],
+   [
+    "teacher brief points at the factoring (or says it)",
+    true
+   ],
+   [
+    "no agent",
+    true
+   ]
+  ],
+  "generic": [
+   [
+    "has <say>",
+    true
+   ],
+   [
+    "spoken style (no markdown/URL/emoji)",
+    true
+   ],
+   [
+    "math said for the ear (no ² = ( ) symbols)",
+    false
+   ],
+   [
+    "nothing outside the tags",
+    true
+   ]
+  ],
+  "passed": false,
+  "say": "Not quite, Alex. Your factoring is right, but the first step is wrong. You divided by the 2 too early, so the x squared minus 4x plus 3 is the wrong equation. Divide the whole thing by 2 and you get x squared minus 4x plus 3, so actually the middle is fine. Check the sign on the factors: (x minus 1)(x minus 3) gives x squared minus 4x plus 3, which means your answer x equals 2 is wrong, and the real roots are x equals 1 and x equals 3.",
+  "tags": [
+   "say"
+  ],
+  "raw": "<say>Not quite, Alex. Your factoring is right, but the first step is wrong. You divided by the 2 too early, so the x squared minus 4x plus 3 is the wrong equation. Divide the whole thing by 2 and you get x squared minus 4x plus 3, so actually the middle is fine. Check the sign on the factors: (x minus 1)(x minus 3) gives x squared minus 4x plus 3, which means your answer x equals 2 is wrong, and the real roots are x equals 1 and x equals 3.</say>",
+  "first_token": 0.911125898361206,
+  "first_sentence": 1.0476100444793701,
+  "total": 1.8290159702301025,
+  "input_tokens": 13664,
+  "run": 0
+ },
+ {
+  "id": "homework-check",
+  "who": "student",
+  "said": "is this right",
+  "checks": [
+   [
+    "says it's not right, or hands the check to the teacher",
+    true
+   ],
+   [
+    "never calls the wrong answer right",
+    true
+   ],
+   [
+    "teacher brief points at the factoring (or says it)",
+    true
+   ],
+   [
+    "no agent",
+    true
+   ]
+  ],
+  "generic": [
+   [
+    "has <say>",
+    true
+   ],
+   [
+    "spoken style (no markdown/URL/emoji)",
+    true
+   ],
+   [
+    "<draw> is valid JSON",
+    true
+   ],
+   [
+    "math said for the ear (no ² = ( ) symbols)",
+    true
+   ],
+   [
+    "nothing outside the tags",
+    true
+   ]
+  ],
+  "passed": true,
+  "say": "Not quite, Alex. The factoring is wrong: x squared minus 4x plus 3 is right, but the 2x squared at the start means you can't just drop the 2 by dividing. Let me sketch it out.",
+  "tags": [
+   "draw",
+   "say",
+   "visual"
+  ],
+  "raw": "<say>Not quite, Alex. The factoring is wrong: x squared minus 4x plus 3 is right, but the 2x squared at the start means you can't just drop the 2 by dividing. Let me sketch it out.</say>\n<visual>Lesson. Main idea: \"Dividing both sides by 2 only works if you divide every term, so the x squared stays and the 6 becomes 3, but the factoring check fails\". Cover: start from 2x squared minus 8x plus 6 equals 0; divide each term by 2 to get x squared minus 4x plus 3 equals 0; factor as x minus 1 times x minus 3, so the roots are x equals 1 and x equals 3. Show that the student's (x minus 2)(x minus 3) expands to x squared minus 5x plus 6, which does not match. Point out the correct roots are 1 and 3. Relates to line 3 on the screen, around 360,243.</visual>\n<draw>{\"items\":[{\"type\":\"underline\",\"id\":\"wrong\",\"x\":395,\"y\":243,\"w\":190,\"find\":\"(x − 2)(x − 3) = 0\",\"label\":\"check this\"}]}</draw>",
+  "first_token": 0.7939839363098145,
+  "first_sentence": 0.9273631572723389,
+  "total": 2.5892670154571533,
+  "input_tokens": 13665,
+  "run": 1
+ },
+ {
+  "id": "writer-punchier",
+  "who": "writer",
+  "said": "make this paragraph punchier",
+  "checks": [
+   [
+    "replaces it for them (<do>) or reads a rewrite",
+    false
+   ],
+   [
+    "the new text is shorter than the old",
+    true
+   ],
+   [
+    "<do> carries the exact new text",
+    true
+   ],
+   [
+    "offers to put it in",
+    true
+   ],
+   [
+    "no agent",
+    true
+   ]
+  ],
+  "generic": [
+   [
+    "has <say>",
+    true
+   ],
+   [
+    "spoken style (no markdown/URL/emoji)",
+    true
+   ],
+   [
+    "<draw> is valid JSON",
+    true
+   ],
+   [
+    "math said for the ear (no ² = ( ) symbols)",
+    true
+   ],
+   [
+    "nothing outside the tags",
+    true
+   ]
+  ],
+  "passed": false,
+  "say": "Sure, here's a punchier version. Want me to swap it in?",
+  "tags": [
+   "draw",
+   "say",
+   "visual"
+  ],
+  "raw": "<say>Sure, here's a punchier version. Want me to swap it in?</say>\n<visual></visual>\n<draw>{\"items\":[]}</draw>",
+  "first_token": 0.7366189956665039,
+  "first_sentence": 1.0274300575256348,
+  "total": 1.0455598831176758,
+  "input_tokens": 13708,
+  "run": 0
+ },
+ {
+  "id": "writer-punchier",
+  "who": "writer",
+  "said": "make this paragraph punchier",
+  "checks": [
+   [
+    "replaces it for them (<do>) or reads a rewrite",
+    true
+   ],
+   [
+    "the new text is shorter than the old",
+    true
+   ],
+   [
+    "<do> carries the exact new text",
+    true
+   ],
+   [
+    "offers to put it in",
+    true
+   ],
+   [
+    "no agent",
+    true
+   ]
+  ],
+  "generic": [
+   [
+    "has <say>",
+    true
+   ],
+   [
+    "spoken style (no markdown/URL/emoji)",
+    true
+   ],
+   [
+    "math said for the ear (no ² = ( ) symbols)",
+    true
+   ],
+   [
+    "nothing outside the tags",
+    true
+   ]
+  ],
+  "passed": true,
+  "say": "Here's a punchier version: Onboarding is often slow and clunky, and it could be simpler for everyone involved. Want me to swap it in?",
+  "tags": [
+   "say"
+  ],
+  "raw": "<say>Here's a punchier version: Onboarding is often slow and clunky, and it could be simpler for everyone involved. Want me to swap it in?</say>",
+  "first_token": 0.7603127956390381,
+  "first_sentence": 1.0951077938079834,
+  "total": 1.111872673034668,
+  "input_tokens": 13704,
+  "run": 1
+ }
+]

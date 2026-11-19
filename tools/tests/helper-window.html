@@ -11,7 +11,12 @@
 const results = [], fail = [];
 const check = (ok, what) => { results.push((ok ? 'ok   ' : 'FAIL ') + what); if (!ok) fail.push(what); };
 const done = () => { document.title = fail.length ? 'FAIL' : 'PASS'; window.testResults = { pass: !fail.length, lines: results }; };
-document.getElementById('f').onload = () => {
+// The frame can finish loading before this script runs (it depends on the machine), so run on
+// load, or right away if it already loaded, but only once.
+let started = false;
+const run = () => {
+  if (started) return;
+  started = true;
   try {
     const w = document.getElementById('f').contentWindow, d = w.document, HW = w.HW;
     const q = s => d.querySelector(s), qa = s => [...d.querySelectorAll(s)];
@@ -53,11 +58,19 @@ document.getElementById('f').onload = () => {
     check(qa('.note').some(n => /My plan/.test(n.textContent) && n.querySelector('ol li')), 'notes in full, lists rendered');
     HW.status({ status: 'running', waiting: false, now: 'Running the tests', elapsed: 90 });
     check(!q('#now').hidden && q('#nowTxt').textContent === 'Running the tests' && /^Working · 1:3\d$/.test(q('#pill').textContent), `"doing now" and the time (${q('#pill').textContent})`);
+    HW.status({ tokens: 48100, context: 61234 });
+    check(/^Working · 1:3\d · 48k tokens$/.test(q('#pill').textContent) && /61,234 tokens long/.test(q('#pill').title), `live tokens in the header, its conversation size on hover (${q('#pill').textContent})`);
+    HW.status({ tokens: 48100, liveCost: 0.4321, costEstimated: true });
+    check(/^Working · 1:3\d · 48k tokens · ~\$0\.43$/.test(q('#pill').textContent) && /estimate from tokens/.test(q('#pill').title), `a live cost, marked as an estimate (${q('#pill').textContent})`);
+    HW.status({ liveCost: 0.5, costEstimated: false });
+    check(/ · \$0\.50$/.test(q('#pill').textContent) && !/estimate/.test(q('#pill').title), `Claude Code's own figure has no "~" (${q('#pill').textContent})`);
+    HW.status({ liveCost: -1, costEstimated: false });
+    check(/48k tokens$/.test(q('#pill').textContent), 'an unknown model: tokens only');
     const end = S[S.length - 1];
     HW.add(end); HW.status({ status: 'done', waiting: false });
     check(q('.end .head span').textContent === 'Done' && /All 4 tests pass/.test(q('.end .note').textContent), 'done: its summary');
     check(qa('.note').filter(n => !n.closest('.end') && /All 4 tests pass/.test(n.textContent)).length === 0, 'the summary is shown once');
-    check(q('.end .meta').textContent === 'Worked 2 min · $0.42 of usage', `time and usage (${q('.end .meta').textContent})`);
+    check(q('.end .meta span').textContent === 'Worked 2 min · $0.42 of usage' && q('.end .copy'), `time and usage, and Copy summary (${q('.end .meta').textContent})`);
     check(q('#pill').textContent === 'Done' && q('#stop').hidden && box.disabled, 'finished: Done, no Stop, the box is off');
 
     // Undo: a run with a checkpoint offers it, asks first (naming the files), and shows it's done.
@@ -86,11 +99,90 @@ document.getElementById('f').onload = () => {
     q('#pause').click();
     check(JSON.stringify(w.HW_OUT.slice(-1)[0]) === '{"type":"resume"}', 'Go on tells the app');
 
+    // The overview on the left: who needs you first, what each is doing, where.
+    HW.list([
+      { key: 'a2', name: 'Coral', title: 'Add dark mode', color: '#ff7a59', status: 'running', waiting: true, line: 'Can I run npm install?', dir: 'web-app', elapsed: 300 },
+      { key: 'a1', name: 'Mint', title: 'Fix rounding', color: '#34c98e', status: 'running', line: 'Running the tests', dir: 'tipsplit', elapsed: 125, tokens: 3240 },
+      { key: 'a3', name: 'Violet', title: 'Docs', color: '#9b6bff', status: 'done', line: 'Updated the README.', dir: 'docs', ago: '2 min ago', cost: 0.42 },
+      { key: 'f/x.chat.jsonl', name: 'Amber', title: 'Yesterday', status: 'done', earlier: true, line: 'Did it.', dir: 'api' }], 'a1');
+    const rows = qa('.it');
+    check(rows.length === 4 && rows[0].classList.contains('need') && /Needs you/.test(rows[0].textContent), 'the helper that needs you is first, marked "Needs you"');
+    check(/tipsplit · Running the tests/.test(rows[1].querySelector('.l').textContent) && rows[1].querySelector('small').textContent === '2:05 · 3.2k tokens', `each row: its folder, what it's doing, how long, tokens so far (${rows[1].querySelector('.l').textContent} / ${rows[1].querySelector('small').textContent})`);
+    check(rows[2].querySelector('small').textContent === '2 min ago · $0.42', 'a finished one: when, and its usage (' + rows[2].querySelector('small').textContent + ')');
+    { const now0 = w.Date.now, at = now0.call(w.Date); w.Date.now = () => at + 7000; w.HW._tick(); w.Date.now = now0;
+      const t = qa('.it')[1].querySelector('small').textContent, need = qa('.it')[0].querySelector('small').textContent;
+      check(t === '2:12 · 3.2k tokens' && need === 'Needs you', `a working one's time ticks every second in the list (${t}; ${need})`); }
+    check(!q('#stopAll').hidden, 'two at work: "Stop all" is offered');
+    q('#stopAll').click();
+    check(JSON.stringify(w.HW_OUT.slice(-1)[0]) === '{"type":"stopAll"}', 'Stop all tells the app');
+    const key = (k, o = {}) => d.body.dispatchEvent(new w.KeyboardEvent('keydown', Object.assign({ key: k, bubbles: true, cancelable: true }, o)));
+    q('#box').blur();
+    key('ArrowDown');
+    check(JSON.stringify(w.HW_OUT.slice(-1)[0]) === '{"type":"select","key":"a3"}', `↓ picks the next helper (${JSON.stringify(w.HW_OUT.slice(-1)[0])})`);
+    key('ArrowUp');
+    check(JSON.stringify(w.HW_OUT.slice(-1)[0]) === '{"type":"select","key":"a2"}', '↑ the one before');
+    key('4', { metaKey: true });
+    check(JSON.stringify(w.HW_OUT.slice(-1)[0]) === '{"type":"select","key":"f/x.chat.jsonl"}', '⌘4 jumps to the 4th');
+
+    // What it changed: a bar with the files, ⌘D shows the diff, Esc goes back.
+    HW.init({ name: 'Mint', title: 'Fix rounding', status: 'running', elapsed: 10, terminal: true, files: ['tipsplit.py', 'tests/test_tipsplit.py'], entries: [{ k: 'task', text: 't' }] });
+    check(!q('#changes').hidden && q('#chN').textContent === '2 files' && q('#chFiles').textContent === 'tipsplit.py, test_tipsplit.py', `"Changed 2 files: tipsplit.py, test_tipsplit.py" (${q('#changes').textContent})`);
+    check(!q('#term').hidden, 'a helper with a session can be opened in Terminal');
+    q('#box').blur(); key('t', { metaKey: true });
+    check(JSON.stringify(w.HW_OUT.slice(-1)[0]) === '{"type":"terminal"}', '⌘T opens it in Terminal');
+    key('d', { metaKey: true });
+    check(!q('#diff').hidden && JSON.stringify(w.HW_OUT.slice(-1)[0]) === '{"type":"diff"}', '⌘D asks the app for the diff');
+    const r = HW.diff('diff --git a/tipsplit.py b/tipsplit.py\nindex 1..2 100644\n--- a/tipsplit.py\n+++ b/tipsplit.py\n@@ -1,3 +1,3 @@\n def split(t, n):\n-    return t / n\n+    return round(t / n, 2)\n+# fixed\n# No changes now (committed, undone, or deleted since):\n#   notes.txt');
+    check(r.files === 1 && r.add === 2 && r.del === 1 && /1 file · \+2 −1/.test(q('#diffHead').textContent), `the diff: 1 file, +2 −1 (${q('#diffHead').textContent})`);
+    check(q('#diffBody .a') && q('#diffBody .r') && q('#diffBody .f').textContent === 'tipsplit.py' && /No changes now/.test(q('#diffBody .c').textContent), 'added and removed lines colored, the file named, notes shown');
+    HW.diff('#@since-start\ndiff --git a/a.py b/a.py\n--- a/a.py\n+++ b/a.py\n@@ -1 +1 @@\n-x\n+y');
+    check(/since it started/.test(q('#diffHead').textContent) && !/since-start/.test(q('#diffBody').textContent), `from where it started, it says so (${q('#diffHead').textContent})`);
+    HW.diff('#@branch poinky/coral-20261115t2040\ndiff --git a/a.py b/a.py\n--- a/a.py\n+++ b/a.py\n@@ -1 +1 @@\n-x\n+y');
+    check(/on the git branch poinky\/coral-20261115t2040/.test(q('#diffHead').textContent) && !/#@/.test(q('#diffBody').textContent), `work kept on a branch: it says which (${q('#diffHead').textContent})`);
+    key('Escape');
+    check(q('#diff').hidden, 'Esc goes back from the diff');
+    key('/');
+    check(d.activeElement === q('#box') && q('#box').value === '/', '/ starts a command in the box (like /review)');
+    q('#box').value = ''; q('#box').blur();
+    key('.', { metaKey: true });
+    check(JSON.stringify(w.HW_OUT.slice(-1)[0]) === '{"type":"stop"}', '⌘. stops it');
+    HW.add({ k: 'end', kind: 'done', text: 'Fixed the rounding: shares add up.' });
+    q('.end .copy').click();
+    check(JSON.stringify(w.HW_OUT.slice(-1)[0]) === '{"type":"copy","text":"Fixed the rounding: shares add up."}', 'Copy summary hands its summary to the app');
+
+    // A new helper from the window (⌘N): what, where, which model, plan first.
+    key('n', { metaKey: true });
+    check(!q('#newf').hidden && d.activeElement === q('#nTask') && w.HW_OUT.slice(-1)[0].type === 'newForm' && typeof w.HW_OUT.slice(-1)[0].last === 'string', '⌘N opens the new-helper form, ready to type (and tells the app the folder it used last)');
+    HW.newForm({ folders: [{ path: '/Users/you/projects/api', label: '~/projects/api' }, { path: '/Users/you/projects/web', label: '~/projects/web' }] });
+    check(q('#nDir').value === '/Users/you/projects/api' && q('#nDir').options.length === 3, `its folder: the most recent one, others to pick, or choose (${q('#nDir').value})`);
+    key('ArrowDown');
+    check(w.HW_OUT.slice(-1)[0].type === 'newForm', 'keys typed in the form don’t move the list');
+    // The folder used last time that the app doesn't list (it's gone) isn't offered; one it lists is chosen again.
+    try { w.localStorage.setItem('hw.dir', '/Users/you/projects/deleted'); } catch (e) {}
+    HW.newForm({ folders: [{ path: '/Users/you/projects/api', label: '~/projects/api' }, { path: '/Users/you/projects/web', label: '~/projects/web' }] });
+    check(q('#nDir').value === '/Users/you/projects/api' && ![...q('#nDir').options].some(o => o.value.endsWith('/deleted')), `a folder used last time that's gone isn't offered (${q('#nDir').value})`);
+    try { w.localStorage.setItem('hw.dir', '/Users/you/projects/web'); } catch (e) {}
+    HW.newForm({ folders: [{ path: '/Users/you/projects/api', label: '~/projects/api' }, { path: '/Users/you/projects/web', label: '~/projects/web' }] });
+    check(q('#nDir').value === '/Users/you/projects/web', `the folder used last time is chosen again when it's still there (${q('#nDir').value})`);
+    try { w.localStorage.removeItem('hw.dir'); } catch (e) {}
+    HW.newForm({ folders: [{ path: '/Users/you/projects/api', label: '~/projects/api' }, { path: '/Users/you/projects/web', label: '~/projects/web' }] });
+    q('#nGo').click();
+    check(q('#nErr').textContent === 'Say what it should do.' && !q('#newf').hidden, 'Start with nothing typed says what’s missing');
+    q('#nTask').value = '/review'; q('#nDir').value = '/Users/you/projects/web'; q('#nModel').value = 'opus'; q('#nPlan').checked = true;
+    q('#nTask').dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Enter', metaKey: true, bubbles: true }));
+    check(JSON.stringify(w.HW_OUT.slice(-1)[0]) === '{"type":"new","task":"/review","dir":"/Users/you/projects/web","model":"opus","plan":true}' && q('#newf').hidden, `⌘↩ starts it with the folder, model and plan (${JSON.stringify(w.HW_OUT.slice(-1)[0])})`);
+    key('n', { metaKey: true }); key('Escape');
+    check(q('#newf').hidden, 'Esc closes the form');
+
     // A past helper shown again in full.
     HW.init({ name: 'Coral', title: 'x', color: '#ff7a59', status: 'failed', entries: [{ k: 'task', text: 't' }, { k: 'end', kind: 'failed', text: 'It stopped while: Running the tests' }] });
     check(q('#name').textContent === 'Coral' && qa('.e').length === 2 && q('#pill').textContent === 'Stopped with a problem', 'opening it again redraws everything');
+    check(q('#changes').hidden && q('#term').hidden, 'one with no changed files and no session: no changes bar, no Terminal');
   } catch (e) { check(false, 'error: ' + e.message + ' ' + (e.stack || '').split('\n')[1]); }
   done();
 };
+const frame = document.getElementById('f');
+frame.addEventListener('load', run);
+if (frame.contentDocument?.readyState === 'complete' && frame.contentWindow?.HW) run();
 </script>
 </body>

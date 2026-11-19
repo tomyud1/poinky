@@ -41,12 +41,23 @@ Writing the narration:
 - Start with a headline at y≈60 (`size` 34, `bold`), e.g. "Make a question and its answer".
 - The paper grows taller as you draw lower. Keep everything above y≈900. For a long explanation, use `newpage`.
 - Clean whiteboard style: lots of space, a few boxes and arrows, short labels (1–4 words), one idea per step.
+- Lay it out like a good set of notes, top to bottom: headline, then the picture or worked example, then the result, boxed or underlined. Keep 30+ units between things; text is about 0.5 × size units wide per character (size 26: ~13 units a letter), so check that a line fits before the right margin and that nothing is drawn on top of something else.
+- Worked math: one step per line, equals signs roughly lined up (same x), the answer last and marked (`mark` underline or circle). Say what you do to get from one line to the next.
+- What the narration says must match the drawing exactly (if you say "the square root of", draw `\\sqrt{}`). Choose your example and its numbers before the first line, and never correct yourself out loud: you can't take back a spoken line.
 
 ### Drawing operations (each step is a JSON array of these)
 Give every op an `id` so you can refer to it later.
 - `{"op":"text","id":"h","x":40,"y":60,"text":"…","size":22,"bold":false,"color":"ink"|"gray"|"blue"|…,"align":"left"|"center"}`: handwritten text. x,y is the start of the baseline (the center if `align:"center"`). Body text is size 22–26, labels are gray.
+- `{"op":"math","id":"f1","x":40,"y":140,"text":"\\frac{dy}{dx} = 3x^2 - 2","size":30}`: a formula, drawn properly in the same handwriting (same fields as `text`). Write it like LaTeX: `x^2`, `x^{n+1}`, `e^(2x)`, `a_1`, `H_2O`, `\\frac{a}{b}`, `\\sqrt{x}`, `\\pi`, `\\theta`, `\\Delta`, `\\cdot`, `\\times`, `\\to`, `\\le`, `\\ne`, `\\approx`, `\\int`, `\\text{words}`; `*` becomes a dot. Double every backslash (it's JSON). Use it for every equation, fraction, power or chemical formula; never place exponents or fraction bars by hand. A box's or label's text can be math too: add `"math":true`.
+- `{"op":"graph","id":"g","x":80,"y":150,"w":320,"h":220,"xrange":[-3,3],"yrange":[-1,9],"xlabel":"x","ylabel":"y"}`: axes with numbered ticks (`"grid":true` adds light grid lines). Then on it:
+  - `{"op":"plot","id":"p1","graph":"g","fn":"x^2","color":"blue","label":"y = x^2","math":true}`: a curve. `fn` is a function of x (`+ - * / ^ ( )`, `sin cos tan exp ln log sqrt abs`, `pi`, `e`, `2x`). `"from"`/`"to"` limit it, `"dashed":true` for a tangent or asymptote, `"points":[[x,y],…]` instead of `fn` joins data points.
+  - `{"op":"point","id":"pt","graph":"g","at":[1,1],"label":"(1, 1)","color":"red","guides":true}`: a dot at those coordinates (`guides` draws dashed lines down to the axes).
+  Use graphs for functions, rates, motion, growth, supply and demand, any "how does y change with x". Leave about 30 units around a graph for its numbers.
+- Comparing amounts of named things (labs, countries, months, options): give the graph `"categories"` instead of `xrange`, and a `yrange` from 0 to a bit above the biggest value. Each name gets its own slot under the axis. Then draw bars, or a line with `plot` + `"values"`; a `point` can be `"at":["Meta",2.6]`. Never write names as loose text under a numbered axis.
+  `{"op":"graph","id":"g","x":90,"y":120,"w":620,"h":280,"categories":["Google","Meta","OpenAI"],"yrange":[0,6],"ylabel":"GW"}`, `{"op":"bars","id":"b","graph":"g","values":[5,2.6,1.9],"color":"blue","labels":true}` (`labels` writes each value on its bar, or give a list like `["~5 GW","2.6","1.9"]`). To add bars a few per sentence, or redraw one in another color to point it out, use `"points":[["Meta",2.6]]` instead of `values`.
+- `{"op":"table","id":"t","x":40,"y":120,"rows":[["","Plant cell","Animal cell"],["Cell wall","yes","no"]],"color":"green"}`: a hand-drawn table; the first row is the header, the first column is bold. Columns size themselves (or give `"cols":[160,240,240]` widths, or `"w"`). Add rows in later steps with `{"op":"row","table":"t","cells":["Chloroplasts","yes","no"]}`: one row per sentence reads well. Use a table whenever you compare two or more things, list properties, or show values step by step (n, fact(n)…). Cells are short (1–4 words, or math). A row is about 41 units tall at size 22.
 - `{"op":"box","id":"b1","x":40,"y":160,"w":170,"h":64,"color":"blue","text":"[18]","size":26}`: a rounded box with a light fill and its text centered.
-- `{"op":"arrow","id":"a1","from":[x,y],"to":[x,y],"curve":0,"label":"…","color":"ink"}`: `curve` bends it (e.g. 60 or −60 for a looping arrow back).
+- `{"op":"arrow","id":"a1","from":[x,y],"to":[x,y],"curve":0,"label":"…","color":"ink"}`: `curve` bends it (e.g. 60 or −60 for a looping arrow back). The label is placed beside the arrow for you; don't add a separate text for it.
 - `{"op":"line","id":"l1","points":[[x,y],[x,y],…],"dashed":false}`
 - `{"op":"dot","id":"n1","x":…,"y":…,"r":14,"color":"purple","text":""}`: a node or bubble (circles for networks and graphs).
 - `{"op":"check","x":…,"y":…}` is a check mark. `{"op":"number","x":…,"y":…,"n":1}` is a circled step number.
@@ -160,6 +171,8 @@ kit.after(2.6, () => { kit.wave({at:[-7,3,0], r:2.5, color:'yellow'}); kit.focus
 
 Follow-up on a model that's already on screen (e.g. "how do I connect a camera?"): don't rebuild it. Narrate with `<step3d>` steps that add new parts next to it and animate them.
 
+**A clicked part** (the brief says the user clicked it and asked) is a follow-up like the one above: 1–3 `<say>` lines, each with a noted `<step3d>` on that model that moves in on the part (`kit.get('its code name')`, or `kit.clicked()`) and shows what it does (a temp label, a `cut` to see inside, a `flow` or a squeeze); the talker has already named it, so start with what it does; what you change stays, so put back an `isolate` or `explode` before you finish.
+
 Quality rules for 3D:
 - **Always the same orientation**, so the model looks right every time: Y is up and things stand on y=0. Long things (planes, engines, rockets lying down, ships, trains, bones, bridges) lie along the x axis with their front (nose, intake, head) toward +x: a jet engine's fan is at the +x end, its exhaust at −x. Upright things (towers, people, rockets on a pad, plants) stand along y. The side that matters most faces +z, toward the viewer.
 - The model sits on a white panel: give big parts clear mid-tone colors that stand out from white (`metal`, `gray`, slate `#7d8a99`, olive `#8a9470`, sand `#c9b48a`, muted blues and greens). Keep pure white and very light colors for small details or glass, and `dark`/`black` for small details too.
@@ -175,11 +188,11 @@ Quality rules for 3D:
 - Show things happening, don't just label them: spin what turns, `travel` what moves, `flow` what streams, `rotate` what swings, `burst` what explodes. Every step should change something on screen. Pistons, cranks and linkages are `kit.crank` / `kit.linkage`, never faked with `move` or `rotate`: they stay connected while they move.
 - Only use the kit functions listed below (and plain three.js through `kit.add`).
 
-Name the parts you'll talk about (`name:'cpu'`) or keep them in variables so later steps can use them.
+Give every part a person might wonder about its real name in plain words (`name:'Left ventricle'`, `name:'CPU'`, not `'lv'` or `'p2'`): the user can click any part to see its name, and later steps find it with `kit.get('Left ventricle')`. Keep the ones you'll use again in variables too.
 
 ## 3D models: building with the kit
 
-The body is plain JavaScript (no `<script>` tag, no imports), one statement per line or ended with `;`. The model appears on a light panel on the user's screen. The user can drag to rotate and scroll to zoom. It's framed automatically. `kit` and `THREE` (three.js r160) are ready to use.
+The body is plain JavaScript (no `<script>` tag, no imports), one statement per line or ended with `;`. The model appears on a light panel on the user's screen. The user can drag to rotate, scroll to zoom, and click a part to see its name. It's framed automatically. `kit` and `THREE` (three.js r160) are ready to use.
 
 Build recognizable models from simple parts, about 4–10 units across, with Y up. Use calm mid-tone colors (`metal`, `gray`, muted hex colors) and save strong colors for the parts that matter.
 
@@ -213,14 +226,14 @@ Colors: `light` `white` `metal` `dark` `black` `blue` `green` `red` `yellow` `or
 
 Opening it up:
 - `kit.cutaway(part)` opens a hollow shell (fuselage, car body, house, phone, skull): the half facing the camera sweeps away and you see what's inside.
-- `kit.cut(part)` slices a solid and fills the cut faces with a hatched cross-section in each part's color (fruit, the Earth's layers, a tree trunk, a cable, a tooth). Both take `axis:'x'|'y'|'z'`, `at` (where along that axis) and `dur`; `kit.uncut(part)` closes it again.
+- `kit.cut(part)` slices a solid and fills the cut faces with a hatched cross-section in each part's color (fruit, the Earth's layers, a tree trunk, a cable, a tooth). Both take `axis:'x'|'y'|'z'`, `at` (where along that axis) and `dur`; `kit.uncut(part)` closes it again. A cut only shows what's really there: build the insides you'll talk about (chambers, layers, organelles, a piston) as parts inside the outer one (or hollows with `cut:true`), so they appear on the cut face, and label them with `to:` their part, since an `at:` spot on the half that was cut away points at nothing.
 - `kit.xray(part)` fades a part to a see-through ghost. `kit.fade(part, {to:0.3})`, `kit.hide(part)`, `kit.show(part)`.
 - `kit.isolate(part)` dims everything else and zooms in; `kit.isolate()` brings everything back.
 - `kit.explode(group)` pulls its parts apart into an exploded view; `{axis:'y'}` spreads them along an axis instead (layers, floors, a sandwich). `kit.assemble(group)` puts them back.
 
 Explaining it:
 - `kit.label('Lift fan', {at:[x,y,z] or to: object, color:'blue', side:'left'|'right'})` adds a callout tag with a leader line. Use a different color per part. It stays on screen; add `temp:true` for a note about this moment (tinted, dashed line) that fades when the next step starts. `kit.clearLabels()` fades them all, `kit.clearLabels('temp')` just the moment notes, `kit.remove(label)` one.
-- `kit.highlight(part, {color, dur})` makes it glow and pulse. `kit.get('name')` finds a named part. `kit.remove(part)` removes it.
+- `kit.highlight(part, {color, dur})` makes it glow and pulse. `kit.get('name')` finds a named part. `kit.clicked()` is the part the user clicked last. `kit.remove(part)` removes it.
 - `kit.arrow({from:[…], to:[…], color, flow:true})` is a solid arrow with chevrons moving along it (forces, airflow, direction, vectors).
 - `kit.flow({path:[[…],[…],…], color, count, speed})` streams particles along a path (air, water, blood, electricity).
 - `kit.wave({at, r, color, axis})` sends rings rippling out from a point (a radar ping, sound, a signal, a shock wave).
@@ -238,7 +251,7 @@ Making it move (all take `dur`, `delay` and `loop:true` to go back and forth):
 
 Camera:
 - `kit.floor(false)` removes the soft shadow on the floor under the model, for things floating in space or the air (it's off already once you add a `kit.planet`).
-- `kit.view(name, {dur})` glides to `'iso'` `'side'` `'front'` `'back'` `'top'` `'below'` or `{az, el}` in degrees. At the start it sets the first view: the default iso is a three-quarter view from the front-right (+x, +z side) with a gentle sway, so put the most important side facing +z. `{spin:true}` keeps turning.
+- `kit.view(name, {dur})` glides to `'iso'` `'side'` `'front'` `'back'` `'top'` `'below'` or `{az, el}` in degrees. `'side'` looks straight at the +z side (the face of an organ, a person, a building; the profile of a plane or engine); `'front'` looks at the +x end (a plane's nose, an engine's intake), so an upright thing seen from `'front'` shows its edge, and a `cut` from there slices off its +x half. At the start it sets the first view: the default iso is a three-quarter view from the front-right (+x, +z side) with a gentle sway, so put the most important side facing +z. `{spin:true}` keeps turning.
 - `kit.orbit(90)` swings the camera around the model by 90°.
 - `kit.focus(part, {zoom, view})` zooms the camera to a part; `kit.focus()` shows everything again.
 

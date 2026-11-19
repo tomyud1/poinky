@@ -12,7 +12,7 @@
   @keyframes dr{to{stroke-dashoffset:0}}
   g.fade{transition:opacity .3s}
 
-  .card{position:absolute;display:flex;flex-direction:column;animation:pop .4s cubic-bezier(.2,.9,.3,1.15)}
+  .card{position:absolute;display:flex;flex-direction:column;animation:pop .4s cubic-bezier(.2,.9,.3,1.15);isolation:isolate}
   .card.paper{border-radius:14px;overflow:hidden;background:#fbf8f0;box-shadow:0 22px 60px rgba(0,0,0,.35),0 0 0 1px rgba(0,0,0,.08)}
   .card .bar{height:38px;flex:none;display:flex;align-items:center;justify-content:center;position:relative;cursor:grab;
     font:500 13px ui-monospace,Menlo,monospace;color:#8a8577;background:rgba(0,0,0,.045);border-bottom:1px solid rgba(0,0,0,.06)}
@@ -21,13 +21,12 @@
   .card .x{position:absolute;right:6px;top:5px;width:28px;height:28px;border-radius:14px;border:0;background:rgba(30,32,38,.72);
     color:#fff;font:700 15px -apple-system,system-ui;line-height:28px;padding:0;cursor:pointer;z-index:3;
     box-shadow:0 1px 4px rgba(0,0,0,.25);transition:background .15s,transform .15s}
-  .card .x:hover{background:#ff3b30;transform:scale(1.1)}
-  .card .x:active{transform:scale(.95)}
+  .card .x.hot{background:#ff3b30;box-shadow:0 1px 4px rgba(0,0,0,.25),var(--sb-ring)}
   .card iframe{flex:1;border:0;width:100%;background:transparent;display:block}
   /* 3D models float on the screen with no card around them */
   .card.float .bar{position:absolute;top:0;left:50%;transform:translateX(-50%);width:auto;padding:0 34px 0 14px;border-radius:0 0 10px 10px;
     background:rgba(255,255,255,.85);border:1px solid rgba(0,0,0,.08);border-top:0;opacity:0;transition:opacity .2s;z-index:2}
-  .card.float:hover .bar{opacity:1}
+  .card.float.hot-in .bar{opacity:1}
   .card.float iframe{position:absolute;inset:0;height:100%}
   /* 3D models sit on a light "studio" panel: easy to see on any screen, with a title bar to drag and a close button */
   .card.studio{border-radius:16px;overflow:hidden;background:linear-gradient(180deg,#fbfcfd 0%,#eef1f5 100%);
@@ -47,7 +46,8 @@
   .notes ol{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px}
   .notes li{display:flex;gap:9px;align-items:flex-start;padding:7px 8px;border-radius:9px;cursor:pointer;
     font:500 14.5px/1.3 -apple-system,system-ui,sans-serif;color:#5b616b;transition:background .15s,color .25s;animation:note-in .35s ease-out}
-  .notes li:hover{background:rgba(59,110,246,.08);color:#2b2f36}
+  .notes li.hot{background:rgba(59,110,246,.09);color:#2b2f36;box-shadow:inset 0 0 0 1.5px rgba(59,110,246,.32)}
+  .notes li.hot .n{box-shadow:0 0 0 2px rgba(59,110,246,.35)}
   .notes li .n{flex:none;width:20px;height:20px;border-radius:10px;margin-top:-1px;background:#e3e6eb;color:#7d8592;
     font:700 11.5px/20px -apple-system,system-ui;text-align:center;transition:background .25s,color .25s}
   .notes li.now{color:#1f2328;font-weight:650}
@@ -59,18 +59,37 @@
   .card.photo{animation:drop .5s cubic-bezier(.2,.9,.3,1.2)}
   .card.photo .note{position:relative;flex:1;background:#fff;padding:12px 12px 0;border-radius:3px;cursor:grab;
     box-shadow:0 16px 36px rgba(0,0,0,.33),0 0 0 1px rgba(0,0,0,.05);transform:rotate(var(--tilt,3deg))}
-  .card.photo img{display:block;width:100%;aspect-ratio:4/3;object-fit:cover;background:#ddd;-webkit-user-drag:none;pointer-events:none}
-  .card.photo .pcap{font:700 26px/1.1 Noteworthy,"Chalkboard SE","Marker Felt",ui-rounded,system-ui;color:#25282d;
-    text-align:center;padding:12px 6px 14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  /* The whole picture, never cropped: the card takes the picture's shape (SB.photo sizes it once it has loaded). */
+  .card.photo img{display:block;width:100%;height:auto;aspect-ratio:var(--ar,4/3);object-fit:contain;background:#eee;-webkit-user-drag:none;pointer-events:none}
+  .card.photo .pcap{font:700 24px/1.12 Noteworthy,"Chalkboard SE","Marker Felt",ui-rounded,system-ui;color:#25282d;
+    text-align:center;padding:10px 4px 12px;overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .card.photo .pcap.long{font-size:19px}
+  .card.photo .pcap:empty{padding:0 0 10px}
   .card.photo .tape{position:absolute;top:-11px;left:50%;width:96px;height:24px;margin-left:-48px;transform:rotate(-5deg);
     background:rgba(120,165,235,.55);box-shadow:0 1px 2px rgba(0,0,0,.12)}
   .card.photo .x{top:-10px;right:-10px}
   @keyframes drop{from{opacity:0;transform:translateY(-30px) rotate(-6deg) scale(.9)}to{opacity:1;transform:none}}
   .pill.clear{pointer-events:auto;cursor:pointer;border:0;background:rgba(22,22,26,.82)}
-  .pill.clear:hover{background:#ff3b30}
+  .pill.clear.hot{background:#ff3b30}
   @keyframes pop{from{opacity:0;transform:translateY(12px) scale(.97)}to{opacity:1;transform:none}}
   .card.leaving{transition:opacity .25s,transform .25s;opacity:0;transform:scale(.97)}
 
+  /* Everything you can click, one language (the hover module below sets .hot and .down): under the cursor its
+     color changes and a soft blue ring appears (a cue that isn't only color); pressed, it sinks a little. Drag
+     handles darken and show the grab hand. One timing for all of it; Reduced Motion keeps the colors and rings only. */
+  :root{--sb-hov:.14s cubic-bezier(.25,.8,.35,1);--sb-ring:0 0 0 2px rgba(59,130,255,.6)}
+  button,.notes li,.card .bar,.card.photo .note{transition:background var(--sb-hov),color var(--sb-hov),box-shadow var(--sb-hov),transform var(--sb-hov),filter var(--sb-hov)}
+  button.hot{box-shadow:var(--sb-ring)}
+  button.down,.notes li.down{transform:scale(.94);filter:brightness(.9)}
+  .card .x.down{transform:scale(.9)}
+  .card .bar.hot{background:rgba(0,0,0,.075);cursor:grab}
+  /* …and a grabber appears at its top, so it reads as "drag me" (not only a darker shade). */
+  .card .bar::after{content:'';position:absolute;top:4px;left:50%;width:34px;height:4px;margin-left:-17px;border-radius:2px;
+    background:rgba(0,0,0,.22);opacity:0;transition:opacity var(--sb-hov);pointer-events:none}
+  .card .bar.hot::after{opacity:1}
+  .card .bar.down,.card.photo .note.down{cursor:grabbing}
+  .card.photo .note.hot{cursor:grab;box-shadow:0 18px 40px rgba(0,0,0,.36),var(--sb-ring)}
+  @media (prefers-reduced-motion: reduce){button.down,.notes li.down,.card .x.down{transform:none}}
   #hud{position:absolute;left:50%;bottom:44px;transform:translateX(-50%);width:min(720px,70vw);
     display:flex;flex-direction:column;align-items:center;gap:5px;pointer-events:none;transition:opacity .5s}
   #hud.top{bottom:auto;top:46px}
@@ -106,6 +125,55 @@
 
   // ---------- messages to the app ----------
   function post(msg){ try { window.webkit.messageHandlers.sb.postMessage(msg); } catch(e){} }
+  // ---------- hover and press, for everything Poinky draws that you can click ----------
+  // The overlay is a click-through panel that is never the key window, and the app only lets the mouse in once
+  // it sees the cursor over a control (Overlay.trackMouse): WebKit's own :hover there never comes, or sticks after
+  // the cursor has left. So hover comes from the cursor the app sends every frame (SB.tick → pointAt), with the
+  // page's own mouse moves as well (browsers, tests): the control under it gets .hot, and while the button is
+  // held, .down. HOT lists what counts; filters (hoverIf) can say "not now" (a step that can't be replayed yet).
+  const HOT = 'button:not(:disabled):not([hidden]), [data-hot], .notes li, .lsvg > g[data-step], .card .bar, .card.photo .note';
+  const hoverIf = [], onHot = [];   // onHot: called with (now lit, was lit) when that changes
+  let hot = null, down = null, inFrame = null, hotCard = null;
+  function hotAt(x, y){
+    const e = document.elementFromPoint(x, y);
+    if (!e) return { el: null, frame: null };
+    if (e.tagName === 'IFRAME') return { el: null, frame: e };
+    let t = e.closest ? e.closest(HOT) : null;
+    while (t && hoverIf.some(f => !f(t))) t = t.parentElement && t.parentElement.closest(HOT);
+    return { el: t, frame: null };
+  }
+  function pointAt(p){
+    const { el, frame } = p ? hotAt(p.x, p.y) : { el: null, frame: null };
+    if (el !== hot) setHot(el);
+    const card = (el || frame) && (el || frame).closest('.card');
+    if (card !== hotCard) { if (hotCard) hotCard.classList.remove('hot-in'); hotCard = card || null; if (hotCard) hotCard.classList.add('hot-in'); }
+    // A 3D model's parts light up under the cursor too: its frame gets the pointer (in its own coordinates).
+    if (frame !== inFrame && inFrame) { try { inFrame.contentWindow.postMessage({ sbPointer: null }, '*'); } catch (e) {} }
+    inFrame = frame;
+    if (frame && !down) { const r = frame.getBoundingClientRect(); try { frame.contentWindow.postMessage({ sbPointer: [p.x - r.left, p.y - r.top] }, '*'); } catch (e) {} }
+    return el;
+  }
+  function setHot(el){
+    const was = hot;
+    if (was) was.classList.remove('hot');
+    hot = el;
+    if (el) el.classList.add('hot');
+    onHot.forEach(f => { try { f(el, was); } catch (e) {} });
+  }
+  // Pressed: real mouse downs do reach the page (clicks work), so .down follows them.
+  addEventListener('mousedown', e => {
+    const t = e.target && e.target.closest ? e.target.closest(HOT) : null;
+    if (!t || hoverIf.some(f => !f(t))) return;
+    down = t; t.classList.add('down');
+    if (t !== hot) setHot(t);
+  }, true);
+  const release = () => { if (down) { down.classList.remove('down'); down = null; } };
+  addEventListener('mouseup', release, true);
+  addEventListener('blur', release);
+  addEventListener('mousemove', e => { if (!down) pointAt({ x: e.clientX, y: e.clientY }); }, true);
+  /** For tests: what is lit up right now ("button.x", "li", …). */
+  function hotName(){ return hot ? (hot.tagName.toLowerCase() + (hot.className && typeof hot.className === 'string' ? '.' + hot.className.trim().split(/\s+/).filter(c => c !== 'hot' && c !== 'down').join('.') : '')) : ''; }
+
   function report(){
     const items = [];
     svg.querySelectorAll(':scope > g[data-id]').forEach(g => items.push({id:g.dataset.id, type:g.dataset.type, label:g.dataset.label||''}));
@@ -114,7 +182,9 @@
     // through only inside these rects, so a rect taken mid-animation left the close button unclickable.
     const m = /translate\(([-\d.]+)px, ([-\d.]+)px\)/.exec(cards.style.transform || ''), sx = m ? +m[1] : 0, sy = m ? +m[2] : 0;
     cards.querySelectorAll('.card:not(.leaving)').forEach(c => {
-      const r = {left: c.offsetLeft + sx, top: c.offsetTop + sy, width: c.offsetWidth, height: c.offsetHeight};
+      // A photo's close button and tilted corners stick out of its box: its rect takes them in, so they can be clicked.
+      const out = c.classList.contains('photo') ? 12 : 0;
+      const r = {left: c.offsetLeft + sx - out, top: c.offsetTop + sy - out, width: c.offsetWidth + 2 * out, height: c.offsetHeight + 2 * out};
       rects.push([r.left, r.top, r.width, r.height]);
       items.push({id:c.dataset.id, type:c.dataset.type, label:c.dataset.label||'',
                   box:[Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)]});
@@ -143,12 +213,15 @@
     const r = el('rect', {class:'tagbg', rx:9, ry:9}, t);
     const tx = el('text', {class:'lbl'}, t);
     tx.textContent = text;
+    // Hebrew or Arabic: laid out right to left (its period on the left), anchored at its right edge, written on from the right.
+    const rtl = window.textDir && window.textDir(text) === 'rtl';
+    if (rtl) tx.setAttribute('direction', 'rtl');
     const bb = tx.getBBox();
     const padX = 10, w = bb.width + padX*2, h = 34;
     if (anchor === 'end') x -= w;
     x = Math.max(8, Math.min(innerWidth - w - 8, x)); y = Math.max(30, Math.min(innerHeight - h - 8, y));
     r.setAttribute('x', x); r.setAttribute('y', y); r.setAttribute('width', w); r.setAttribute('height', h);
-    tx.setAttribute('x', x + padX); tx.setAttribute('y', y + h/2 + 7);
+    tx.setAttribute('x', rtl ? x + padX + bb.width : x + padX); tx.setAttribute('y', y + h/2 + 7);
     // Write-on: reveal the handwriting with a growing clip.
     const id = 'lc' + (++clipN);
     const cp = el('clipPath', {id}, t);
@@ -158,7 +231,9 @@
     setTimeout(() => t.animate([{opacity:0, transform:'translateY(3px)'},{opacity:1, transform:'none'}], {duration:220, fill:'forwards'}), (delay ?? 380) - 120);
     const step = now => {
       const u = Math.max(0, Math.min(1, (now - start) / dur));
-      cr.setAttribute('width', (bb.width + 4) * (1 - Math.pow(1 - u, 2)));
+      const cw = (bb.width + 4) * (1 - Math.pow(1 - u, 2));
+      cr.setAttribute('width', cw);
+      if (rtl) cr.setAttribute('x', x + padX + bb.width + 2 - cw);
       if (u < 1) requestAnimationFrame(step);
     };
     requestAnimationFrame(step);
@@ -170,15 +245,49 @@
   }
   // A smooth hand-drawn loop: gentle, slow wobble (no jitter), slightly tilted,
   // overlapping a little at the end like a real pen stroke.
+  // A big loop tilts and wobbles less (in points it stays within ~3 pt), so a loop fitted between two lines of
+  // text never swings into them.
   function loop(cx, cy, rx, ry){
-    const n = 96, start = Math.random()*Math.PI*2, sweep = Math.PI*2*1.07, tilt = rnd(0.12);
+    const n = 96, start = Math.random()*Math.PI*2, sweep = Math.PI*2*1.07, big = Math.max(rx, ry);
+    const tilt = rnd(Math.min(0.12, 3 / big)), wob = Math.min(1, 70 / big);
     const p1 = Math.random()*6.28, p2 = Math.random()*6.28;
     let d = '';
     for (let i=0;i<=n;i++){
       const u = i/n, a = start + sweep*u;
-      const w = 1 + 0.03*Math.sin(a + p1) + 0.015*Math.sin(2*a + p2) - 0.05*u*u;
+      const w = 1 + wob*(0.03*Math.sin(a + p1) + 0.015*Math.sin(2*a + p2)) - 0.05*u*u;
       const x = Math.cos(a)*rx*w, y = Math.sin(a)*ry*w;
       d += (i?'L':'M') + (cx + x*Math.cos(tilt) - y*Math.sin(tilt)).toFixed(1) + ',' + (cy + x*Math.sin(tilt) + y*Math.cos(tilt)).toFixed(1);
+    }
+    return d;
+  }
+  // A rounded box drawn in one pen stroke (a circle mark in dense text, MarkSnapper's `sq`): it starts at the top
+  // left, goes round once and overlaps a little at the end, with a slow gentle wobble (under 1 pt: it may run in a narrow gap between lines).
+  function roundLoop(cx, cy, a, b, r){
+    r = Math.max(0, Math.min(r, a, b));
+    const sx = a - r, sy = b - r, segs = [];
+    const L = [2*sx, Math.PI*r/2, 2*sy, Math.PI*r/2, 2*sx, Math.PI*r/2, 2*sy, Math.PI*r/2], total = L.reduce((p, q) => p + q, 0) || 1;
+    const at = s => {   // the point at arc length s (clockwise from the top left corner's end)
+      s = ((s % total) + total) % total;
+      let i = 0; while (i < 7 && s > L[i]) { s -= L[i]; i++; }
+      const f = L[i] ? s / L[i] : 0, q = Math.PI/2;
+      switch (i) {
+        case 0: return [cx - sx + 2*sx*f, cy - b];
+        case 1: return [cx + sx + r*Math.cos(-q + q*f), cy - sy + r*Math.sin(-q + q*f)];
+        case 2: return [cx + a, cy - sy + 2*sy*f];
+        case 3: return [cx + sx + r*Math.cos(q*f), cy + sy + r*Math.sin(q*f)];
+        case 4: return [cx + sx - 2*sx*f, cy + b];
+        case 5: return [cx - sx + r*Math.cos(q + q*f), cy + sy + r*Math.sin(q + q*f)];
+        case 6: return [cx - a, cy + sy - 2*sy*f];
+        default: return [cx - sx + r*Math.cos(2*q + q*f), cy - sy + r*Math.sin(2*q + q*f)];
+      }
+    };
+    const n = Math.max(60, Math.round(total / 4)), s0 = -total * 0.03, sweep = total * 1.06, p1 = Math.random()*6.28;
+    let d = '';
+    for (let i = 0; i <= n; i++) {
+      const u = i / n, [x, y] = at(s0 + sweep * u);
+      // Inward a touch at the end (like the pen loop) and a slow wobble; both along the way to the center.
+      const off = 0.6 * Math.sin(u * 9 + p1) - 0.8 * u * u, dx = x - cx, dy = y - cy, len = Math.hypot(dx, dy) || 1;
+      d += (i ? 'L' : 'M') + (x + dx / len * off).toFixed(1) + ',' + (y + dy / len * off).toFixed(1);
     }
     return d;
   }
@@ -204,9 +313,12 @@
     }
     switch (it.type) {
       case 'circle': { const cx=s(it.x), cy=s(it.y), r=Math.max(s(it.r),16);
-        ink(g, loop(cx,cy,r*1.15,r)); label(g, cx+r*1.15+10, cy-r*0.55, it.label); break; }
-      case 'box': { const x=s(it.x), y=s(it.y), w=s(it.w), h=s(it.h);
-        ink(g, wobblyRect(x-4,y-4,w+8,h+8)); label(g, x, y-14, it.label); break; }
+        // rx/ry: the app fitted an ellipse around the whole target (several lines, a wide phrase).
+        const rx = it.rx != null ? Math.max(s(it.rx),16) : r*1.15, ry = it.ry != null ? Math.max(s(it.ry),16) : r;
+        // sq: in dense text the app fitted a rounded box instead (a loop would cut the lines around it).
+        ink(g, it.sq != null ? roundLoop(cx, cy, s(it.rx), s(it.ry), s(it.sq)) : loop(cx,cy,rx,ry)); label(g, cx+rx+10, cy-ry*0.55, it.label); break; }
+      case 'box': { const x=s(it.x), y=s(it.y), w=s(it.w), h=s(it.h), p = it.pad != null ? Math.max(0, +it.pad) : 4;   // pad: pt (closer in dense text)
+        ink(g, wobblyRect(x-p,y-p,w+2*p,h+2*p)); label(g, x, y-14, it.label); break; }
       case 'arrow': { const x1=s(it.x1), y1=s(it.y1), x2=s(it.x2), y2=s(it.y2);
         const l = wobblyLine(x1,y1,x2,y2); ink(g, l.d); setTimeout(()=>ink(g, arrowHead(x2,y2,l.cx,l.cy)), 450);
         label(g, x1+(x1<x2?-6:6), y1+(y1<y2?-12:26), it.label); break; }
@@ -292,6 +404,14 @@
             if (d.sbEnd) { end(); return; }
             if (typeof d.sbRun === 'string') { try { kit.run(d.sbRun, d.note); } catch(e){ fail(e); } }
             if (typeof d.sbRevisit === 'number') { try { kit.revisit(d.sbRevisit); } catch(e){} }
+            // The cursor the app tracks (the overlay never gets real mouse moves): the kit's own hover (a part's
+            // name, the hand) runs on it, as if the mouse had moved here.
+            if (typeof d === 'object' && 'sbPointer' in d) {
+              var cv = document.querySelector('#stage canvas'), p = d.sbPointer;
+              if (!p) { if (cv) cv.dispatchEvent(new PointerEvent('pointerleave')); return; }
+              var t = document.elementFromPoint(p[0], p[1]);
+              if (t) t.dispatchEvent(new PointerEvent('pointermove', { clientX: p[0], clientY: p[1], bubbles: true }));
+            }
           });
         })();
       <\/script></body></html>`;
@@ -312,6 +432,7 @@
     Object.assign(c.style, {left:x+'px', top:y+'px', width:w+'px', height:h+'px'});
     c.innerHTML = '<div class="bar"><span></span><button class="x" title="Close">✕</button></div>';
     c.querySelector('.bar span').textContent = it.title || (is3d ? '3D model' : '');
+    c.querySelector('.bar span').dir = (window.textDir ? window.textDir(it.title || '') : 'auto');
     const f = document.createElement('iframe');
     f.setAttribute('sandbox', 'allow-scripts');
     f.srcdoc = is3d ? sceneDoc(it.code || '', !!it.stream) : panelDoc(it.html || it.svg || '');
@@ -347,6 +468,14 @@
         (c._waiting || []).forEach(msg => f.contentWindow.postMessage(msg, '*'));
         c._waiting = [];
       }
+      return;
+    }
+    if (e.data && typeof e.data.sbPicked === 'string') {   // a part of a 3D model was clicked: the talker hears which
+      for (const f of cards.querySelectorAll('iframe')) if (f.contentWindow === e.source) post({kind:'picked', id:f.closest('.card').dataset.id, name:e.data.sbPicked.slice(0, 80), part:String(e.data.part || '').slice(0, 80)});
+      return;
+    }
+    if (e.data && e.data.sbBack) {   // Esc in a model you'd looked back in: its notes show the step it's on again
+      for (const f of cards.querySelectorAll('iframe')) if (f.contentWindow === e.source) f.closest('.card').querySelectorAll('.notes li.viewing').forEach(li => li.classList.remove('viewing'));
       return;
     }
     if (!e.data || !e.data.sbError) return;
@@ -391,6 +520,7 @@
       if (!text) { e.hidden = true; e.textContent=''; return; }
       // Keep long captions short: just the latest part.
       e.textContent = text.length > 240 ? '…' + text.slice(-240) : text; e.hidden = false;
+      e.dir = (window.textDir ? window.textDir(e.textContent) : 'auto');
       document.getElementById('hud').classList.remove('faded');
     },
     /** Captions at the top or bottom of the screen, and fading them out when idle. */
@@ -426,30 +556,61 @@
       if (!o || !o.src) return;
       const id = 'photo-' + (o.for || ++autoId);
       const old = cards.querySelector(`.card[data-id="${CSS.escape(id)}"]`); if (old) old.remove();
-      const owner = o.for ? cards.querySelector(`.card[data-id="${CSS.escape(String(o.for))}"]:not(.leaving)`) : null;
-      const w = Math.round(Math.max(200, Math.min(300, owner ? owner.offsetWidth * 0.32 : 260))), h = Math.round(w * 0.75 + 24 + 52);
-      let x, y;
-      if (owner) {
-        const r = owner.getBoundingClientRect();
-        x = r.right + 18 + w <= innerWidth - 8 ? r.right - w * 0.25 : r.left - w * 0.75;   // overlap the outer top corner
-        // The model has notes on that side: sit past them instead of over them.
-        if (owner.classList.contains('notes-right') && x > r.left) x = r.right + 12 + w <= innerWidth - 8 ? r.right + 12 : r.left - w * 0.75;
-        if (owner.classList.contains('notes-left') && x < r.left) x = r.left - w - 12 >= 8 ? r.left - w - 12 : r.right - w * 0.25;
-        if (x + w > innerWidth - 8) x = r.right - w - 8;
-        x = Math.max(8, x); y = Math.max(46, r.top + 44);   // below the card's title bar, so its close button stays free
-      } else { x = innerWidth - w - 40; y = 90; }
+      // Pinned to its 3D model, or (a lesson's photo) to the open paper; else the top right of the screen.
+      const owner = (o.for ? cards.querySelector(`.card[data-id="${CSS.escape(String(o.for))}"]:not(.leaving)`) : null)
+        || cards.querySelector('.card.lpaper:not(.leaving)');
       const c = document.createElement('div');
       c.className = 'card photo'; c.dataset.id = id; c.dataset.type = 'photo'; c.dataset.label = o.caption || '';
       if (o.for) c.dataset.for = String(o.for);
-      Object.assign(c.style, {left:x+'px', top:y+'px', width:w+'px', height:h+'px'});
       c.innerHTML = '<div class="note"><div class="tape"></div><img><div class="pcap"></div><button class="x" title="Close">✕</button></div>';
-      c.querySelector('.note').style.setProperty('--tilt', (o.tilt ?? (x < (owner ? owner.getBoundingClientRect().left : 0) ? -3 : 3)) + 'deg');
-      c.querySelector('img').src = o.src;
-      c.querySelector('.pcap').textContent = o.caption || '';
+      const img = c.querySelector('img'), cap = c.querySelector('.pcap'), note = c.querySelector('.note');
+      cap.textContent = o.caption || '';
+      cap.classList.toggle('long', (o.caption || '').length > 22);
+      cap.dir = (window.textDir ? window.textDir(o.caption || '') : 'auto');
       c.querySelector('.x').addEventListener('click', () => removeCard(c));
-      dragBy(c.querySelector('.note'), c);
+      dragBy(note, c);
+      // Size: up to 300 wide (a third of its model); a tall picture makes a narrower card, so it's never taller
+      // than ~1.3× its width or 46% of the screen. Then place it beside its owner, never off the screen.
+      const place = ar => {
+        img.style.setProperty('--ar', ar);
+        let w = Math.round(Math.max(200, Math.min(300, owner && !owner.classList.contains('lpaper') ? owner.offsetWidth * 0.32 : 280)));
+        const maxH = Math.min(w * 1.3, innerHeight * 0.46);
+        if ((w - 24) / ar > maxH) w = Math.max(150, Math.round(maxH * ar + 24));
+        c.style.width = w + 'px';
+        const h = c.offsetHeight || Math.round((w - 24) / ar + 70);
+        let x, y;
+        if (owner) {
+          const r = owner.getBoundingClientRect();
+          if (owner.classList.contains('lpaper')) {
+            // Beside the paper (not over the drawing) and off other cards: right, left, then lower down on either
+            // side; with no such room, over the paper's outer top corner.
+            const others = [...cards.querySelectorAll('.card:not(.leaving)')].filter(o => o !== c && o !== owner).map(o => o.getBoundingClientRect());
+            const free = (px, py) => px >= 8 && px + w <= innerWidth - 8 && py + h <= innerHeight - 8 &&
+              !others.some(q => px < q.right + 10 && q.left < px + w + 10 && py < q.bottom + 10 && q.top < py + h + 10);
+            const spots = [[r.right + 14, r.top + 44], [r.left - w - 14, r.top + 44], [r.right + 14, r.bottom - h], [r.left - w - 14, r.bottom - h]];
+            const spot = spots.find(([px, py]) => free(px, py));
+            if (spot) [x, y] = spot;
+            else { x = r.right + 14 + w <= innerWidth - 8 ? r.right + 14 : r.left - w - 14 >= 8 ? r.left - w - 14 : r.right - w * 0.7; y = r.top + 44; }
+          } else {
+            x = r.right + 18 + w <= innerWidth - 8 ? r.right - w * 0.25 : r.left - w * 0.75;   // overlap the outer top corner
+            // The model has notes on that side: sit past them instead of over them.
+            if (owner.classList.contains('notes-right') && x > r.left) x = r.right + 12 + w <= innerWidth - 8 ? r.right + 12 : r.left - w * 0.75;
+            if (owner.classList.contains('notes-left') && x < r.left) x = r.left - w - 12 >= 8 ? r.left - w - 12 : r.right - w * 0.25;
+          }
+          if (y == null) y = r.top + 44;   // below the card's title bar, so its close button stays free
+        } else { x = innerWidth - w - 40; y = 90; }
+        // Room for the tilt and the close button sticking out: 14 points all round.
+        x = Math.max(14, Math.min(innerWidth - w - 14, x));
+        y = Math.max(46, Math.min(innerHeight - h - 14, y));
+        c.style.left = x + 'px'; c.style.top = y + 'px';
+        if (!c.dataset.tilt) c.dataset.tilt = o.tilt ?? (owner && x < owner.getBoundingClientRect().left ? -3 : 3);
+        note.style.setProperty('--tilt', c.dataset.tilt + 'deg');
+        report();
+      };
+      img.addEventListener('load', () => { if (img.naturalWidth && img.naturalHeight) place(img.naturalWidth / img.naturalHeight); });
+      img.src = o.src;
       cards.appendChild(c);
-      report();
+      place(img.naturalWidth && img.naturalHeight ? img.naturalWidth / img.naturalHeight : 4 / 3);
     },
     /** Run more code in an existing 3D model (by id). note: this step's line in the notes beside it. */
     run3d(id, code, note){
@@ -518,6 +679,7 @@
     li.innerHTML = '<span class="n"></span><span class="t"></span>';
     li.querySelector('.n').textContent = i + 1;
     li.querySelector('.t').textContent = text;
+    li.querySelector('.t').dir = (window.textDir ? window.textDir(text) : 'auto');
     ol.appendChild(li);
     box.scrollTo({top: box.scrollHeight, behavior: 'smooth'});
     return i;
@@ -530,11 +692,12 @@
   }
   window.SB = SB;
   // Shared with lesson.js (the paper + pen).
-  window.SBX = { cards, report, removeCard, dragBy };
+  window.SBX = { cards, report, removeCard, dragBy, post, pointAt, hoverIf, onHot, hotName, hotEl: () => hot };
   report();
 })();
 </script>
 <script src="lesson.js"></script>
+<script src="workphoto.js"></script>
 <script src="buddy.js"></script>
 <script src="sounds.js"></script>
 <script src="helpers.js"></script>

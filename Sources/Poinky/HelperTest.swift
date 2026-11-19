@@ -5,7 +5,7 @@ import AppKit
 enum HelperTest {
     private static var manager: AgentManager?
     private static var manager2: AgentManager?
-    private static var away: AwayNotifier?
+    private static var notifier: HelperNotifier?
     private static var restarted = false
     private static var lines: [String] = []
 
@@ -24,7 +24,11 @@ enum HelperTest {
         func counts() -> String { "running \(m.running.count), waiting \(m.queued.count)" }
         m.onHands = { id in log("mouse and keyboard: \(id.map { "#\($0)" } ?? "free")") }
         m.onEvent = { a, e in log("#\(a.id) \(a.name) event \(e)") }
-        m.onChange = { log("change: " + counts()) }
+        m.onStarted = { a in log("#\(a.id) \(a.name) started, its time: \(Int(Date().timeIntervalSince(a.started)))s") }
+        m.onChange = {
+            log("change: " + counts())
+            notifier?.stillOpen(m.agents.flatMap { h in h.asks.map { (h.id, $0) } })   // like the app: answered ones go away
+        }
         func finishIfDone() {
             // Everyone else is done: one still waiting for an answer that never came keeps waiting (then we stop it).
             let waitingOnly = !m.running.isEmpty && m.queued.isEmpty && m.running.allSatisfy { !$0.asks.isEmpty }
@@ -81,8 +85,25 @@ enum HelperTest {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { NSApp.terminate(nil) }
             }
         }
+        // POINKY_TEST_NOTIFY=<allow|deny|choose|open,choose…>: no session runs, so a request becomes a Mac
+        // notification (a fake center: no permission prompt), and these buttons are clicked on it, a second apart.
+        let notifyClicks = (env["POINKY_TEST_NOTIFY"] ?? "").split(separator: ",").compactMap { HelperNotifier.Action(rawValue: String($0)) }
+        let fakeCenter = FakeNotifications()
+        if !notifyClicks.isEmpty {
+            let n = HelperNotifier(poster: fakeCenter)
+            notifier = n
+            var c = config
+            c.helperNotify = true; c.helperNotifyDone = true
+            n.settings(c)
+            n.isAway = { true }
+            fakeCenter.log = { log($0) }
+            n.onAnswer = { id, rid, reply in log("from a notification: #\(id) \(reply) → \(m.answer(id: id, requestID: rid, reply))") }
+            n.onOpen = { id in log("from a notification: open #\(id)'s window") }
+        }
         m.onFinished = { a in
-            log("#\(a.id) \(a.name) FINISHED \(a.status.rawValue) turns=\(a.turns) steps=\(a.steps.count) checklist=\(a.checklist.count) blocked=\(a.blocked.count) followUps=\(a.followUps.count): \(a.summary.prefix(160))")
+            notifier?.stillOpen(m.agents.flatMap { h in h.asks.map { (h.id, $0) } })
+            notifier?.finished(a)
+            log("#\(a.id) \(a.name) FINISHED \(a.status.rawValue) turns=\(a.turns) steps=\(a.steps.count) checklist=\(a.checklist.count) blocked=\(a.blocked.count) followUps=\(a.followUps.count) tokens=\(a.outputTokens)/\(a.contextTokens): \(a.summary.prefix(160))")
             finishIfDone()
         }
         // Answers, by helper: "1=yes,2=No, use a pad helper,3=ignore" (said to it, a second after it asks).
@@ -92,19 +113,17 @@ enum HelperTest {
             if kv.count == 2, let id = Int(kv[0].trimmingCharacters(in: .whitespaces)) { planned[id] = kv[1] }
         }
         let tellFirst = env["POINKY_TEST_TELL"] == "1"
-        // POINKY_TEST_NTFY=<server>: you're away, and questions go to that (fake) ntfy server; its buttons answer.
-        if let server = env["POINKY_TEST_NTFY"] {
-            let n = AwayNotifier()
-            away = n
-            var c = config
-            c.awayNotify = true; c.ntfyServer = server; c.ntfyTopic = "poinky-test"
-            n.settings(c)
-            n.forceAway = true
-            n.onAnswer = { id, rid, reply in log("from the phone: #\(id) \(reply) → \(m.answer(id: id, requestID: rid, reply))") }
-        }
         m.onAsksChanged = { a in
-            away?.stillOpen(Set(m.agents.flatMap { $0.asks.map(\.requestID) }))
-            if let first = a.asks.first { away?.asking(a, first) }
+            notifier?.stillOpen(m.agents.flatMap { h in h.asks.map { (h.id, $0) } })
+            if let n = notifier, let first = a.asks.first {
+                n.asking(a, first, inSession: false)
+                for (k, action) in notifyClicks.enumerated() {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1 + Double(k)) {
+                        log("click \(action.rawValue) on #\(a.id)'s notification")
+                        fakeCenter.click(action, agent: a.id)
+                    }
+                }
+            }
             guard let ask = a.asks.first else { log("#\(a.id) \(a.name) has no open requests"); return }
             log("#\(a.id) \(a.name) ASKS: \(ask.bubble) [\(ask.detail.replacingOccurrences(of: "\n", with: " / "))] spoken: \"\(a.name) \(ask.spoken)\" risky=\(ask.risky)")
             let id = a.id, rid = ask.requestID
@@ -128,7 +147,8 @@ enum HelperTest {
         for (n, task) in tasks.enumerated() {
             // POINKY_TEST_PLAN=1: each makes a plan first and waits for the go-ahead.
             let a = m.start(AgentRequest(title: "Test \(n + 1)", dir: dir, task: task, planFirst: env["POINKY_TEST_PLAN"] == "1"), config: config)
-            log("start \(n + 1): " + (a.map { "#\($0.id) \($0.name) \($0.status.rawValue)" } ?? "FAILED TO START") + " | " + counts())
+            log("start \(n + 1): " + (a.map { "#\($0.id) \($0.name) \($0.status.rawValue) in \($0.dir.path)" } ?? "FAILED TO START" + (m.refusal.map { ": \($0)" } ?? ""))
+                + (m.refusalOffer?.dir.map { " (offer: \($0))" } ?? "") + " | " + counts())
         }
         if let f = env["POINKY_TEST_FOLLOWUP"], let bar = f.firstIndex(of: "|"), let secs = Double(f[..<bar]) {
             let text = String(f[f.index(after: bar)...])
@@ -271,6 +291,7 @@ extension HelperTest {
             hw.agents = m
             m.onChange = { hw.updateAll() }
             hw.onTypedAnswer = { id, reply, text in log("typed \"\(text)\" → answer \(reply): \(hs.answer(id, reply))") }
+            hw.onNew = { req in let a = m.start(req, config: config); log("new from the window: \(req.title) in \(req.dir.map { ($0 as NSString).lastPathComponent } ?? "?") → \(a.map { "#\($0.id) \($0.name)" } ?? "FAILED")"); return a }
             hw.onResume = { past, text in
                 let a = m.resume(past, text: text, config: config)
                 log("continue \(past.name) (session \(past.session.isEmpty ? "none" : "kept")): \(a.map { "#\($0.id) \($0.name)" } ?? "FAILED")")
@@ -290,6 +311,12 @@ extension HelperTest {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
                         hw.evaluateForTest(state + " + ' ' + (document.querySelector('.end .head span') || {}).textContent") { r in log("window at the end: \(r.map { "\($0)" } ?? "nil")") }
                         hw.snapshotForTest(to: URL(fileURLWithPath: outDir + "/window-done.png"))
+                        // What it changed: the bar, then the diff (⌘D), from the app.
+                        hw.evaluateForTest("(() => { const r = document.getElementById('changes').hidden ? 'none' : document.getElementById('chN').textContent + ': ' + document.getElementById('chFiles').textContent; document.body.dispatchEvent(new KeyboardEvent('keydown', {key: 'd', metaKey: true, bubbles: true})); return r; })()") { r in log("window changes: \(r.map { "\($0)" } ?? "nil")") }
+                    }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                        hw.evaluateForTest("document.getElementById('diff').hidden ? 'closed' : document.getElementById('diffBody').textContent.slice(0, 200)") { r in log("window diff: \(r.map { "\($0)" } ?? "nil")") }
+                        hw.evaluateForTest("(() => { document.body.dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape', bubbles: true})); return document.getElementById('diff').hidden; })()") { _ in }
                     }
                     DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
                         hw.evaluateForTest("(() => { const b = document.getElementById('box'); b.value = 'Now also update the README.'; b.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', bubbles: true})); return b.placeholder; })()") { r in log("typed to the finished helper (box said \"\(r ?? "")\")") }
@@ -299,7 +326,18 @@ extension HelperTest {
                         hw.evaluateForTest(state) { r in log("window after continuing: \(r.map { "\($0)" } ?? "nil")") }
                         hw.snapshotForTest(to: URL(fileURLWithPath: outDir + "/window-continued.png"))
                     }
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { hw.close() }
+                    guard ended == 2 else { return }
+                    // A new helper from the window's form (⌘N), in the same folder.
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) {
+                        hw.evaluateForTest("(() => { document.body.dispatchEvent(new KeyboardEvent('keydown', {key: 'n', metaKey: true, bubbles: true})); return 1; })()") { _ in }
+                    }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) {
+                        hw.evaluateForTest("(() => { const t = document.getElementById('nTask'); t.value = 'fixture:quiet Check the README'; document.getElementById('nPlan').checked = false; t.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', metaKey: true, bubbles: true})); return document.getElementById('nDir').value; })()") { r in log("new helper from the window in \((r as? String).map { ($0 as NSString).lastPathComponent } ?? "nil")") }
+                    }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.4) {
+                        hw.evaluateForTest("document.getElementById('name').textContent + ' — ' + document.getElementById('title').textContent + ' | ' + [...document.querySelectorAll('.it .n')].map(e => e.firstChild.textContent).join(',') + (document.getElementById('nErr').textContent ? ' | form says: ' + document.getElementById('nErr').textContent + (document.getElementById('newf').hidden ? '' : ' (form still open)') : '')") { r in log("window after a new helper: \(r.map { "\($0)" } ?? "nil")") }
+                    }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) { hw.close() }
                 }
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 3) { hw.show(1); log("opened #1's window") }
@@ -572,9 +610,253 @@ extension HelperTest {
         check(r0?.model == "claude-opus-5-5" && r0?.planFirst == true && r0?.resumeKey == nil, "talker tags: a model and plan first for one task (\(String(describing: r0)))")
         check(r1?.resumeKey == "3f2a9c1b" && r1?.task == "Also update the README.", "talker tags: continue an earlier helper by its key")
         check(ev2.undos == ["Coral"], "talker tags: undo (\(ev2.undos))")
+        // Typed to a helper by name: "@Mint add tests".
+        for (said, name, intent) in [("@Mint add a test for 4 people", "Mint", HelperTalk.Intent.message("Add a test for 4 people")),
+                                     ("@coral: stop", "Coral", .stop), ("@Mint /review", "Mint", .message("/review")),
+                                     ("@Mint how's it going?", "Mint", .status)] as [(String, String, HelperTalk.Intent)] {
+            let got = HelperTalk.byName(said, names: names)
+            check(got?.name == name && got?.intent == intent, "typed \"\(said)\" → \(got.map { "\($0.name) \($0.intent)" } ?? "not about a helper")")
+        }
+        check(HelperTalk.byName("@Violet add tests", names: names) == nil, "typed \"@Violet …\" with no Violet: not about a helper")
+        // A second Mint ("Mint 2"): said or typed by name, never mixed up with the first one.
+        let names2 = ["Mint", "Coral", "Mint 2"]
+        for (said, name, intent) in [("How's Mint 2 doing?", "Mint 2", HelperTalk.Intent.status), ("how's mint two doing", "Mint 2", .status),
+                                     ("How's Mint doing?", "Mint", .status), ("Tell Mint two to also add a test", "Mint 2", .message("Also add a test")),
+                                     ("tell mint 2 to use yarn", "Mint 2", .message("Use yarn")), ("Tell Mint to use yarn", "Mint", .message("Use yarn")),
+                                     ("Stop Mint 2", "Mint 2", .stop), ("stop mint", "Mint", .stop), ("Mint 2, also update the README", "Mint 2", .message("Also update the README")),
+                                     ("Mint two, wait", "Mint 2", .pause), ("Undo what Mint 2 did", "Mint 2", .undo), ("what's mint number 2 up to", "Mint 2", .status),
+                                     ("@Mint 2 add a test for 4 people", "Mint 2", .message("Add a test for 4 people")), ("@mint2 /review", "Mint 2", .message("/review")),
+                                     ("@Mint-2: stop", "Mint 2", .stop), ("@Mint add a test", "Mint", .message("Add a test"))] as [(String, String, HelperTalk.Intent)] {
+            let got = HelperTalk.byName(said, names: names2)
+            check(got?.name == name && got?.intent == intent, "two Mints: \"\(said)\" → \(got.map { "\($0.name) \($0.intent)" } ?? "not about a helper")")
+        }
+        check(HelperTalk.byName("How's Mint 2 doing?", names: names) == nil, "\"Mint 2\" with only one Mint: not about a helper")
+        check(HelperTalk.without(name: "Mint", in: "Mint 2, yes") == nil && HelperTalk.without(name: "Mint 2", in: "Mint 2, yes") == "yes"
+              && HelperTalk.without(name: "Mint", in: "Mint, yes") == "yes", "answering by name: \"Mint 2, yes\" isn't for Mint")
+        check(HelperTalk.canonical("mint two, yes", names: names2) == "Mint 2, yes" && HelperTalk.canonical("Mint, two tests fail", names: names2) == "Mint, two tests fail",
+              "\"mint two\" → \(HelperTalk.canonical("mint two, yes", names: names2))")
+        // Helper names: never one this run already had (the Helpers window lists them all).
+        let n1 = AgentManager.pickName(used: [("Mint", false)])
+        let n2 = AgentManager.pickName(used: AgentManager.names.map { ($0, false) })
+        let n3 = AgentManager.pickName(used: AgentManager.names.map { ($0, false) } + [("Mint 2", true)], reserved: ["Coral 2"])
+        check(n1 == "Coral" && n2 == "Mint 2" && n3 == "Violet 2", "names: a finished Mint isn't reused (\(n1)); after all six: \(n2), then \(n3)")
+        // Continuing yesterday's Mint while today's Mint (finished) is still listed: not a second "Mint".
+        let n4 = AgentManager.pickName(used: [("Mint", false)], requested: "Mint"), n5 = AgentManager.pickName(used: [("Coral", false)], requested: "Mint")
+        check(n4 == "Coral" && n5 == "Mint", "continuing an earlier Mint: its name only if this run has no Mint (\(n4), \(n5))")
+        // Tokens from the stream: a reply's usage repeats on each of its parts, so it counts once.
+        var ts = HelperStream()
+        let reply = { (id: String, out: Int, ctx: Int, nested: Bool) in
+            #"{"type":"assistant","parent_tool_use_id":"# + (nested ? #""t1""# : "null") + #","message":{"id":""# + id + #"","content":[],"usage":{"input_tokens":3,"cache_read_input_tokens":"# + "\(ctx)" + #","cache_creation_input_tokens":0,"output_tokens":"# + "\(out)" + "}}}\n"
+        }
+        _ = ts.feed(Data((reply("a", 50, 1000, false) + reply("a", 50, 1000, false) + reply("b", 200, 4000, false) + reply("c", 30, 9999, true)).utf8))
+        check(ts.outputTokens == 280 && ts.contextTokens == 4003, "tokens: \(ts.outputTokens) written (each reply once, sub-agents too), conversation \(ts.contextTokens) (not a sub-agent's)")
+        // A live cost estimate from the same tokens (list prices; Claude Code's own figure comes at a turn's end).
+        var cs = HelperStream()
+        let costLines: [String] = [
+            #"{"type":"system","subtype":"init","session_id":"s","model":"claude-sonnet-5-5"}"#,
+            #"{"type":"assistant","parent_tool_use_id":null,"message":{"id":"a","content":[],"usage":{"input_tokens":1000,"cache_read_input_tokens":100000,"cache_creation_input_tokens":20000,"output_tokens":5000}}}"#,
+            #"{"type":"assistant","parent_tool_use_id":null,"message":{"id":"a","content":[],"usage":{"input_tokens":1000,"cache_read_input_tokens":100000,"cache_creation_input_tokens":20000,"output_tokens":5000}}}"#,
+            #"{"type":"assistant","parent_tool_use_id":"t1","message":{"id":"h","model":"claude-haiku-5-5","content":[],"usage":{"input_tokens":0,"cache_read_input_tokens":0,"cache_creation_input_tokens":0,"output_tokens":100000}}}"#]
+        _ = cs.feed(Data(costLines.map { $0 + "\n" }.joined().utf8))
+        // Sonnet 5.5: 1000×2 + 5000×10 + 100000×0.10 + 20000×2.5 = 112,000 µ$ = $0.112; its Haiku sub-agent: 100000×0.5 = $0.05.
+        let est = cs.estimatedCost ?? -1
+        check(abs(est - 0.162) < 0.0001, "cost: estimated from each reply's tokens and its own model (\(est))")
+        let pOpus55: Bool = HelperCost.price(for: "claude-opus-5-5[1m]")?.output == 20
+        let pOpus5: Bool = HelperCost.price(for: "claude-opus-5")?.output == 25
+        let pFable: Bool = HelperCost.price(for: "claude-fable-5-1")?.cacheRead == 0.25
+        check(pOpus55 && pOpus5 && pFable && HelperCost.price(for: "gpt-5") == nil, "cost: the price table picks the right model")
+        let l1 = HelperCost.live(cost: nil, estimate: 0.05, estimateAtCost: 0)
+        let l2 = HelperCost.live(cost: 0.40, estimate: 0.30, estimateAtCost: 0.30)
+        let l3 = HelperCost.live(cost: 0.40, estimate: 0.45, estimateAtCost: 0.30)
+        let l4 = HelperCost.live(cost: nil, estimate: nil, estimateAtCost: 0)
+        let liveOK1: Bool = l1?.estimated == true && l2?.dollars == 0.40 && l2?.estimated == false
+        let liveOK2: Bool = abs((l3?.dollars ?? 0) - 0.55) < 1e-9 && l3?.estimated == true && l4 == nil
+        check(liveOK1 && liveOK2, "cost: Claude Code's figure at a turn's end, plus an estimate after it")
+        changesChecks(check)
+        // A new helper from the Helpers window (⌘N).
+        check(HelperWindows.title(for: "fix the failing login test and add one for expired passwords") == "Fix the failing login test", "new helper: a title from the task (\(HelperWindows.title(for: "fix the failing login test and add one for expired passwords")))")
+        let hw = HelperWindows()
+        var got: AgentRequest?
+        hw.onNew = { req in got = req; return nil }
+        check(hw.startNew(task: "  ", dir: NSHomeDirectory(), model: "", plan: false) == "Say what it should do.", "new helper: nothing to do")
+        check(hw.startNew(task: "x", dir: "/no/such/folder", model: "", plan: false) == "That folder doesn’t exist.", "new helper: a folder that isn't there")
+        _ = hw.startNew(task: "/review", dir: "~", model: "opus", plan: true)
+        check(got?.task == "/review" && got?.dir == NSHomeDirectory() && got?.model == "claude-opus-5-5" && got?.planFirst == true,
+              "new helper: task, folder (~ expanded), model and plan reach the app (\(String(describing: got)))")
+        editMenuChecks(check)
         askChecks(check)
+        notifierChecks(check)
         lines.append(fails == 0 ? "ALL OK" : "\(fails) FAILED")
         try? lines.joined(separator: "\n").write(toFile: out, atomically: true, encoding: .utf8)
         DispatchQueue.main.async { NSApp.terminate(nil) }
+    }
+
+    /// What a helper changed (files from its steps, their diff in a scratch git repo), and the Terminal script.
+    static func changesChecks(_ check: (Bool, String) -> Void) {
+        let fm = FileManager.default
+        let repo = fm.temporaryDirectory.appendingPathComponent("poinky-changes-\(UUID().uuidString.prefix(6))").resolvingSymlinksInPath()
+        defer { try? fm.removeItem(at: repo) }
+        try? fm.createDirectory(at: repo, withIntermediateDirectories: true)
+        func sh(_ args: [String]) { let p = Process(); p.executableURL = URL(fileURLWithPath: "/usr/bin/git"); p.arguments = ["-C", repo.path] + args
+            p.standardOutput = FileHandle.nullDevice; p.standardError = FileHandle.nullDevice; try? p.run(); p.waitUntilExit() }
+        try? "def add(a, b):\n    return a - b\n".write(to: repo.appendingPathComponent("calc.py"), atomically: true, encoding: .utf8)
+        try? "notes\n".write(to: repo.appendingPathComponent("notes.txt"), atomically: true, encoding: .utf8)
+        sh(["init", "-q"]); sh(["add", "-A"]); sh(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "start"])
+        try? "notes\nmine, not committed\n".write(to: repo.appendingPathComponent("notes.txt"), atomically: true, encoding: .utf8)
+        let base = HelperChanges.startPoint(repo)   // when the helper starts: your uncommitted change is part of it
+        try? "notes\n".write(to: repo.appendingPathComponent("notes.txt"), atomically: true, encoding: .utf8)
+        try? "def add(a, b):\n    return a + b\n".write(to: repo.appendingPathComponent("calc.py"), atomically: true, encoding: .utf8)
+        try? "def test_add():\n    assert add(1, 2) == 3\n".write(to: repo.appendingPathComponent("test_calc.py"), atomically: true, encoding: .utf8)
+        let p = { (f: String) in repo.appendingPathComponent(f).path }
+        let entries = [HelperEntry(k: "task", text: "t", detail: repo.path, kind: "Mint"),
+                       HelperEntry(k: "step", text: "Reading calc.py", detail: p("calc.py"), kind: "read"),
+                       HelperEntry(k: "step", text: "Editing calc.py", detail: p("calc.py"), kind: "edit"),
+                       HelperEntry(k: "step", text: "Writing test_calc.py", detail: p("test_calc.py"), kind: "edit"),
+                       HelperEntry(k: "step", text: "Editing calc.py", detail: p("calc.py"), kind: "edit"),
+                       HelperEntry(k: "step", text: "Editing notes.txt", detail: p("notes.txt"), kind: "edit")]
+        let files = HelperChanges.files(entries)
+        check(files == [p("calc.py"), p("test_calc.py"), p("notes.txt")], "changes: the files it edited, once each, in order (\(files.map { ($0 as NSString).lastPathComponent }))")
+        check(HelperWindows.short(p("calc.py"), in: repo) == "calc.py", "changes: shown relative to its folder")
+        let d = HelperChanges.diff(files: files, in: repo)
+        let c = HelperChanges.counts(d)
+        check(d.contains("-    return a - b") && d.contains("+    return a + b"), "changes: the diff of an edited file")
+        check(d.contains("+++ b/test_calc.py") && d.contains("+    assert add(1, 2) == 3"), "changes: a new file in full")
+        check(d.contains("No changes now") && d.contains("notes.txt"), "changes: a file with no changes now is named, not hidden")
+        check(c.added == 3 && c.removed == 1, "changes: +\(c.added) −\(c.removed)")
+        // It commits its work: from where it started, that still shows; from HEAD it doesn't.
+        sh(["add", "-A"]); sh(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "helper"])
+        let since = HelperChanges.diff(files: files, in: repo, base: base)
+        check(base != nil && since.hasPrefix("#@since-start") && since.contains("+    return a + b") && since.contains("+++ b/test_calc.py"),
+              "changes: what it committed still shows (from where it started)")
+        check(since.contains("-mine, not committed"), "changes: from where it started, your folder as it was then (\(HelperChanges.counts(since)))")
+        check(HelperChanges.diff(files: files, in: repo).contains("No changes now"), "changes: without a start point, only what isn't committed")
+        check(HelperChanges.base([HelperEntry(k: "worktree", text: "/r", detail: "/w", id: "abc123")]) == "abc123", "changes: a worktree's start point")
+        // Work kept on a branch (its worktree's changes didn't fit): the window shows that branch.
+        sh(["checkout", "-q", "-b", "poinky/coral-test"])
+        try? "def add(a, b):\n    return b + a\n".write(to: repo.appendingPathComponent("calc.py"), atomically: true, encoding: .utf8)
+        sh(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qam", "coral"])
+        sh(["checkout", "-q", "-"])
+        let head = { () -> String in let p = Process(); let o = Pipe(); p.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+            p.arguments = ["-C", repo.path, "rev-parse", "HEAD"]; p.standardOutput = o; try? p.run(); p.waitUntilExit()
+            return String(decoding: o.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines) }()
+        let kept = [HelperEntry(k: "worktree", text: repo.path, detail: "/tmp/gone-worktree-xyz", id: head),
+                    HelperEntry(k: "branch", text: repo.path, id: "poinky/coral-test")]
+        let bd = HelperChanges.branchDiff(kept) ?? ""
+        check(bd.hasPrefix("#@branch poinky/coral-test") && bd.contains("+    return b + a") && bd.contains("-    return a + b"), "changes: work kept on a branch shows that branch's diff")
+        check(HelperChanges.branchDiff([HelperEntry(k: "branch", text: repo.path, id: "poinky/gone")])?.contains("isn't there any more") == true, "changes: a branch that's gone says so")
+        check(HelperChanges.branchDiff(entries) == nil, "changes: no branch, no branch diff")
+        let nogit = HelperChanges.diff(files: ["/tmp/x.txt"], in: URL(fileURLWithPath: "/"))
+        check(nogit.hasPrefix("# Not in a git repository"), "changes: not in a repo, it says so")
+        // A worktree that's gone: its files are shown in your folder.
+        let wt = [HelperEntry(k: "worktree", text: repo.path, detail: "/tmp/gone-worktree-xyz"),
+                  HelperEntry(k: "step", text: "e", detail: "/tmp/gone-worktree-xyz/calc.py", kind: "edit")]
+        check(HelperChanges.files(wt) == [p("calc.py")], "changes: from a worktree that's gone, the same file in your folder")
+        let script = HelperChanges.terminalScript(claude: "/usr/local/bin/claude", dir: URL(fileURLWithPath: "/Users/x/My Project"), session: "3f2a-9c1b", fork: true)
+        check(script.contains("cd '/Users/x/My Project'") && script.contains("exec '/usr/local/bin/claude' --resume 3f2a-9c1b --fork-session"), "terminal: resumes its session in its folder (a copy while it works)")
+        let odd = HelperChanges.terminalScript(claude: "claude", dir: URL(fileURLWithPath: "/x"), session: "a'b; rm", fork: false)
+        check(odd.contains("--resume 'a'\\''b; rm'") && !odd.contains("--fork-session"), "terminal: an odd session id is quoted")
+    }
+
+    /// ⌘C / ⌘V / ⌘A / ⌘Z work in the type box and the Helpers window (a menu bar app has no Edit menu of its own).
+    static func editMenuChecks(_ check: (Bool, String) -> Void) {
+        EditMenu.install()
+        let keys = Dictionary((NSApp.mainMenu?.items ?? []).flatMap { $0.submenu?.items ?? [] }
+            .filter { !$0.keyEquivalent.isEmpty }.map { ($0.keyEquivalent + ($0.keyEquivalentModifierMask.contains(.shift) ? "⇧" : ""), $0.action) }, uniquingKeysWith: { a, _ in a })
+        let want: [(String, Selector)] = [("c", #selector(NSText.copy(_:))), ("v", #selector(NSText.paste(_:))), ("x", #selector(NSText.cut(_:))),
+                                          ("a", #selector(NSText.selectAll(_:))), ("z", Selector(("undo:"))), ("z⇧", Selector(("redo:"))),
+                                          ("w", #selector(NSWindow.performClose(_:)))]
+        for (k, sel) in want { check(keys[k] == sel, "edit menu: ⌘\(k.uppercased()) → \(NSStringFromSelector(sel))") }
+    }
+}
+
+extension HelperTest {
+    /// Mac notifications for helpers, through a fake notification center (no permission prompt on this Mac).
+    static func notifierChecks(_ check: (Bool, String) -> Void) {
+        func request(_ id: String, _ tool: String, _ input: [String: Any]) -> HelperAsk? {
+            HelperAsk.from(["type": "control_request", "request_id": id, "request": ["subtype": "can_use_tool", "tool_name": tool, "input": input]])
+        }
+        guard let npm = request("r1", "Bash", ["command": "make build"]),
+              let push = request("r2", "Bash", ["command": "git push origin main --force"]),
+              let edit = request("r3", "Edit", ["file_path": "/tmp/proj/calc.py"]),
+              let q = request("r4", "AskUserQuestion", ["questions": [["question": "Tabs or spaces?", "options": [["label": "Tabs"], ["label": "Spaces"]]]]]),
+              let plan = request("r5", "ExitPlanMode", ["plan": "# Fix the rounding\n1. Read calc.py"])
+        else { check(false, "notifier: requests parse"); return }
+        let fake = FakeNotifications()
+        let n = HelperNotifier(poster: fake)
+        var c = AppConfig()
+        c.helperNotify = true
+        n.settings(c)
+        var away = false
+        n.isAway = { away }
+        var answers: [(Int, String, HelperAsk.Reply)] = [], opened: [Int] = []
+        n.onAnswer = { answers.append(($0, $1, $2)) }
+        n.onOpen = { opened.append($0) }
+        var a = AgentManager.Agent(id: 7, name: "Mint 2", title: "Add left-pad to the demo", task: "…", dir: URL(fileURLWithPath: "/tmp/proj"), started: Date(), log: URL(fileURLWithPath: "/tmp/x.md"))
+
+        n.asking(a, npm, inSession: true)
+        check(fake.posted.isEmpty, "notifier: in a session Poinky says it out loud (no notification)")
+        n.asking(a, npm, inSession: false)
+        let p1 = fake.posted.last
+        check(p1?.title == "Mint 2: Add left-pad to the demo" && p1?.body == "Can I run make build?" && p1?.category == HelperNotifier.askCategory,
+              "notifier: no session: its name and task, the plain question (\(p1.map { "\($0.title) / \($0.body)" } ?? "none"))")
+        n.asking(a, npm, inSession: true, parked: true)
+        check(fake.posted.count == 1, "notifier: parked later: not shown twice")
+        fake.click(.allow, agent: 7)
+        check(answers.count == 1 && answers[0].0 == 7 && answers[0].1 == "r1" && answers[0].2 == .yes(always: false, extra: ""),
+              "notifier: Allow answers that one request with a plain yes (never \"always\")")
+        fake.click(.allow, agent: 7)
+        check(answers.count == 1, "notifier: a second click on an answered one does nothing")
+
+        // Answered by voice (or on the card): its notification goes away, and its buttons no longer count.
+        n.asking(a, edit, inSession: false)
+        n.stillOpen([])
+        check(fake.removed.contains(HelperNotifier.id(edit)), "notifier: answered elsewhere: its notification is removed")
+        fake.click(.allow, agent: 7)
+        check(answers.count == 1, "notifier: … and Allow on it does nothing")
+
+        // Risky: Allow still works (an explicit click), but the exact command is said, and the Allow is the red one.
+        a.asks = [push]
+        n.asking(a, push, inSession: true, parked: true)
+        let p2 = fake.posted.last
+        check(p2?.category == HelperNotifier.riskyCategory && p2?.body.contains("git push origin main --force") == true,
+              "notifier: a risky one says exactly what it runs (\(p2?.body.replacingOccurrences(of: "\n", with: " / ") ?? ""))")
+        fake.click(.deny, agent: 7)
+        check(answers.last?.1 == "r2" && answers.last?.2 == .no(reason: ""), "notifier: Don't allow says no")
+
+        // A question: Open shows its window (answers nothing); You choose answers it.
+        n.asking(a, q, inSession: false)
+        check(fake.posted.last?.category == HelperNotifier.questionCategory && fake.posted.last?.body == "Tabs or spaces?\nTabs · Spaces", "notifier: a question with its choices")
+        let before = answers.count
+        fake.click(.allow, agent: 7)
+        fake.click(.open, agent: 7)
+        check(answers.count == before && opened == [7, 7], "notifier: a question isn't answered by Allow; Open shows its window")
+        fake.click(.choose, agent: 7)
+        check(answers.last?.1 == "r4" && answers.last?.2 == .answer("No preference: you choose."), "notifier: You choose answers the question")
+
+        n.asking(a, plan, inSession: false)
+        check(fake.posted.last?.category == HelperNotifier.planCategory && fake.posted.last?.body.contains("Fix the rounding") == true, "notifier: a plan, with its title")
+
+        // Finished: only when asked for, and only while you're away.
+        a.status = .done; a.summary = "Added left-pad. All tests pass. Nothing else changed."
+        let count = fake.posted.count
+        n.finished(a)
+        check(fake.posted.count == count, "notifier: finished: off unless you turn it on")
+        c.helperNotifyDone = true
+        n.settings(c); n.isAway = { away }
+        n.finished(a)
+        check(fake.posted.count == count, "notifier: finished while you're at the Mac: no notification")
+        away = true
+        n.finished(a)
+        check(fake.posted.last?.title == "Mint 2 finished: Add left-pad to the demo" && fake.posted.last?.body == "Added left-pad. All tests pass.",
+              "notifier: finished while away: \(fake.posted.last.map { "\($0.title) / \($0.body)" } ?? "none")")
+        fake.click(.open, agent: 7)
+        check(opened.last == 7, "notifier: clicking it opens its window")
+
+        // Turned off: nothing, and what was shown goes away.
+        c.helperNotify = false
+        n.settings(c)
+        let count2 = fake.posted.count
+        n.asking(a, edit, inSession: false)
+        check(fake.posted.count == count2 && fake.removed.contains(HelperNotifier.id(plan)), "notifier: turned off: no notifications, open ones removed")
     }
 }

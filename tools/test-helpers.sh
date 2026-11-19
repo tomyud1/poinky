@@ -14,8 +14,11 @@ bad()  { printf "  \033[31mFAIL\033[0m %s\n" "$1"; fail=1; }
 expect() { grep -qE "$2" "$1" && pass "$3" || { bad "$3"; sed 's/^/       /' "$1" | grep -v " event " | head -40; }; }
 
 echo "1. Parser"
-swiftc -O -o "$TMP/parser" Sources/Poinky/HelperEvents.swift Sources/Poinky/HelperAsk.swift Sources/Poinky/HelperTranscript.swift tools/tests/helper-events/main.swift 2>"$TMP/swiftc.log" || { cat "$TMP/swiftc.log"; exit 1; }
+swiftc -O -o "$TMP/parser" Sources/Poinky/HelperEvents.swift Sources/Poinky/HelperCost.swift Sources/Poinky/HelperAsk.swift Sources/Poinky/HelperTranscript.swift tools/tests/helper-events/main.swift 2>"$TMP/swiftc.log" || { cat "$TMP/swiftc.log"; exit 1; }
 "$TMP/parser" tools/helper-runs | grep -E "ok|FAIL" ; "$TMP/parser" tools/helper-runs >/dev/null || fail=1
+
+echo "1a. The talker's replies: offers, and the talker eval replayed (no tokens)"
+tools/test-talker.sh | sed 's/^/  /' ; [ "${PIPESTATUS[0]}" = 0 ] || fail=1
 
 echo "1b. Helper choreography in a browser (many at once: no overlaps, one hand-off and one report at a time)"
 if [ -x "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" ] && node -e "process.exit(typeof WebSocket === 'function' ? 0 : 1)" 2>/dev/null; then
@@ -43,10 +46,12 @@ run A POINKY_TEST_FOLLOWUP="2|Also add a test for 4 people." "$BIN" --helper-tes
   fixture:fix-bug fixture:todo-blocked fixture:crash fixture:two-turns
 expect "$TMP/A.txt" "start 4: #4 Amber queued" "the 4th waits in line"
 expect "$TMP/A.txt" "#3 Violet FINISHED failed" "a crash counts as failed"
-expect "$TMP/A.txt" "#1 Mint FINISHED done .*followUps=1: All 4 tests pass.*" "a follow-up reaches a working helper"
+expect "$TMP/A.txt" "#1 Mint FINISHED done .*followUps=1 tokens=[0-9/]*: All 4 tests pass.*" "a follow-up reaches a working helper"
 expect "$TMP/A.txt" "Also handled: Also add a test for 4 people" "the follow-up is folded into its work"
 expect "$TMP/A.txt" "#2 Coral FINISHED done .*checklist=4 blocked=5" "to-do list and refusals are tracked"
+expect "$TMP/A.txt" "#2 Coral FINISHED done .*tokens=[1-9][0-9]*/[1-9][0-9]*:" "tokens are counted while it works (written / its conversation)"
 expect "$TMP/A.txt" "#4 Amber FINISHED done" "the waiting helper runs after a slot frees up"
+expect "$TMP/A.txt" "#4 Amber started, its time: 0s" "its time counts from when it starts working, not from when it got in line"
 expect "$TMP/A.txt" "ALL DONE" "everything finishes"
 
 echo "4. Stop, and a follow-up right after a helper finished"
@@ -55,6 +60,28 @@ run B POINKY_FAKE_SPEED=1 POINKY_TEST_MAX=2 POINKY_TEST_STOP=1 POINKY_TEST_FOLLO
 expect "$TMP/B.txt" "#1 Mint FINISHED done turns=2 .*: two" "a follow-up just after the result starts a new turn"
 expect "$TMP/B.txt" "Coral \"Test 2\": stopped by the user" "stop works"
 expect "$TMP/B.txt" "#3 Violet FINISHED failed .*I hit an error" "an error result counts as failed"
+
+echo "4a. What a helper starts ends with it: on Stop, when it finishes, and when Poinky is force-quit"
+alive() { local n=0; for p in $(cat "$1" 2>/dev/null); do kill -0 "$p" 2>/dev/null && n=$((n+1)); done; echo $n; }
+cleanup_pids() { for p in $(cat "$1" 2>/dev/null); do kill -9 "$p" 2>/dev/null; done; }
+run G POINKY_FAKE_SPEED=1 POINKY_TEST_MAX=2 POINKY_TEST_STOP=1 POINKY_FAKE_CHILD_PIDS="$TMP/G.pids" "$BIN" --helper-test "$TMP/G.txt" "$TMP/proj" \
+  "fixture:two-turns spawn-child" "fixture:fix-bug spawn-child"
+sleep 1
+[ -s "$TMP/G.pids" ] && [ "$(alive "$TMP/G.pids")" = 0 ] && pass "a stopped helper's and a finished helper's children are gone" \
+  || { bad "children left running: $(alive "$TMP/G.pids") of $(wc -l < "$TMP/G.pids")"; cleanup_pids "$TMP/G.pids"; }
+env POINKY_AGENT_LOG_DIR="$TMP/logs-H" POINKY_HELPER_CMD="$ROOT/tools/fake-helper.py" POINKY_FAKE_SPEED=0.2 POINKY_FAKE_CHILD_PIDS="$TMP/H.pids" \
+  "$BIN" --helper-test "$TMP/H.txt" "$TMP/proj" "fixture:fix-bug spawn-child" &
+HPID=$!   # (env execs Poinky: this is its pid)
+for _ in $(seq 1 40); do [ -s "$TMP/H.pids" ] && break; sleep 0.25; done
+kill -9 "$HPID" 2>/dev/null; wait "$HPID" 2>/dev/null
+sleep 4
+[ -s "$TMP/H.pids" ] && [ "$(alive "$TMP/H.pids")" = 0 ] && pass "Poinky force-quit: the helper and its child end too" \
+  || { bad "after a force-quit: $(alive "$TMP/H.pids") of the helper's processes still running"; cleanup_pids "$TMP/H.pids"; }
+
+echo "4a2. A folder that isn't there: refused in plain words (it used to run in the home folder), the closest one offered"
+run M "$BIN" --helper-test "$TMP/M.txt" "$TMP/proj/gone/deeper" fixture:quiet 2>/dev/null &
+MPID=$!; for _ in $(seq 1 20); do grep -q "start 1" "$TMP/M.txt" 2>/dev/null && break; sleep 0.25; done; kill "$MPID" 2>/dev/null; wait "$MPID" 2>/dev/null
+expect "$TMP/M.txt" "start 1: FAILED TO START: The helper would work in .*/gone/deeper, but that folder isn't there anymore\. \(offer: .*/proj\)" "a gone folder is refused, its closest parent offered"
 
 echo "4b. Raising a hand: yes, no, a question, and one nobody answers"
 run C POINKY_TEST_TELL=1 POINKY_TEST_ANSWERS="1=yes;2=No, write a small pad helper instead;3=ignore;4=The database" "$BIN" --helper-test "$TMP/C.txt" "$TMP/proj" \
@@ -109,6 +136,7 @@ run W POINKY_FAKE_SPEED=1 POINKY_TEST_UNDO=3 "$BIN" --helper-test "$TMP/W.txt" "
 grep -q "Brought its changes into repo: c.txt" "$TMP"/logs-W/*.chat.jsonl && pass "a clean one's changes come back into your folder" || bad "a clean one's changes come back into your folder"
 expect "$TMP/W.txt" "#2 Coral FINISHED done.*on the git branch poinky/coral-" "one that overlaps is kept on a branch (and its report says so)"
 (cd "$TMP/repo" && git branch --list 'poinky/coral-*' | grep -q coral) && pass "the branch is there" || bad "the branch is there"
+grep -h '"k":"branch"' "$TMP"/logs-W/*.chat.jsonl | grep -q 'poinky\\/coral-' && pass "its window knows the branch (⌘D shows its diff)" || bad "its window knows the branch (⌘D shows its diff)"
 grep -q "mint was here" "$TMP/repo/notes.txt" && grep -q "your own change" "$TMP/repo/README.md" && pass "nothing of yours (or the first helper's) is overwritten" || bad "nothing of yours (or the first helper's) is overwritten"
 expect "$TMP/W.txt" "undo #3: done" "undoing one from a worktree takes its changes out again"
 [ ! -f "$TMP/repo/c.txt" ] && pass "(c.txt is gone)" || bad "(c.txt is gone)"
@@ -131,17 +159,19 @@ awk -v f="$first" -v s="$second" -v n="$firstName" '
 expect "$TMP/H.txt" "#$second $secondName FINISHED done" "then it gets its turn and finishes"
 grep -q "Waiting for the mouse and keyboard ($firstName is using them)" "$TMP"/logs-H/*.chat.jsonl && pass "its window says it's waiting for the mouse" || bad "its window says it's waiting for the mouse"
 
-echo "4j. Away: a helper's question reaches your phone (a fake ntfy server), and its button answers it"
-NP=$((8800 + RANDOM % 600))
-python3 tools/fake-ntfy.py $NP "$TMP/ntfy.txt" tap & NPID=$!
-sleep 0.5
-run N POINKY_TEST_NTFY="http://127.0.0.1:$NP" "$BIN" --helper-test "$TMP/N.txt" "$TMP/proj" fixture:ask-install
-kill $NPID 2>/dev/null
-expect "$TMP/ntfy.txt" "notification on poinky-test: title='Mint needs your OK' message='Can I run npm install left-pad\\?\\\\nnpm install left-pad'" "it says who needs what"
-expect "$TMP/ntfy.txt" "actions=.http, Allow, http://127.0.0.1:$NP/poinky-test-reply, method=POST, body=yes [^ ]+ [a-z0-9]{10}" "with Allow / Don't allow buttons (and a one-time code)"
-expect "$TMP/N.txt" "from the phone: #1 yes.*→ sent" "tapping Allow answers it"
-expect "$TMP/N.txt" "#1 Mint FINISHED done" "and it goes on and finishes"
-expect "$TMP/ntfy.txt" "listening on poinky-test-reply" "answers are only listened for while something waits"
+echo "4k. No session: a helper's request becomes a Mac notification (a fake center), and its buttons answer it"
+run K POINKY_TEST_NOTIFY=allow "$BIN" --helper-test "$TMP/K.txt" "$TMP/proj" fixture:ask-install
+expect "$TMP/K.txt" "notification ask.risky: \"Mint: Test 1\" / \"Can I run npm install left-pad\\?\"" "its name and task, the plain question (a risky one: its own category, with the red Allow)"
+expect "$TMP/K.txt" "from a notification: #1 yes\\(always: false.*→ sent" "Allow answers it (never \"always\")"
+expect "$TMP/K.txt" "#1 Mint FINISHED done" "and it goes on and finishes"
+expect "$TMP/K.txt" "notification done: \"Mint finished: Test 1\"" "finished while you're away: a notification (when turned on)"
+run KQ POINKY_TEST_NOTIFY=open,choose "$BIN" --helper-test "$TMP/KQ.txt" "$TMP/proj" fixture:ask-question
+expect "$TMP/KQ.txt" "notification question: " "a question gets its own notification"
+expect "$TMP/KQ.txt" "from a notification: open #1's window" "Open shows its window and answers nothing"
+expect "$TMP/KQ.txt" "from a notification: #1 answer\\(\"No preference: you choose.\"\\) → sent" "You choose answers it"
+expect "$TMP/KQ.txt" "#1 Mint FINISHED done" "and it finishes"
+run KV POINKY_TEST_NOTIFY=open POINKY_TEST_ANSWERS="1=yes" "$BIN" --helper-test "$TMP/KV.txt" "$TMP/proj" fixture:ask-install
+expect "$TMP/KV.txt" "notification removed: 1" "answered out loud instead: its notification goes away"
 
 echo "4d. \"Wait\": a helper stops what it's doing but stays, then takes a new direction"
 run P POINKY_TEST_PAUSE="3|6|Use yarn instead." "$BIN" --helper-test "$TMP/P.txt" "$TMP/proj" fixture:fix-bug
@@ -149,6 +179,7 @@ expect "$TMP/P.txt" "pause #1: true" "it can be paused"
 expect "$TMP/P.txt" "#1 after pausing: status running, paused true, talk: Mint is paused" "paused, it keeps waiting (and says so)"
 expect "$TMP/P.txt" "status line: .*PAUSED by the user" "the main agent knows it's paused"
 expect "$TMP/P.txt" "new direction to #1: true, paused now false" "a new direction gets it going again"
+expect "$TMP/P.txt" "#1 Mint event step\\(\"Back to work\"\\)" "its card stops saying Paused"
 expect "$TMP/P.txt" "FINISHED done.*Done: Use yarn instead" "it finishes with the new direction"
 grep -q "You paused it" "$TMP"/logs-P/*.chat.jsonl && pass "its window shows the pause" || bad "its window shows the pause"
 
@@ -215,13 +246,18 @@ if [ "${1:-}" = "--screen" ] || [ "${2:-}" = "--screen" ]; then
   L="$TMP/win/log.txt"
   expect "$L" "opened #1's window" "its window opens"
   expect "$L" "window while working: .*\"entries\":[2-9].*\"pill\":\"Working · " "it fills in while the helper works"
+  expect "$L" "window while working: .*\"pill\":\"Working · [^\"]* tokens[^\"]*\"" "its header counts tokens as it works"
   expect "$L" "window while working: .*\"steps\":\[\"(Read|Searched|Ran)" "its steps are grouped (\"Read 3 files, …\")"
   expect "$L" "follow-ups: \[\"Also make the README example use \\\$100.\"\]" "typing in it sends the helper a message"
   expect "$L" "window after typing: \[\"Also make the README" "what you typed shows in it"
   expect "$L" "window at the end: .*\"pill\":\"Done\".* Done" "it ends with Done and the summary"
+  expect "$L" "window changes: 2 files: tipsplit.py, test_tipsplit.py" "it shows which files it changed"
+  expect "$L" "window diff: Not in a git repository.*tipsplit.py" "⌘D shows the changes (outside a repo: which files)"
   expect "$L" "typed to the finished helper \\(box said \"Ask Mint to do more" "a finished helper can be asked for more"
   expect "$L" "continue Mint \\(session kept\\): #2 Mint" "it continues its own session, with its name"
   expect "$L" "window after continuing: .*\"pill\":\"Done\".*\"list\":\\[\"Mint[^\"]*\"\\]" "one window for all of it (the list shows it once)"
+  expect "$L" "new from the window: Fixture:quiet Check the README in proj → #3 Coral" "⌘N starts a new helper from the window, in a recent folder (not a second Mint)"
+  expect "$L" "window after a new helper: [A-Za-z]+ — Fixture:quiet Check the README" "the window shows the new one"
   grep -q "## Continued" "$TMP"/logs-win/*.md && pass "its log goes on" || bad "its log goes on"
   [ -s "$TMP/win/window-working.png" ] && pass "a picture of the window" || bad "a picture of the window"
   [ -n "${KEEP_SHOTS:-}" ] && cp "$TMP"/win/window-*.png "$KEEP_SHOTS"/ 2>/dev/null
@@ -234,6 +270,7 @@ if [ "${1:-}" = "--screen" ] || [ "${2:-}" = "--screen" ]; then
   expect "$L" "sent \"Why does this fail\?\\\\nTypeError: x is undefined\" to Poinky" "Return sends it to Poinky"
   expect "$L" "sent \"also add a test\" to #3" "opened on a helper, it types to that helper"
   expect "$L" "draft kept: \"a draft\"" "Esc closes it and keeps what you were typing"
+  expect "$L" "with helpers at work: placeholder Ask Poinky, or @Mint to tell a helper" "with helpers at work, it says @Mint reaches one"
   fi
 fi
 
