@@ -438,6 +438,26 @@ def seed_previous(mins=4, app="Notebook Test App", window="bugs.md", you="can yo
     return make
 
 
+def seed_notes():
+    day = time.strftime("%Y-%m-%d")
+    return {f"notes/{day}.md": f"# {day}\n\n## 9:05 AM\n- Worked through the pendulum lab report with them.\n"}
+
+
+def c_notes(r):
+    """Session notes go with the talker's first question, not in its instructions (which then stay the
+    same from session to session, so Claude's prompt cache can serve them)."""
+    f = []
+    fake = open(f"{r['dir']}/fake.txt").read() if os.path.exists(f"{r['dir']}/fake.txt") else ""
+    starts = [l for l in fake.splitlines() if " start pid " in l and "note_writer=False" in l and "summarizer=False" in l]
+    if not starts: f.append("no session started")
+    if any("notes=True" in l for l in starts): f.append("a session still has the notes in its instructions: " + "; ".join(starts)[:400])
+    talk = asked(r, "talker")
+    if len(talk) < 2: return f + [f"{len(talk)} questions reached the talker"]
+    if "pendulum lab report" not in talk[0] or "Recent sessions" not in talk[0]: f.append("the first question lacks the session notes: " + talk[0][:600])
+    if "pendulum lab report" in talk[1]: f.append("the notes were sent again with the second question")
+    return f
+
+
 def c_carry_dropped(r):
     talk = asked(r, "talker")
     if not talk: return ["no question"]
@@ -536,6 +556,7 @@ SCENARIOS = {
     "teacher-interrupt": (["explain how the heart works", "explain the next step"], 22,
                           {**HANDOVER, "FAKE_ARTIST_REPLIES": json.dumps([LESSON6, LESSON_NEXT]), "FAKE_ARTIST_PIECES": "14",
                            "FAKE_ARTIST_PIECE_SECS": "0.5", "POINKY_ASK_GAP": "6"}, c_teacher_interrupt),
+    "notes": (["what is this", "and this"], 14, {"_SEED": seed_notes, "POINKY_ASK_GAP": "5"}, c_notes),
     "carry-dropped": (["can you make the first paragraph shorter"], 9, {"_SEED": seed_previous()}, c_carry_dropped),
     "carry-kept": (["what did we talk about earlier"], 9, {"_SEED": seed_previous()}, c_carry_kept),
     "reminder-fired": (["hi", "did my reminder go off"], 20, {"_SEED": seed_reminder(), "POINKY_REMINDER_TICK": "1",

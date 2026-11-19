@@ -170,7 +170,7 @@ enum DailyNotes {
     static func promptSection(now: Date = Date()) -> String {
         let today = text(for: now), yesterday = text(for: now.addingTimeInterval(-86400))
         guard !today.isEmpty || !yesterday.isEmpty else { return "" }
-        var s = "\n\n## Recent sessions (your own notes; older days can be found with <recall>)\n"
+        var s = "\n\n## Recent sessions (your own notes, for background; older days can be found with <recall>)\n"
         if !yesterday.isEmpty { s += "### Yesterday\n\(yesterday)\n" }
         if !today.isEmpty { s += "### Earlier today\n\(today)\n" }
         return s

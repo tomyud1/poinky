@@ -142,7 +142,8 @@ enum Receipts {
         return f.string(from: date)
     }
 
-    /// The files that go into Claude's instructions, by name and size (not their text).
+    /// The files that go into Claude's instructions, by name and size (not their text). (The session notes
+    /// go with the talker's first question of a session instead; they're listed here all the same.)
     static func parts(memoryEnabled: Bool, now: Date = Date()) -> [Receipt.Part] {
         var p: [Receipt.Part] = []
         let me = Identity.content(Identity.identityURL, budget: Identity.identityBudget)

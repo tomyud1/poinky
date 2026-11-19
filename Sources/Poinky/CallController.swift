@@ -1779,6 +1779,12 @@ final class CallController: NSObject, NSMenuDelegate {
         if swappedTalker, !proactive, case let key = summary.keyFacts, !key.isEmpty, sendOnce("keyFacts", key) {
             lines.insert(Self.keyFactsHeader + key, at: 0)
         }
+        // Session notes (yesterday's and today's): once per talker, with its first question. They aren't in
+        // its instructions, so those stay the same between sessions (see `Memory.promptSection`).
+        if !proactive, config.memoryEnabled, case let notes = DailyNotes.promptSection().trimmingCharacters(in: .whitespacesAndNewlines),
+           !notes.isEmpty, sendOnce("notes", notes) {
+            lines.append(notes)
+        }
         // The first question of a session: how the last one ended, if it was recent ("and the other one?").
         if needsRecap {
             needsRecap = false

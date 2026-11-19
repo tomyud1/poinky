@@ -84,7 +84,10 @@ enum Memory {
     }
 
     /// The part of the system prompt that makes the conversation personal.
-    static func promptSection(enabled: Bool) -> String {
+    /// `notes: false` leaves out the session notes: they change after every session, and a system prompt
+    /// that changes can't be served from Claude's prompt cache. The talker gets them with its first
+    /// question instead (`CallController.talkerText`), so its instructions stay the same from session to session.
+    static func promptSection(enabled: Bool, notes: Bool = true) -> String {
         guard enabled else {
             return "\n\n## Memory\nMemory is turned off: don't use <remember> or <forget>."
         }
@@ -95,6 +98,6 @@ enum Memory {
         if !first.isEmpty { s += "- The user (the person talking to you) is \(NSFullUserName()), from their Mac account: call them \(first) if anything, rarely. A name you read on the screen (a sheet, an email, a document) is someone else's: never call the user by it.\n" }
         let list = facts()
         s += list.isEmpty ? "- Nothing else yet: this may be one of your first conversations.\n" : list.joined(separator: "\n") + "\n"
-        return s + DailyNotes.promptSection()
+        return notes ? s + DailyNotes.promptSection() : s
     }
 }
