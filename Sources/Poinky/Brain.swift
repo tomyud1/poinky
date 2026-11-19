@@ -139,7 +139,7 @@ enum BrainFactory {
         // questions, like the app manual, goes with those questions: `TalkerExtras`.)
         if role == .talker || role == .guide || role == .doer {
             prompt += Identity.promptSection()
-            prompt += Memory.promptSection(enabled: config.memoryEnabled)
+            prompt += Memory.promptSection(enabled: config.memoryEnabled, notes: role != .talker)
         }
         if role == .talker { prompt += LookUp.promptSection(config) }
         if role == .talker { Receipts.sessionParts = Receipts.parts(memoryEnabled: config.memoryEnabled) }
