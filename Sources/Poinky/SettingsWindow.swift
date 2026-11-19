@@ -539,6 +539,14 @@ private struct ClaudeTab: View {
                     Text("Always a chalkboard").tag("chalkboard")
                 }
                 .disabled(!model.config.artistEnabled)
+                Picker("Smallest text in sketches", selection: $model.config.minTextSize) {
+                    // (a size written into config.json by hand shows too)
+                    ForEach(Array(Set([10.0, 12, 14, 16, 18, 20] + [model.config.minTextSize])).sorted(), id: \.self) { v in
+                        Text(v == 10 ? "10 pt (small)" : v == 20 ? "20 pt (large)" : "\(Int(v)) pt").tag(v)
+                    }
+                }
+                .help("Text on the paper is never smaller than this on your screen. Long lines wrap instead of shrinking, and the paper is made wide enough.")
+                .disabled(!model.config.artistEnabled)
                 Toggle("Quick web search (the talker looks things up itself, with web tools only)", isOn: $model.config.webSearch)
                     .disabled(!cc)
             }

@@ -58,6 +58,7 @@ struct AppConfig: Codable {
     var computerControl = true         // Poinky may click and type for you when you ask it to do something
     var webPhotos = true               // pin a photo of the real thing (from Wikipedia) next to 3D models and lessons
     var paperLook = "auto"             // lesson paper: "auto" (a chalkboard when the screen behind it is dark), "paper", "chalkboard"
+    var minTextSize = 12.0             // smallest text on a lesson paper, in points on screen (long text wraps instead of shrinking under it)
     var agentPermission = "auto"        // background agents: "auto" (Claude Code's auto mode; falls back to acceptEdits if it can't start), "acceptEdits" (edit the project + run tests, ask for the rest), "plan"
     var agentModel = ""                // background agents' model ("" = your Claude Code default)
     var maxHelpers = 3                 // helpers (background agents) working at once, 1–6; more wait in line
@@ -127,6 +128,7 @@ struct AppConfig: Codable {
         computerControl = try c.decodeIfPresent(Bool.self, forKey: .computerControl) ?? d.computerControl
         webPhotos = try c.decodeIfPresent(Bool.self, forKey: .webPhotos) ?? d.webPhotos
         paperLook = try c.decodeIfPresent(String.self, forKey: .paperLook) ?? d.paperLook
+        minTextSize = AppConfig.textSize(try c.decodeIfPresent(Double.self, forKey: .minTextSize) ?? d.minTextSize)
         agentPermission = try c.decodeIfPresent(String.self, forKey: .agentPermission) ?? d.agentPermission
         agentModel = try c.decodeIfPresent(String.self, forKey: .agentModel) ?? d.agentModel
         maxHelpers = try c.decodeIfPresent(Int.self, forKey: .maxHelpers) ?? d.maxHelpers
@@ -138,6 +140,10 @@ struct AppConfig: Codable {
     /// A test copy (run with `POINKY_SUPPORT_DIR`) doesn't listen to the real keyboard, so it never answers
     /// when the person at the Mac holds the talk keys for their own Poinky. `POINKY_REAL_KEYS=1` turns that off
     /// (a test of the real keys); scripted keys (`PushToTalk.fakeFlags`) always work.
+    /// The sizes "Smallest text in sketches" may have.
+    static let textSizeRange: ClosedRange<Double> = 9...24
+    static func textSize(_ v: Double) -> Double { min(textSizeRange.upperBound, max(textSizeRange.lowerBound, v.rounded())) }
+
     static let ignoresRealKeys: Bool = {
         let env = ProcessInfo.processInfo.environment
         return !(env["POINKY_SUPPORT_DIR"] ?? "").isEmpty && env["POINKY_REAL_KEYS"] != "1"

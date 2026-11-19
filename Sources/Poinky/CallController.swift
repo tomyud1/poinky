@@ -2607,7 +2607,8 @@ final class CallController: NSObject, NSMenuDelegate {
         let light = config.paperLook == "auto" ? lastSnapshot.flatMap { PaperLook.brightness(of: $0, in: frame) } : nil
         // The frame's height is the room it may grow into: the paper stays inside it (`lo`/`hi`).
         overlay.lessonBegin(frame: frame, title: title, continuing: continuing, avoid: nil,
-                            look: studyPaperLook ?? PaperLook.pick(setting: config.paperLook, brightness: light), session: callID)
+                            look: studyPaperLook ?? PaperLook.pick(setting: config.paperLook, brightness: light), session: callID,
+                            minText: config.minTextSize)
         placeCaptions(extra: [frame])
     }
 
@@ -2696,7 +2697,7 @@ final class CallController: NSObject, NSMenuDelegate {
     /// Where the paper goes: the largest free space beside, above or below what's being explained.
     private func paperFrame() -> CGRect {
         let size = overlay.screen?.frame.size ?? CGSize(width: 1440, height: 900)
-        return Placement.paper(screen: size, room: paperRoom(except: "lesson"))
+        return Placement.paper(screen: size, room: paperRoom(except: "lesson"), minWidth: Placement.paperWidth(minText: config.minTextSize))
     }
 
     /// What a paper or 3D model keeps off: what the question is about first, then other cards, the text
@@ -3266,6 +3267,7 @@ final class CallController: NSObject, NSMenuDelegate {
         if let v = num("soundVolume") { cfg.soundVolume = min(1, max(0, v)); if v > 0 { cfg.sounds = true } }
         if let v = flag("artistEnabled") { cfg.artistEnabled = v }
         if let v = obj["paperLook"] as? String, ["auto", "paper", "chalkboard"].contains(v) { cfg.paperLook = v }
+        if let v = num("minTextSize") { cfg.minTextSize = AppConfig.textSize(v) }
         if let v = num("silenceSeconds") { cfg.silenceSeconds = min(2.5, max(0.5, v)) }
         if let v = obj["pushToTalk"] as? String, ["ctrl+option", "ctrl+shift", "option+cmd", "off"].contains(v) { cfg.pushToTalk = v }
         if let v = flag("memoryEnabled") { cfg.memoryEnabled = v }

@@ -199,6 +199,36 @@
     } finally { path.style.strokeDasharray = ''; path.style.strokeDashoffset = ''; }   // stopped: the stroke stays whole
   }
 
+  // ---------- smallest text ----------
+  // The setting "Smallest text in sketches" (points on screen). The paper is 800 units wide whatever its
+  // size on screen, so the same floor is more units on a narrow paper: `minU()`.
+  let minPt = 12, smallText = Infinity;
+  const LINE = 1.28;                                   // line height of wrapped text, × its size
+  const minU = () => minPt / (scale || 1);
+  /** A text size (units) never under the setting. The smallest one on the paper limits how far it zooms out. */
+  function fz(size) {
+    const s = Math.max(+size || 22, minU());
+    if (s < smallText - .01) { smallText = s; if (svg && view.vh && H > room() / scale) setHeight(H); }
+    return s;
+  }
+  /** Words onto lines no wider than maxW at this size (one word longer than a line stays whole). */
+  function wrapLines(str, size, maxW, bold) {
+    const lines = [];
+    let cur = '';
+    for (const w of String(str).split(/\s+/).filter(Boolean)) {
+      const next = cur ? cur + ' ' + w : w;
+      if (cur && measure(next, size, bold) > maxW) { lines.push(cur); cur = w; } else cur = next;
+    }
+    if (cur) lines.push(cur);
+    return lines;
+  }
+  /** How many lines writeText will use for this text in this width (so a box or a table row can make room). */
+  function lineCount(str, size, maxW, bold, math) {
+    if (math === true || (math !== false && looksMath(str))) return 1;
+    const w = measure(str, size, bold), k = Math.min(1, minU() / size);
+    return w <= maxW + 1 || maxW / w >= k ? 1 : wrapLines(str, size * k, maxW, bold).length;
+  }
+
   // ---------- paper ----------
   // H = how tall the drawing is (paper units). The paper shows all of it when there's room (moving
   // up the screen if needed); when there isn't, it zooms out a little, then scrolls so the pen stays in view.
@@ -223,10 +253,12 @@
   function setHeight(h) {
     H = h;
     const cap = room() / scale;          // units that fit at full size
+    // Zooming out makes all of it smaller: never so far that the smallest text goes under the setting.
+    const zoom = Math.min(1, Math.max(MIN_ZOOM, isFinite(smallText) ? minU() / smallText : 0));
     let target;
     if (H <= cap) target = { h: H * scale, y: 0, vh: H };
-    else if (H * MIN_ZOOM <= cap) target = { h: room(), y: 0, vh: H };                 // zoom out to fit everything
-    else { const vh = cap / MIN_ZOOM; target = { h: room(), y: H - vh, vh }; }         // scroll: keep the newest part visible
+    else if (H * zoom <= cap) target = { h: room(), y: 0, vh: H };                     // zoom out to fit everything
+    else { const vh = cap / zoom; target = { h: room(), y: H - vh, vh }; }               // scroll: keep the newest part visible
     animateView(target);
     // Where it sits: where it was placed, moved up just enough when it gets tall (unless you moved it).
     if (paper && !paper.dataset.moved) {
@@ -330,6 +362,8 @@
     if (f.session != null && f.session !== notebookSession) { notebookSession = f.session; notebook.length = 0; }
     useLook(f.look === 'chalk');
     scale = f.w / UNITS;
+    if (+f.minText > 0) minPt = Math.max(6, Math.min(40, +f.minText));
+    smallText = Infinity;
     const c = document.createElement('div');
     c.className = 'card lpaper' + (look.chalk ? ' chalk' : '');
     c.dataset.id = 'lesson'; c.dataset.type = 'lesson'; c.dataset.label = title || ''; c.dataset.title = title || '';
@@ -616,7 +650,7 @@
         const sub = !!parts && /^\d+$/.test(p);   // (a coefficient ends in a zero-width space, so it stays full size)
         const span = el('tspan', {}, t);
         if (sub !== low) { span.setAttribute('dy', (sub ? .28 : -.28) * size); low = sub; }
-        if (sub) span.setAttribute('font-size', size * .68);
+        if (sub) span.setAttribute('font-size', Math.max(size * .68, Math.min(size, minU() * .8)));
         span.textContent = p;
       }
     }
@@ -721,7 +755,7 @@
       if (n.t === 'row') return row(n.items, size);
       if (n.t === 'script') {
         const b = layoutTex([n.base], size, color, measure);
-        const ss = Math.max(11, size * .66);
+        const ss = Math.min(size, Math.max(11, minU() * .8, size * .66));
         const up = n.sup && row(n.sup, ss), dn = n.sub && row(n.sub, ss);
         const rise = Math.max(size * .4, b.a - ss * .45), drop = Math.max(size * .18, b.d * .6);
         const w = b.w + 1 + Math.max(up ? up.w : 0, dn ? dn.w : 0);
@@ -731,7 +765,7 @@
         };
       }
       if (n.t === 'frac') {
-        const fs = Math.max(13, size * .86), num = row(n.num, fs), den = row(n.den, fs), pad = size * .14;
+        const fs = Math.min(size, Math.max(13, minU(), size * .86)), num = row(n.num, fs), den = row(n.den, fs), pad = size * .14;
         const w = Math.max(num.w, den.w) + 2 * pad, axis = size * .3, gap = size * .14;
         return {
           w: w + size * .12, a: axis + gap + num.d + num.a, d: Math.max(0, gap + den.a + den.d - axis),
@@ -744,7 +778,7 @@
       }
       if (n.t === 'sqrt') {
         const b = row(n.body, size), h = size * .1, lead = size * .62;
-        const ix = n.idx ? row([{ t: 'text', s: n.idx }], Math.max(10, size * .5)) : null;
+        const ix = n.idx ? row([{ t: 'text', s: n.idx }], Math.min(size, Math.max(10, minU() * .7, size * .5))) : null;
         return {
           w: lead + b.w + size * .12, a: b.a + h + 2, d: b.d,
           draw(p, x, y) {
@@ -818,8 +852,9 @@
     } finally { node.removeAttribute('clip-path'); cp.remove(); }   // stopped: the words stay whole
   }
 
+  let lastBaseline = 0;   // where writeText's last line ended up (after any shift)
   async function writeText(g, o) {
-    const size = o.size || 22;
+    const size = o.under ? o.size : fz(o.size);   // (`under`: a formula or one long word shrunk to fit, see below)
     const color = textColor(o.color);
     const isMath = o.op === 'math' || o.math === true || (o.math !== false && looksMath(o.text || ''));
     let node;
@@ -847,9 +882,26 @@
     const maxW = o.maxWidth || (UNITS - 24 - (left ? Math.max(0, bb.x) : 0));
     if ((o.fit !== false || o.maxWidth) && bb.width > maxW + 1 && (o.fitTries || 0) < 3) {
       // Math with sub- and superscripts doesn't shrink in proportion: check again after shrinking.
-      const k = Math.max(o.maxWidth || !left ? .35 : .55, maxW / bb.width * (o.fitTries ? .97 : 1));
+      const want = maxW / bb.width * (o.fitTries ? .97 : 1), floorK = Math.min(1, minU() / size);
+      // It would go under the smallest text: write it on lines instead (in a box or a cell they stay
+      // centered on its line; elsewhere they go down). Only a formula or one long word still shrinks.
+      if (want < floorK && !isMath && !o.oneLine) {
+        const s = size * floorK, lines = wrapLines(o.text || '', s, maxW, o.bold);
+        if (lines.length > 1) {
+          node.remove();
+          let y = o.maxWidth ? o.y - (lines.length - 1) * s * LINE / 2 : o.y, all = null;
+          for (const line of lines) {
+            const b = await writeText(g, { ...o, text: line, size: s, y, oneLine: true, math: false });
+            y = (o.free !== false ? lastBaseline : y) + s * LINE;
+            const x0 = all ? Math.min(all.x, b.x) : b.x, y0 = all ? Math.min(all.y, b.y) : b.y;
+            all = { x: x0, y: y0, width: Math.max(all ? all.x + all.width : -1e9, b.x + b.width) - x0, height: Math.max(all ? all.y + all.height : -1e9, b.y + b.height) - y0 };
+          }
+          return all;
+        }
+      }
+      const k = Math.max(o.maxWidth || !left ? .35 : .55, want);
       node.remove();
-      return writeText(g, { ...o, size: size * k, fit: o.maxWidth ? false : 'shrunk', maxWidth: o.maxWidth && isMath ? o.maxWidth : undefined, fitTries: (o.fitTries || 0) + 1 });
+      return writeText(g, { ...o, size: size * k, under: true, fit: o.maxWidth ? false : 'shrunk', maxWidth: o.maxWidth && isMath ? o.maxWidth : undefined, fitTries: (o.fitTries || 0) + 1 });
     }
     // Still over an edge (centered too close to it, or starting near the right): move it onto the paper.
     if (o.fit !== false && !o.maxWidth) {
@@ -872,6 +924,7 @@
       claim({ x: bb.x, y: bb.y, w: bb.width, h: bb.height }, o.id);
     }
     grow(bb.y + bb.height);
+    lastBaseline = o.y;
     await reveal(node, bb, size, o.y - size * .3);
     return bb;
   }
@@ -886,7 +939,16 @@
   async function box(o) {
     const g = group(o);
     const [stroke, fill] = theme(o.color) || THEME.gray;
-    const { x, w, h } = o;
+    const { x, w } = o;
+    let h = o.h, size = fz(o.size || 26);
+    if (o.text) {
+      // Long text shrinks to fit inside the box, down to the smallest text; past that it's written on
+      // lines and the box grows to hold them.
+      const tw = measure(o.text, size);
+      if (!looksMath(o.text) && !o.math && tw > w - 16) size = Math.max(13, minU(), size * (w - 16) / tw);
+      const n = lineCount(o.text, size, w - 12, false, o.math);
+      if (n > 1) h = Math.max(h, n * size * LINE + 14);
+    }
     const y = o.y + freeShift({ x, y: o.y, w, h });
     claim({ x, y, w, h }, o.id);
     grow(y + h);
@@ -895,10 +957,6 @@
     await drawPath(p, onScreen, 1400);
     bg.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 250, fill: 'forwards' });
     if (o.text) {
-      // Long text shrinks to fit inside the box.
-      let size = o.size || 26;
-      const tw = measure(o.text, size);
-      if (!looksMath(o.text) && !o.math && tw > w - 16) size = Math.max(13, size * (w - 16) / tw);
       await writeText(g, { x: x + w / 2, y: y + h / 2 + size * .35, text: o.text, size, align: 'center', color: o.textColor, free: false, halo: fill, math: o.math, fit: false, maxWidth: w - 12 });
     }
   }
@@ -927,7 +985,7 @@
 
   /** An arrow's label goes beside the middle of the arrow (not on it), on the side with more room. */
   async function arrowLabel(g, label, p0, c, p2, id) {
-    const size = 18;
+    const size = fz(18);
     const mx = .25 * p0[0] + .5 * c[0] + .25 * p2[0], my = .25 * p0[1] + .5 * c[1] + .25 * p2[1];
     let tx = p2[0] - p0[0], ty = p2[1] - p0[1];
     const L = Math.hypot(tx, ty) || 1; tx /= L; ty /= L;
@@ -1064,7 +1122,11 @@
   const tables = {};
   /** One row of cells under the table's last row: lines first, then the words, cell by cell. */
   async function tableRow(t, cells, header) {
-    const y0 = t.bottom, h = t.rowH, g = t.g;
+    const y0 = t.bottom, g = t.g;
+    // A cell too long for its column at the smallest text is written on lines: the row grows for the most lines.
+    const most = Math.max(1, ...t.colW.map((cw, c) => cells[c] == null || cells[c] === '' ? 1
+      : lineCount(String(cells[c]), t.size, cw - 14, header || (c === 0 && t.rowHeads))));
+    const h = t.rowH + (most - 1) * Math.max(t.size, minU()) * LINE;
     const [stroke, fill] = t.theme;
     if (header) el('rect', { x: t.x, y: y0, width: t.w, height: h, fill, rx: 4 }, g).animate([{ opacity: 0 }, { opacity: 1 }], { duration: 250, fill: 'forwards' });
     t.bottom += h;
@@ -1092,15 +1154,22 @@
   async function table(o) {
     const rows = Array.isArray(o.rows) ? o.rows.map(r => Array.isArray(r) ? r : [r]) : [];
     const n = Math.max(1, ...rows.map(r => r.length), Array.isArray(o.cols) ? o.cols.length : 0);
-    const size = o.size || 22, x = o.x ?? 40, maxW = Math.min(o.w || UNITS - 40 - x, UNITS - 20 - x);
+    const size = fz(o.size), x = o.x ?? 40, maxW = Math.min(o.w || UNITS - 40 - x, UNITS - 20 - x);
     // Columns as wide as their longest cell (or as given), shrunk together to fit.
     let colW = Array.isArray(o.cols) && o.cols.length === n && o.cols.every(v => typeof v === 'number') ? o.cols.slice()
-      : Array.from({ length: n }, (_, c) => Math.max(70, ...rows.map((r, i) => measure(String(r[c] ?? ''), size, i === 0 && o.header !== false) + 26)));
+      : Array.from({ length: n }, (_, c) => Math.max(70, ...rows.map((r, i) => measure(String(r[c] ?? ''), size, (i === 0 && o.header !== false) || (c === 0 && o.rowHeads !== false)) + 26)));
     const tot = colW.reduce((a, b) => a + b, 0);
     // Rows added later need room too: a comfortable width unless the teacher gave one.
     const want = Math.min(maxW, Math.max(tot, 190 * n));
-    if (!Array.isArray(o.cols)) colW = colW.map(v => v * (o.w || want) / tot);
-    else if (tot > maxW) colW = colW.map(v => v * maxW / tot);
+    // Squeezed columns: cells can wrap, but a word can't, so no column goes under its longest word (at
+    // the smallest text) while the others can still give up the room.
+    const squeeze = to => {
+      const s0 = minU(), word = str => Math.max(0, ...String(str ?? '').split(/\s+/).map(w => measure(w, s0, true)));
+      const least = colW.map((v, c) => Math.min(v, Math.max(...rows.map(r => word(r[c]))) + 34)), ls = least.reduce((a, b) => a + b, 0);
+      return ls < to && tot > ls ? colW.map((v, c) => least[c] + (v - least[c]) * (to - ls) / (tot - ls)) : colW.map(v => v * to / tot);
+    };
+    if (!Array.isArray(o.cols)) colW = (o.w || want) < tot ? squeeze(o.w || want) : colW.map(v => v * (o.w || want) / tot);
+    else if (tot > maxW) colW = squeeze(maxW);
     const w = colW.reduce((a, b) => a + b, 0), rowH = Math.round(size * 1.85);
     const g = group(o);
     const y = o.y + freeShift({ x, y: o.y, w, h: rowH * Math.max(1, rows.length) });
@@ -1140,14 +1209,14 @@
   /** How category names fit under a graph: as big as fits in each one's slot, else tilted (depth: room below the graph). */
   function catLayout(cats, x, w) {
     const slot = w / cats.length, widest = sz => Math.max(0, ...cats.map(c => measure(c, sz)));
-    let size = 17;
-    if (widest(17) > slot - 8) size = Math.max(12, 17 * (slot - 8) / widest(17));
+    let size = fz(17);
+    if (widest(size) > slot - 8) size = Math.max(12, minU(), size * (slot - 8) / widest(size));
     if (widest(size) <= slot - 4) return { size, tilt: 0, depth: 30 };
     // Tilted 35°: each name ends under its tick and runs down to the left (the first must stay on the paper).
     const cos = Math.cos(TILT), sin = Math.sin(TILT);
-    size = 15;
+    size = fz(15);
     const w0 = measure(cats[0], size), room0 = x + slot / 2 - 4;
-    if (w0 * cos > room0) size = Math.max(10, size * room0 / (w0 * cos));
+    if (w0 * cos > room0) size = Math.max(10, minU(), size * room0 / (w0 * cos));
     return { size, tilt: 1, depth: widest(size) * sin + size + 16 };
   }
   const TILT = 35 * Math.PI / 180;
@@ -1190,12 +1259,12 @@
       if (!cats) for (let v = Math.ceil(xr[0] / sx) * sx; v <= xr[1] + 1e-9; v += sx) {
         if (Math.abs(v - ax) < sx / 2 && ax !== xr[0]) continue;
         d += `M${X(v)},${Y(ay) - 4} L${X(v)},${Y(ay) + 4} `;
-        const t = el('text', { x: X(v), y: Math.min(y + h + 26, Y(ay) + 21), 'font-size': 14, fill: col, 'text-anchor': 'middle' }, tg); t.textContent = fmtTick(v);
+        const t = el('text', { x: X(v), y: Math.min(y + h + 26, Y(ay) + 21), 'font-size': fz(14), fill: col, 'text-anchor': 'middle' }, tg); t.textContent = fmtTick(v);
       }
       for (let v = Math.ceil(yr[0] / sy) * sy; v <= yr[1] + 1e-9; v += sy) {
         if (Math.abs(v - ay) < sy / 2 && ay !== yr[0]) continue;
         d += `M${X(ax) - 4},${Y(v)} L${X(ax) + 4},${Y(v)} `;
-        const t = el('text', { x: Math.max(x - 8, X(ax) - 9), y: Y(v) + 5, 'font-size': 14, fill: col, 'text-anchor': 'end' }, tg); t.textContent = fmtTick(v);
+        const t = el('text', { x: Math.max(x - 8, X(ax) - 9), y: Y(v) + 5, 'font-size': fz(14), fill: col, 'text-anchor': 'end' }, tg); t.textContent = fmtTick(v);
       }
       el('path', { d, stroke: col, 'stroke-width': 1.6, fill: 'none', 'stroke-linecap': 'round' }, tg);
       tg.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 350, fill: 'forwards' });
@@ -1281,7 +1350,7 @@
     if (o.label && segs.length) {
       // At the end of the curve, nudged inside the paper.
       const last = segs[segs.length - 1], [lx, ly] = last[last.length - 1];
-      const size = 20, lw = measure(o.label, size);
+      const size = fz(20), lw = measure(o.label, size);
       const x = Math.min(lx + 8, UNITS - 16 - lw), y = Math.max(ly + (ly < gr.y + 20 ? 22 : -8), 24);
       await writeText(g, { x, y, text: o.label, size, color: o.color || 'blue', free: false, fit: false, math: o.math });
     }
@@ -1304,7 +1373,7 @@
     await drawPath(p, onScreen, 300);
     if (o.label) {
       // Of the four corners around the dot, the one that covers the least of the curves and other labels.
-      const size = 18, lw = measure(o.label, size), lh = size;
+      const size = fz(18), lw = measure(o.label, size), lh = size;
       const spots = [[px + 10, py - 10], [px - 10 - lw, py - 10], [px + 10, py + 10 + lh * .8], [px - 10 - lw, py + 10 + lh * .8],
         [px - lw / 2, py - 14], [px - lw / 2, py + 14 + lh * .8], [px + 12, py + lh * .3], [px - 12 - lw, py + lh * .3]];
       const cost = ([x, y]) => {
