@@ -4026,7 +4026,19 @@ extension CallController {
         finishTeacherOutput()
     }
     /// What the paper must stay off (the question on screen), in screen points.
-    func studyFocus(_ r: CGRect?) { focusRegion = r; placeCaptions() }
+    /// The question on the sheet (points), which the student keeps reading: the paper must not cover any of it.
+    /// The teacher's box is a guess that often stops short of where its lines end, so it grows to the whole of
+    /// every line of text it touches (`StudyRegion.grow`), and it becomes a subject (the paper opens beside it,
+    /// an open paper over it moves aside, the bubble keeps off it).
+    func studyFocus(_ r: CGRect?) {
+        guard let r else { focusRegion = nil; placeCaptions(); return }
+        let k = lastSnapshot?.scale ?? 1
+        let lines = k > 0 ? (lastSnapshot?.text.lines ?? []).map { CGRect(x: $0.rect.minX / k, y: $0.rect.minY / k, width: $0.rect.width / k, height: $0.rect.height / k) } : []
+        let grown = StudyRegion.grow(r, lines: lines)
+        focusRegion = grown
+        addPaperSubject(grown)
+        placeCaptions()
+    }
     func studyContext(_ snap: Snapshot) -> [String] {
         let room = paperFrame()
         let units = Int((room.height - 32) / room.width * 800)
