@@ -11,7 +11,17 @@ one path, approved once, for every checkout.
 `POINKY_APP` (an exact app to run, e.g. an older build to see a check fail) is used as it is.
 `POINKY_TEST_APP_DIR` moves the fixed copy elsewhere.
 """
-import fcntl, os, subprocess
+import atexit, fcntl, os, subprocess
+
+LSREGISTER = "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+
+
+def forget(app):
+    """Takes the test copy out of macOS's list of apps again. It has the real app's id, and launching it
+    registers it: left there, opening "Poinky" (Spotlight, a notification, a login item) could start the
+    test copy instead of the user's own (it happened with a worktree build)."""
+    subprocess.run([LSREGISTER, "-u", app], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+
 
 
 def stable_app(built):
@@ -41,4 +51,5 @@ def stable_app(built):
             subprocess.run(["rm", "-rf", dest], check=False)
             subprocess.run(["ditto", built, dest], check=True)
             open(mark, "w").write(want)
+    atexit.register(forget, dest)
     return dest
