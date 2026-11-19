@@ -48,6 +48,9 @@ for (const f of readdirSync(here).filter(f => f.endsWith('.html') && (!process.a
   console.log(f);
   if (!r) {
     console.log('  FAIL did not finish');
+    // What it got through, when the page keeps its lines in `window.testLines` as it goes.
+    const part = (await send('Runtime.evaluate', { expression: 'window.testLines', returnByValue: true })).result?.value;
+    for (const l of Array.isArray(part) ? part : []) console.log('  ' + l);
     for (const e of pageErrors.slice(0, 5)) console.log('    ' + String(e).split('\n')[0]);
     failed = true; continue;
   }

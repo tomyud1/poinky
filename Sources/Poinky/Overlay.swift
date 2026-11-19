@@ -302,9 +302,9 @@ final class Overlay: NSObject, WKNavigationDelegate {
     /// `continuing`: keep drawing on the paper that's already open (a follow-up), if there is one.
     /// `avoid`: what's being explained; the paper never moves over it when it needs more room.
     /// `look`: "paper" or "chalk" (`PaperLook`). `session`: papers of one session make one notebook.
-    func lessonBegin(frame: CGRect, title: String, continuing: Bool = false, avoid: CGRect? = nil, look: String = "paper", session: Int? = nil) {
+    func lessonBegin(frame: CGRect, title: String, continuing: Bool = false, avoid: CGRect? = nil, look: String = "paper", session: Int? = nil, minText: Double? = nil) {
         let a = avoid.map { ",avoid:{x:\(Int($0.minX)),y:\(Int($0.minY)),w:\(Int($0.width)),h:\(Int($0.height))}" } ?? ""
-        let extra = ",look:\(jsString(look))" + (session.map { ",session:\($0)" } ?? "")
+        let extra = ",look:\(jsString(look))" + (session.map { ",session:\($0)" } ?? "") + (minText.map { ",minText:\($0)" } ?? "")
         // lo/hi: the band it may use (it grows down from y and never past hi, so it stays off what Placement kept it off).
         js("SB.lessonBegin({x:\(Int(frame.minX)),y:\(Int(frame.minY)),w:\(Int(frame.width)),h:\(Int(frame.height)),h0:240,lo:\(Int(frame.minY)),hi:\(Int(frame.maxY))\(a)\(extra)}, \(jsString(title)), \(continuing))")
     }
