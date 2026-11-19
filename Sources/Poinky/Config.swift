@@ -63,11 +63,6 @@ struct AppConfig: Codable {
     var agentPermission = "auto"        // background agents: "auto" (Claude Code's auto mode; falls back to acceptEdits if it can't start), "acceptEdits" (edit the project + run tests, ask for the rest), "plan"
     var agentModel = ""                // background agents' model ("" = your Claude Code default)
     var maxHelpers = 3                 // helpers (background agents) working at once, 1–6; more wait in line
-    var awayNotify = false             // away from the Mac: a helper's question goes to your phone (ntfy)
-    var ntfyServer = "https://ntfy.sh" // the ntfy server (ntfy.sh, or your own)
-    var ntfyTopic = ""                 // a random, private topic (made when away mode is turned on)
-    var awayMinutes = 3.0              // no keyboard or mouse for this long counts as away (or the screen locked)
-    var awayDetails = true             // the notification says what it wants (the command); off: only that one is waiting
     var helperNotify = true            // a Mac notification when a helper needs you and no session runs (or its question went unanswered)
     var helperNotifyDone = false       // also when a helper finishes while you're away from the Mac (screen locked or idle)
     /// Apps left out of every screenshot (password managers by default).
@@ -139,11 +134,6 @@ struct AppConfig: Codable {
         agentPermission = try c.decodeIfPresent(String.self, forKey: .agentPermission) ?? d.agentPermission
         agentModel = try c.decodeIfPresent(String.self, forKey: .agentModel) ?? d.agentModel
         maxHelpers = try c.decodeIfPresent(Int.self, forKey: .maxHelpers) ?? d.maxHelpers
-        awayNotify = try c.decodeIfPresent(Bool.self, forKey: .awayNotify) ?? d.awayNotify
-        ntfyServer = try c.decodeIfPresent(String.self, forKey: .ntfyServer) ?? d.ntfyServer
-        ntfyTopic = try c.decodeIfPresent(String.self, forKey: .ntfyTopic) ?? d.ntfyTopic
-        awayMinutes = try c.decodeIfPresent(Double.self, forKey: .awayMinutes) ?? d.awayMinutes
-        awayDetails = try c.decodeIfPresent(Bool.self, forKey: .awayDetails) ?? d.awayDetails
         helperNotify = try c.decodeIfPresent(Bool.self, forKey: .helperNotify) ?? d.helperNotify
         helperNotifyDone = try c.decodeIfPresent(Bool.self, forKey: .helperNotifyDone) ?? d.helperNotifyDone
         excludedApps = try c.decodeIfPresent([String].self, forKey: .excludedApps) ?? d.excludedApps
@@ -229,6 +219,63 @@ extension AppConfig {
         }
     }
     static let efforts = ["low", "medium", "high", "xhigh", "max"]
+
+    /// One part's model (for each brain) and effort, as stored in the keys above.
+    struct RoleModel: Equatable {
+        var claudeCode: String, api: String, effort: String
+        init(_ claudeCode: String, _ api: String, _ effort: String) { self.claudeCode = claudeCode; self.api = api; self.effort = effort }
+    }
+    /// The one choice most people make about models (Settings → Claude). Each sets the per-role keys, which stay
+    /// the single source of truth (`model(for:)` / `effort(for:)`); any other combination is custom (Advanced).
+    enum Pace: String, CaseIterable { case quick, careful }
+    /// What Quick and Careful set. Quick is the defaults. Careful changes what makes answers better:
+    /// - talker: Sonnet. Haiku, with no thinking step for speed, drifts from the reply format and gets checks of
+    ///   your work wrong; Sonnet on automatic effort still starts talking quickly (it thinks only between tools).
+    /// - teacher: thinks first (medium). The talker has already answered, so the wait is the lesson starting a few
+    ///   seconds later; checks of your work get it right more often. Study sessions already use medium, so
+    ///   Careful leaves them as they are (their hidden solver is Opus on high either way).
+    /// - guide: the talker's model, as in Quick.
+    /// - doer: Opus. Multi-step app use depends on the model most (Haiku was too weak), and nobody waits on its voice.
+    /// Helpers aren't in it: their model is its own choice (`agentModel`).
+    static let paces: [(role: PromptRole, quick: RoleModel, careful: RoleModel)] = [
+        (.talker, RoleModel("haiku", "claude-haiku-5-5", ""), RoleModel("claude-sonnet-5-5", "claude-sonnet-5-5", "")),
+        (.artist, RoleModel("sonnet", "claude-sonnet-5-5", ""), RoleModel("claude-sonnet-5-5", "claude-sonnet-5-5", "medium")),
+        (.guide, RoleModel("", "", ""), RoleModel("", "", "")),
+        (.doer, RoleModel("sonnet", "claude-sonnet-5-5", ""), RoleModel("claude-opus-5-5", "claude-opus-5-5", "")),
+    ]
+
+    /// A role's stored model (both brains) and effort.
+    subscript(role role: PromptRole) -> RoleModel {
+        get {
+            switch role {
+            case .talker: return RoleModel(claudeCodeModel, apiModel, talkerEffort)
+            case .artist: return RoleModel(artistModel, apiArtistModel, artistEffort)
+            case .guide: return RoleModel(guideModel, apiGuideModel, guideEffort)
+            case .doer: return RoleModel(doerModel, apiDoerModel, doerEffort)
+            }
+        }
+        set {
+            switch role {
+            case .talker: claudeCodeModel = newValue.claudeCode; apiModel = newValue.api; talkerEffort = newValue.effort
+            case .artist: artistModel = newValue.claudeCode; apiArtistModel = newValue.api; artistEffort = newValue.effort
+            case .guide: guideModel = newValue.claudeCode; apiGuideModel = newValue.api; guideEffort = newValue.effort
+            case .doer: doerModel = newValue.claudeCode; apiDoerModel = newValue.api; doerEffort = newValue.effort
+            }
+        }
+    }
+
+    /// Quick or Careful, if every part is set the way it sets them (for the brain that's connected); nil: custom.
+    var pace: Pace? {
+        let cc = brain == .claudeCode
+        func same(_ a: RoleModel, _ b: RoleModel) -> Bool { a.effort == b.effort && (cc ? a.claudeCode == b.claudeCode : a.api == b.api) }
+        if Self.paces.allSatisfy({ same(self[role: $0.role], $0.quick) }) { return .quick }
+        if Self.paces.allSatisfy({ same(self[role: $0.role], $0.careful) }) { return .careful }
+        return nil
+    }
+    /// Sets every part (both brains) the way Quick or Careful does. Helpers keep their own choice.
+    mutating func use(_ p: Pace) {
+        for row in Self.paces { self[role: row.role] = p == .quick ? row.quick : row.careful }
+    }
 }
 
 enum PromptRole: String {

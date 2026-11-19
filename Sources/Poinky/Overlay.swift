@@ -326,14 +326,10 @@ final class Overlay: NSObject, WKNavigationDelegate {
 
     /// Runs more code inside an existing 3D model (a narrated step or a follow-up addition).
     /// note: its line in the notes beside the model (nil: the step adds none).
-    func run3d(id: String, code: String, note: String? = nil, aside: Bool = false) {
-        js("SB.run3d(\(jsString(id)), \(jsString(code)), \(note.map(jsString) ?? "null"), \(aside))")
+    func run3d(id: String, code: String, note: String? = nil) {
+        js("SB.run3d(\(jsString(id)), \(jsString(code)), \(note.map(jsString) ?? "null"))")
     }
     /// A step about a clicked part was heard: the model goes back to the lesson's view.
-    func end3dAside(id: String) {
-        js("SB.end3dAside(\(jsString(id)))")
-    }
-
     /// More code of a 3D model that's still being written: it runs statement by statement as it arrives.
     func feed3d(id: String, code: String) {
         js("SB.feed3d(\(jsString(id)), \(jsString(code)))")
