@@ -11,6 +11,9 @@ enum Placement {
     /// explained: 360 pt is the paper's 800 units at 0.45 (body text ~10 pt, headings ~15 pt), and 240 pt
     /// is the height it opens at. A small paper beside the subject beats a big one on top of it.
     static let smallestPaperWidth: CGFloat = 360
+    /// The paper is 800 units wide and the teacher writes at 22 units: the narrowest paper on which that
+    /// writing is still `minText` points on screen (a narrower one would make all of it smaller).
+    static func paperWidth(minText: Double) -> CGFloat { (CGFloat(minText) * 800 / 22).rounded(.up) }
     static let smallestPaperHeight: CGFloat = 240
     static let margin: CGFloat = 24
     static let topInset: CGFloat = 40      // menu bar
@@ -43,15 +46,17 @@ enum Placement {
     /// the subject. Returns the frame; its height is the room the paper may grow into (the paper never
     /// grows past it, so it never slides onto the subject).
     /// `width`: only that width (an open paper being moved keeps its size), at least `minHeight` tall.
+    /// `minWidth`: no narrower than this (see `paperWidth(minText:)`), as far as the screen allows.
     static func paper(screen: CGSize, room: Room, maxWidth: CGFloat = maxPaperWidth,
-                      width: CGFloat? = nil, minHeight: CGFloat? = nil) -> CGRect {
+                      width: CGFloat? = nil, minHeight: CGFloat? = nil, minWidth: CGFloat = 0) -> CGRect {
         let usable = CGRect(x: 0, y: topInset, width: screen.width, height: screen.height - topInset - bottomInset)
             .insetBy(dx: margin, dy: margin)
         let subjects = room.subjects.filter { !$0.isNull && $0.width > 0 && $0.height > 0 }
         let blocks = subjects.map { $0.insetBy(dx: -margin * 0.75, dy: -margin * 0.75) }
         let density = TextDensity(screen: screen, lines: room.text)
         let anchor = subjects.isEmpty ? nil : subjects.dropFirst().reduce(subjects[0]) { $0.union($1) }
-        let maxW = max(smallestPaperWidth, min(maxWidth, usable.width))
+        let least = min(max(smallestPaperWidth, minWidth), usable.width)          // the narrowest paper allowed
+        let maxW = max(least, min(maxWidth, usable.width))
 
         struct Cand { var frame: CGRect; var score: CGFloat; var covered: CGFloat }
         func candidates(widths: [CGFloat], minH: CGFloat, allowCover: Bool) -> [Cand] {
@@ -105,8 +110,9 @@ enum Placement {
             s += f.minX * 0.5   // ties: the right side, like before
             return s
         }
-        var full = Array(stride(from: maxW, through: minPaperWidth, by: -40)) + [minPaperWidth]
-        var small = Array(stride(from: min(maxW, minPaperWidth - 40), through: smallestPaperWidth, by: -40)) + [smallestPaperWidth]
+        let comfy = max(minPaperWidth, least)
+        var full = Array(stride(from: maxW, through: comfy, by: -40)) + [comfy]
+        var small = least < comfy ? Array(stride(from: min(maxW, comfy - 40), through: least, by: -40)) + [least] : []
         var tiers = [(minPaperHeight, false), (smallestPaperHeight, true)]
         if let w = width {
             full = [min(w, usable.width)]; small = []
@@ -116,7 +122,7 @@ enum Placement {
         for (minH, withSmall) in tiers {
             if let best = candidates(widths: withSmall ? full + small : full, minH: minH, allowCover: false).max(by: { $0.score < $1.score }) { return best.frame }
         }
-        let fallback = candidates(widths: width.map { [min($0, usable.width)] } ?? [smallestPaperWidth, minPaperWidth],
+        let fallback = candidates(widths: width.map { [min($0, usable.width)] } ?? [least, comfy],
                                   minH: min(minHeight ?? smallestPaperHeight, usable.height), allowCover: true)
         if let best = fallback.min(by: { $0.covered != $1.covered ? $0.covered < $1.covered : $0.score > $1.score }) { return best.frame }
         // A screen too small for any paper: the whole usable area.

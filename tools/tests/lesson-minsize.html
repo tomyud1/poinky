@@ -1,0 +1,100 @@
+<!doctype html><html><head><meta charset="utf-8">
+<!-- "Smallest text in sketches" (web/lesson.js, `minText` in the paper's frame): on screen, no text on the
+     paper is under the setting, on a narrow paper too. Text too long for its line, box or table cell wraps
+     onto lines (the box and the row grow) instead of shrinking under it, and a tall paper scrolls instead
+     of zooming out past it. Subscripts and exponents may be a little smaller. -->
+<style>html,body{margin:0;height:100%;background:#fff}iframe{position:absolute;inset:0;width:1400px;height:900px;border:0}</style>
+</head><body>
+<iframe id="ov" src="../../web/overlay.html"></iframe>
+<script>
+(async () => {
+  const results = window.testLines = [], fail = [];
+  const check = (ok, what) => { results.push((ok ? 'ok   ' : 'FAIL ') + what); if (!ok) fail.push(what); };
+  const wait = ms => new Promise(r => setTimeout(r, ms));
+  try {
+    const W = document.getElementById('ov').contentWindow;
+    for (let i = 0; i < 100 && !(W.SB && W.SB.lessonBegin); i++) await wait(50);
+    const SB = W.SB, T = SB._lessonTest;
+    const done = async (ms = 30000) => { for (let i = 0; i < ms / 50 && SB.lessonBusy(); i++) await wait(50); await wait(450); return !SB.lessonBusy(); };
+    const item = id => T.items[id];
+    const paper = () => [...W.document.querySelectorAll('.card.lpaper:not(.leaving)')].pop();
+    // Every piece of text on the paper with its size on screen (points); `small` = a subscript, exponent or root index.
+    const texts = () => {
+      const svg = paper().querySelector('svg'), k = svg.getScreenCTM().a;
+      return [...svg.querySelectorAll('text, tspan[font-size]')].filter(t => (t.textContent || '').trim() && t.getAttribute('opacity') !== '0' && t.getAttribute('x') !== '-9999')
+        .map(t => ({ t, pt: parseFloat(t.getAttribute('font-size') || getComputedStyle(t).fontSize) * k, str: t.textContent.trim() }));
+    };
+    const smallest = () => texts().reduce((m, q) => q.pt < m.pt ? q : m, { pt: 1e9, str: '' });
+    const LONG = 'This sentence is far too long to fit on one line of a narrow paper, so it has to go onto several lines';
+    const ops = [
+      { op: 'text', id: 'title', x: 40, y: 50, text: 'Smallest text', size: 30 },
+      { op: 'text', id: 'tiny', x: 40, y: 90, text: 'a label the teacher wrote small', size: 11 },
+      { op: 'text', id: 'long', x: 40, y: 130, text: LONG, size: 22 },
+      { op: 'box', id: 'bx', x: 40, y: 260, w: 220, h: 50, text: 'a box whose words do not fit in it at all' },
+      { op: 'arrow', id: 'ar', from: [300, 285], to: [460, 285], label: 'label' },
+      { op: 'table', id: 'tb', x: 40, y: 400, w: 420, rows: [['Thing', 'What it is'], ['pressure', 'force on each unit of area of the wall'], ['density', 'mass in each unit of volume']] },
+      { op: 'graph', id: 'gr', x: 60, y: 700, w: 320, h: 180, x_range: [0, 10], y_range: [0, 100], xlabel: 'time', ylabel: 'speed' },
+      { op: 'math', id: 'mt', x: 480, y: 760, text: 'p = \\frac{F}{A} + x_1^2', size: 14 },
+      { op: 'text', id: 'chem', x: 480, y: 820, text: 'H2O and CO2', size: 12 },
+    ];
+
+    for (const [w, min] of [[480, 16], [360, 14], [640, 12]]) {
+      const frame = { x: 1400 - w - 40, y: 50, w, h: 820, minText: min };
+      SB.lessonBegin(frame, `min ${min} on ${w}`);
+      for (const o of ops) SB.lessonStep({ ops: [o] }, 1);   // (a long queue draws faster)
+      check(await done(), `${w} wide, smallest ${min}: the step finishes`);
+      const all = texts(), body = all.filter(q => q.t.tagName !== 'tspan' && !q.t.closest('.math'));
+      const low = body.reduce((m, q) => q.pt < m.pt ? q : m, { pt: 1e9, str: '' });
+      check(body.length > 15 && low.pt >= min - .15, `${w} wide, smallest ${min}: no text under it (${body.length} texts, smallest ${low.pt.toFixed(1)} pt: "${low.str.slice(0, 24)}"; table columns ${T.tables.tb.colW.map(Math.round).join(', ')})`);
+      const lowAny = smallest();
+      check(lowAny.pt >= min * .7 - .15, `…and subscripts, exponents and fraction parts are at most a little smaller (${lowAny.pt.toFixed(1)} pt: "${lowAny.str.slice(0, 12)}")`);
+      // The long sentence: on lines, inside the paper.
+      const lg = item('long'), lines = lg ? [...lg.querySelectorAll('text')] : [], lb = lg && lg.getBBox();
+      check((lines.length > 1 || w > 480) && lb.x >= 0 && lb.x + lb.width <= 800, `…a sentence too long for the paper ${w > 480 ? 'shrinks or ' : ''}goes onto lines (${lines.length}) and stays on it (x ${lb && Math.round(lb.x)}–${lb && Math.round(lb.x + lb.width)})`);
+      check(lines.map(t => t.textContent).join(' ') === LONG, '…with every word, in order');
+      const ys = lines.map(t => +t.getAttribute('y')), fs = lines.length ? +lines[0].getAttribute('font-size') : 0;
+      check(ys.every((y, i) => !i || (y - ys[i - 1] > fs * 1.05 && y - ys[i - 1] < fs * 1.7)), `…its lines one under the other (${ys.map(Math.round).join(', ')}; size ${fs.toFixed(1)})`);
+      // The box: its words inside it.
+      const bx = item('bx'), rect = bx.querySelector('rect').getBBox(), words = [...bx.querySelectorAll('text')];
+      // (side to side by what's drawn; up and down by each line's baseline and x-height, since the font's own box is much taller than its letters)
+      const inBox = words.every(t => { const b = t.getBBox(), y = +t.getAttribute('y'), f = +t.getAttribute('font-size');
+        return b.x >= rect.x - 1 && b.x + b.width <= rect.x + rect.width + 1 && y - f * .75 >= rect.y - 1 && y + f * .25 <= rect.y + rect.height + 1; });
+      check(words.length >= 1 && inBox, `…a box's words stay inside it (${words.length} lines, box ${Math.round(rect.width)}×${Math.round(rect.height)} at ${Math.round(rect.x)},${Math.round(rect.y)}; lines ${words.map(t => { const b = t.getBBox(); return Math.round(b.x) + '–' + Math.round(b.x + b.width) + ' y' + Math.round(+t.getAttribute('y')); }).join(', ')})`);
+      // The table: each cell's words inside the table, rows not on top of each other.
+      const tb = item('tb'), tbb = tb.getBBox(), cells = [...tb.querySelectorAll('text')].map(t => t.getBBox());
+      check(cells.every(b => b.x >= tbb.x - 1 && b.x + b.width <= 800), `…a table's words stay on the paper`);
+      const clash = cells.some((a, i) => cells.some((b, j) => j > i && a.x < b.x + b.width - 2 && b.x < a.x + a.width - 2 && a.y < b.y + b.height * .55 && b.y < a.y + a.height * .55));
+      check(!clash, '…and none of its words are written over each other');
+      // Nothing was drawn off the paper's right edge.
+      const off = texts().filter(q => { const b = q.t.getBBox(); return b.x + b.width > 801; });
+      check(!off.length, `…no text runs off the paper's right edge (${off.map(q => q.str.slice(0, 16)).join(' | ')})`);
+    }
+
+    // A tall paper: it scrolls instead of zooming out past the smallest text.
+    {
+      const min = 14, frame = { x: 760, y: 50, w: 600, h: 500, lo: 50, hi: 560, minText: min };
+      SB.lessonBegin(frame, 'tall');
+      const tall = Array.from({ length: 18 }, (_, i) => ({ op: 'text', id: 'l' + i, x: 40, y: 50 + i * 40, text: 'line ' + (i + 1) + ' of a long lesson', size: 19 }));
+      for (const o of tall) SB.lessonStep({ ops: [o] }, 1);
+      check(await done(60000), 'a tall lesson finishes');
+      const low = smallest();
+      check(low.pt >= min - .15, `a tall paper never zooms out past the smallest text (${low.pt.toFixed(1)} pt, wanted ${min})`);
+      const last = item('l17').getBoundingClientRect(), pr = paper().getBoundingClientRect();
+      check(last.bottom <= pr.bottom + 1 && last.top >= pr.top, 'and the newest line is in view');
+    }
+
+    // Without the setting (older app, tests): 12 points.
+    {
+      SB.lessonBegin({ x: 760, y: 50, w: 480, h: 800, minText: 12 }, 'default');
+      SB.lessonStep({ ops: [{ op: 'text', id: 'd', x: 40, y: 60, text: 'small', size: 10 }, { op: 'text', id: 'e', x: 40, y: 110, text: 'normal', size: 24 }] }, 1);
+      await done();
+      const k = paper().querySelector('svg').getScreenCTM().a;
+      const d = +item('d').querySelector('text').getAttribute('font-size') * k, e = +item('e').querySelector('text').getAttribute('font-size');
+      check(Math.abs(d - 12) < .2, `small text is raised to the setting (${d.toFixed(1)} pt)`);
+      check(Math.abs(e - 24) < .01, `text already big enough keeps its size (${e})`);
+    }
+  } catch (e) { check(false, 'threw: ' + e.message + ' ' + (e.stack || '').split('\n')[1]); }
+  window.testResults = { pass: !fail.length, lines: results };
+})();
+</script>
+</body></html>
