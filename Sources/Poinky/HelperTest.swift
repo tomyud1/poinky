@@ -335,7 +335,7 @@ extension HelperTest {
                         hw.evaluateForTest("(() => { const t = document.getElementById('nTask'); t.value = 'fixture:quiet Check the README'; document.getElementById('nPlan').checked = false; t.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', metaKey: true, bubbles: true})); return document.getElementById('nDir').value; })()") { r in log("new helper from the window in \((r as? String).map { ($0 as NSString).lastPathComponent } ?? "nil")") }
                     }
                     DispatchQueue.main.asyncAfter(deadline: .now() + 2.4) {
-                        hw.evaluateForTest("document.getElementById('name').textContent + ' — ' + document.getElementById('title').textContent + ' | ' + [...document.querySelectorAll('.it .n')].map(e => e.firstChild.textContent).join(',')") { r in log("window after a new helper: \(r.map { "\($0)" } ?? "nil")") }
+                        hw.evaluateForTest("document.getElementById('name').textContent + ' — ' + document.getElementById('title').textContent + ' | ' + [...document.querySelectorAll('.it .n')].map(e => e.firstChild.textContent).join(',') + (document.getElementById('nErr').textContent ? ' | form says: ' + document.getElementById('nErr').textContent + (document.getElementById('newf').hidden ? '' : ' (form still open)') : '')") { r in log("window after a new helper: \(r.map { "\($0)" } ?? "nil")") }
                     }
                     DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) { hw.close() }
                 }

@@ -152,11 +152,20 @@ const run = () => {
 
     // A new helper from the window (⌘N): what, where, which model, plan first.
     key('n', { metaKey: true });
-    check(!q('#newf').hidden && d.activeElement === q('#nTask') && JSON.stringify(w.HW_OUT.slice(-1)[0]) === '{"type":"newForm"}', '⌘N opens the new-helper form, ready to type');
+    check(!q('#newf').hidden && d.activeElement === q('#nTask') && w.HW_OUT.slice(-1)[0].type === 'newForm' && typeof w.HW_OUT.slice(-1)[0].last === 'string', '⌘N opens the new-helper form, ready to type (and tells the app the folder it used last)');
     HW.newForm({ folders: [{ path: '/Users/you/projects/api', label: '~/projects/api' }, { path: '/Users/you/projects/web', label: '~/projects/web' }] });
     check(q('#nDir').value === '/Users/you/projects/api' && q('#nDir').options.length === 3, `its folder: the most recent one, others to pick, or choose (${q('#nDir').value})`);
     key('ArrowDown');
-    check(JSON.stringify(w.HW_OUT.slice(-1)[0]) === '{"type":"newForm"}', 'keys typed in the form don’t move the list');
+    check(w.HW_OUT.slice(-1)[0].type === 'newForm', 'keys typed in the form don’t move the list');
+    // The folder used last time that the app doesn't list (it's gone) isn't offered; one it lists is chosen again.
+    try { w.localStorage.setItem('hw.dir', '/Users/you/projects/deleted'); } catch (e) {}
+    HW.newForm({ folders: [{ path: '/Users/you/projects/api', label: '~/projects/api' }, { path: '/Users/you/projects/web', label: '~/projects/web' }] });
+    check(q('#nDir').value === '/Users/you/projects/api' && ![...q('#nDir').options].some(o => o.value.endsWith('/deleted')), `a folder used last time that's gone isn't offered (${q('#nDir').value})`);
+    try { w.localStorage.setItem('hw.dir', '/Users/you/projects/web'); } catch (e) {}
+    HW.newForm({ folders: [{ path: '/Users/you/projects/api', label: '~/projects/api' }, { path: '/Users/you/projects/web', label: '~/projects/web' }] });
+    check(q('#nDir').value === '/Users/you/projects/web', `the folder used last time is chosen again when it's still there (${q('#nDir').value})`);
+    try { w.localStorage.removeItem('hw.dir'); } catch (e) {}
+    HW.newForm({ folders: [{ path: '/Users/you/projects/api', label: '~/projects/api' }, { path: '/Users/you/projects/web', label: '~/projects/web' }] });
     q('#nGo').click();
     check(q('#nErr').textContent === 'Say what it should do.' && !q('#newf').hidden, 'Start with nothing typed says what’s missing');
     q('#nTask').value = '/review'; q('#nDir').value = '/Users/you/projects/web'; q('#nModel').value = 'opus'; q('#nPlan').checked = true;

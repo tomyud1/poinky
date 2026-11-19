@@ -498,7 +498,7 @@ footer.off .composer{opacity:.55}
 
   // A new helper: what to do, where, which model, plan first. The last folder and model are remembered.
   const remember = (k, v) => { try { if (v === undefined) return localStorage.getItem('hw.' + k); localStorage.setItem('hw.' + k, v); } catch (e) { return null; } };
-  function openNew() { $('nErr').textContent = ''; $('newf').hidden = false; post({ type: 'newForm' }); $('nTask').focus(); }
+  function openNew() { $('nErr').textContent = ''; $('newf').hidden = false; post({ type: 'newForm', last: remember('dir') || '' }); $('nTask').focus(); }
   function closeNew() { $('newf').hidden = true; }
   function addFolder(f, select) {
     const sel = $('nDir');
@@ -665,8 +665,8 @@ footer.off .composer{opacity:.55}
       const sel = $('nDir');
       sel.innerHTML = '<option value="__choose__">Choose a folder…</option>';
       for (const f of d.folders || []) addFolder(f, false);
+      // The folder used last time is offered only if the app listed it (it leaves out one that's gone).
       const last = remember('dir');
-      if (last && ![...sel.options].some(o => o.value === last)) addFolder({ path: last, label: last.replace(/^\/Users\/[^/]+/, '~') }, false);
       sel.value = last && [...sel.options].some(o => o.value === last) ? last : (d.folders && d.folders[0] ? d.folders[0].path : '__choose__');
       const m = remember('model'); if (m != null) $('nModel').value = m;
     },

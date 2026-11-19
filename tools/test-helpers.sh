@@ -246,7 +246,7 @@ if [ "${1:-}" = "--screen" ] || [ "${2:-}" = "--screen" ]; then
   L="$TMP/win/log.txt"
   expect "$L" "opened #1's window" "its window opens"
   expect "$L" "window while working: .*\"entries\":[2-9].*\"pill\":\"Working · " "it fills in while the helper works"
-  expect "$L" "window while working: .*\"pill\":\"Working · [^\"]* tokens\"" "its header counts tokens as it works"
+  expect "$L" "window while working: .*\"pill\":\"Working · [^\"]* tokens[^\"]*\"" "its header counts tokens as it works"
   expect "$L" "window while working: .*\"steps\":\[\"(Read|Searched|Ran)" "its steps are grouped (\"Read 3 files, …\")"
   expect "$L" "follow-ups: \[\"Also make the README example use \\\$100.\"\]" "typing in it sends the helper a message"
   expect "$L" "window after typing: \[\"Also make the README" "what you typed shows in it"

@@ -246,7 +246,13 @@ final class HelperWindows: NSObject, NSWindowDelegate, WKNavigationDelegate {
         if type == "select", let key = msg["key"] as? String { select(key); return }
         if type == "newForm" {
             let home = NSHomeDirectory()
-            let folders = recentFolders().map { ["path": $0, "label": $0.hasPrefix(home + "/") ? "~" + $0.dropFirst(home.count) : $0] }
+            // The folder the form used last time (the page remembers it), if it's still there: a deleted
+            // or renamed one was offered first and then refused with "That folder doesn't exist."
+            var list = recentFolders()
+            var isDir: ObjCBool = false
+            if let last = msg["last"] as? String, !last.isEmpty, !list.contains(last),
+               FileManager.default.fileExists(atPath: last, isDirectory: &isDir), isDir.boolValue { list.append(last) }
+            let folders = list.map { ["path": $0, "label": $0.hasPrefix(home + "/") ? "~" + $0.dropFirst(home.count) : $0] }
             run("HW.newForm(\(Self.json(["folders": folders])))")
             return
         }
