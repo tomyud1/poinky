@@ -115,3 +115,6 @@ The old recap can't carry it at all (question 2 is the 9th exchange back). In th
 
 ## Adding a scenario
 Add a dict to `SCENARIOS` in `scenarios.py`: `id`, `who`, `html` (use `screen(...)`), `ctx` (the `AppContext.lines` the app would send), `said`, `cursor`, optional `agents` (status lines) and `memory` (fact lines), and `checks` (name, function of the parsed reply: `say`, `tags`, `draw`, `raw`). Keep paths generic (`~/…`, `/Users/alex/…`).
+
+## Routing honored in code (2026-11-19, polish)
+Before: `polish-base` 28/42; after: `polish-after1` 30/42, `polish-after2` 34/42 (one run each; Haiku varies run to run, and other runs shared the Mac, so first-word times aren't comparable). The targeted scenarios passed in all three runs live (`guide-title-bigger`, `textedit-bigger`, new `edit-friday` and `chart-line-instead`, `explain-briefly`, `check-noselect` with its new "never calls the user Dana" check); the code paths that catch the misses when Haiku still makes them (`dropsVisual`, `refusesHelper`, `howToGate`, `helperDir`) are pinned by `tools/tests/talker-route` rather than the live eval, which scores the raw reply. A saved real reply (r3-newbase) did call the user "Dana" from the sheet; the fixture now records that failure.
