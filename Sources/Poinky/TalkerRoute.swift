@@ -113,7 +113,8 @@ struct TalkerRoute: Equatable {
         "=notch", "=memory", "=forget", "the teacher", "=chalkboard", "hands-free", "hands free", "=privacy",
         "what did you see", "what do you send", "what you send", "start fresh", "=update", "=updates",
         "what can you do", "what else can you", "how do you work", "who are you", "what are you", "your name",
-        "type to you", "helpers window", "away mode", "=ntfy",
+        "type to you", "helpers window",
+        "more careful", "think harder", "careful mode", "quick mode", "smarter model", "stronger model",
         "הגדרות", "הגדרה", "מהר יותר", "לאט יותר", "תדבר לאט", "תדבר מהר", "הקול",
     ]
     static let aboutHelpersWords = [

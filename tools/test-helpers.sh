@@ -159,18 +159,6 @@ awk -v f="$first" -v s="$second" -v n="$firstName" '
 expect "$TMP/H.txt" "#$second $secondName FINISHED done" "then it gets its turn and finishes"
 grep -q "Waiting for the mouse and keyboard ($firstName is using them)" "$TMP"/logs-H/*.chat.jsonl && pass "its window says it's waiting for the mouse" || bad "its window says it's waiting for the mouse"
 
-echo "4j. Away: a helper's question reaches your phone (a fake ntfy server), and its button answers it"
-NP=$((8800 + RANDOM % 600))
-python3 tools/fake-ntfy.py $NP "$TMP/ntfy.txt" tap & NPID=$!
-sleep 0.5
-run N POINKY_TEST_NTFY="http://127.0.0.1:$NP" "$BIN" --helper-test "$TMP/N.txt" "$TMP/proj" fixture:ask-install
-kill $NPID 2>/dev/null
-expect "$TMP/ntfy.txt" "notification on poinky-test: title='Mint needs your OK' message='Can I run npm install left-pad\\?\\\\nnpm install left-pad'" "it says who needs what"
-expect "$TMP/ntfy.txt" "actions=.http, Allow, http://127.0.0.1:$NP/poinky-test-reply, method=POST, body=yes [^ ]+ [a-z0-9]{10}" "with Allow / Don't allow buttons (and a one-time code)"
-expect "$TMP/N.txt" "from the phone: #1 yes.*→ sent" "tapping Allow answers it"
-expect "$TMP/N.txt" "#1 Mint FINISHED done" "and it goes on and finishes"
-expect "$TMP/ntfy.txt" "listening on poinky-test-reply" "answers are only listened for while something waits"
-
 echo "4k. No session: a helper's request becomes a Mac notification (a fake center), and its buttons answer it"
 run K POINKY_TEST_NOTIFY=allow "$BIN" --helper-test "$TMP/K.txt" "$TMP/proj" fixture:ask-install
 expect "$TMP/K.txt" "notification ask.risky: \"Mint: Test 1\" / \"Can I run npm install left-pad\\?\"" "its name and task, the plain question (a risky one: its own category, with the red Allow)"

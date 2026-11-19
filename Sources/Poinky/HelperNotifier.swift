@@ -4,7 +4,7 @@ import UserNotifications
 /// macOS notifications for helpers: one needs you (a permission or a question) while no session runs,
 /// or its question was parked unanswered; and (opt-in) one finished while you're away from the Mac.
 ///
-/// The buttons answer exactly like the card's buttons (`onAnswer` → `CallController.phoneAnswer` →
+/// The buttons answer exactly like the card's buttons (`onAnswer` → `CallController.notificationAnswer` →
 /// `answerAsk` → `AgentManager.answer`), and only for the one request the notification was made for.
 /// Allow is an explicit click like the card's Allow, so it may approve a risky ask too, but: it is never
 /// "always", the notification says the risky part (the bubble keeps it, the exact command is added), and
@@ -19,7 +19,15 @@ final class HelperNotifier {
     /// Open the helper's window (a click on the notification itself, or Open on a question).
     var onOpen: ((_ agent: Int) -> Void)?
     /// Away from the Mac (screen locked, or idle): for "finished" notifications.
-    var isAway: () -> Bool = { AwayNotifier.userIsAway(minutes: 3) }
+    var isAway: () -> Bool = { HelperNotifier.userIsAway() }
+
+    /// The screen is locked, or no key or mouse for three minutes.
+    static func userIsAway() -> Bool {
+        if CallController.screenLocked() { return true }
+        let idle = [CGEventType.keyDown, .mouseMoved, .leftMouseDown, .scrollWheel]
+            .map { CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: $0) }.min() ?? 0
+        return idle > 3 * 60
+    }
 
     private let poster: NotificationPosting
     private var config = AppConfig()
@@ -34,7 +42,6 @@ final class HelperNotifier {
     func settings(_ c: AppConfig) {
         config = c
         SystemNotifications.quiet = c.quiet
-        isAway = { AwayNotifier.userIsAway(minutes: c.awayMinutes) }
         if !c.helperNotify { withdrawAll() }
     }
 

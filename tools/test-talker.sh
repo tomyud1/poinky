@@ -10,6 +10,7 @@
 #      hand-over gate while the teacher sketches
 #   5. "About me": only what the user said about themselves (UserFacts)
 #   6. `<replace from=… to=…>`: the span of the document it names (TextSpan, tools/tests/text-swap)
+#   7. Quick / Careful (`careful` in <set>, Settings → Claude): what each part runs on, and older config files
 # Usage: tools/test-talker.sh     (a live run with real replies: see tools/eval-talker/README.md)
 set -uo pipefail
 cd "$(dirname "$0")/.."
@@ -65,5 +66,11 @@ swiftc -O -o "$TMP/swap-test" "$TMP/swap/span.swift" "$TMP/swap/main.swift" 2>"$
 "$TMP/swap-test" > "$TMP/swap.txt"; code=$?
 grep -E "^FAIL" "$TMP/swap.txt" | sed 's/^/  /'
 [ $code = 0 ] && printf "  \033[32mok\033[0m   %s checks\n" "$(grep -c '^ok' "$TMP/swap.txt")" || { printf "  \033[31mFAIL\033[0m text spans\n"; fail=1; }
+
+echo "T7. Quick / Careful: what each part runs on, and older config files (tools/tests/config)"
+swiftc -O -o "$TMP/config-test" Sources/Poinky/Config.swift tools/tests/config/main.swift 2>"$TMP/swiftc.log" || { cat "$TMP/swiftc.log"; exit 1; }
+"$TMP/config-test" > "$TMP/config.txt"; code=$?
+grep -E "^FAIL" "$TMP/config.txt" | sed 's/^/  /'
+[ $code = 0 ] && printf "  \033[32mok\033[0m   %s checks\n" "$(grep -c '^ok' "$TMP/config.txt")" || { printf "  \033[31mFAIL\033[0m config\n"; fail=1; }
 
 exit $fail

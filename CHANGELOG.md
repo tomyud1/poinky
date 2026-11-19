@@ -32,8 +32,7 @@ All notable changes to Poinky. The format follows [Keep a Changelog](https://kee
 - Helpers can run your Claude Code commands and skills ("run a code review on this"), and do git work by voice ("commit this", "open a PR and watch the checks").
 - Only one helper at a time uses your mouse and keyboard (or Chrome); you're asked once per helper.
 - "How much have the helpers used today?", with Claude Code's plan-limit status.
-- Away mode (off by default): when you're away from the Mac, a helper's question reaches your phone through the ntfy app, with buttons to answer.
-- Choose the model and effort for each part of Poinky (talker, teacher, guide, doer and helpers) in Settings → Claude. Settings also warns when your Claude Code is too old for the newest models, with an Update button.
+- Quick or Careful in Settings → Claude (or say "be more careful"): Careful uses stronger models where they make answers better. Pick the helpers' model there too; each part's own model and effort are under Settings → Advanced. Settings also warns when your Claude Code is too old for the newest models, with an Update button.
 - The notch keeps the last three helper reports: a colored dot for each one you haven't heard yet, and a list when you hover (click one to open its log).
 - A sound volume slider in Settings (next to the sounds switch). It plays a sample when you let go, and you can also say "make the sounds quieter".
 - The Agent Lab (`web/agents-lab.html`): a playground for how helpers look, move and sound, with a timeline and sliders, and sounds that can be saved as `.wav` files.
