@@ -60,6 +60,8 @@ def launch(d, items, quit_after, wait=2.5):
            "POINKY_CLAUDE_CMD": os.path.join(ROOT, "tools/fake-claude.py"), "FAKE_STUDY_SCRIPT": f"{d}/script.json",
            "POINKY_STUDY_DOCUMENT": SHEET, "POINKY_LESSON_DIR": f"{d}/out", "POINKY_ASK_WAIT": str(wait),
            "POINKY_MUTE": "1", "FAKE_CLAUDE_REPLY": "<say>Fake talker answer.</say>"}
+    # POINKY_TEST_SCREEN=<picture>: every screenshot is that picture (the test copy never sees the real screen).
+    if os.environ.get("POINKY_TEST_SCREEN"): env["POINKY_TEST_SCREEN"] = os.environ["POINKY_TEST_SCREEN"]
     cmd = ["open", "-n", "-g"]
     for k, v in env.items(): cmd += ["--env", f"{k}={v}"]
     cmd += [APP, "--args"]

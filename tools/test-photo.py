@@ -157,7 +157,9 @@ class Run:
         p = f"{self.d}/receipts"
         for f in sorted(os.listdir(p)) if os.path.isdir(p) else []:
             if f.endswith(".json"):
-                try: out += json.load(open(f"{p}/{f}")).get("also", [])
+                try:
+                    d = json.load(open(f"{p}/{f}"))
+                    for r in d if isinstance(d, list) else [d]: out += r.get("also", [])
                 except ValueError: pass
         return out
 
@@ -191,7 +193,7 @@ def study():
     check("study: they went to the study session (2 pages, then 1)", [(e.get("to"), e.get("pages")) for e in uses] == [("study", 2), ("study", 1)], uses)
     checks_ = r.ev("study.check")
     check("study: the checks had 2 pages, then 1", [e.get("pages") for e in checks_] == [2, 1], checks_)
-    teach = [q for q in r.questions("artist") if q[0].startswith("STUDY: check")]
+    teach = [q for q in r.questions("study") if q[0].startswith("STUDY: check")]
     check("study: the teacher got 2 pictures, then 1 (no screenshot)", [n for _, n in teach] == [2, 1], [(t[:40], n) for t, n in teach])
     check("study: it was told they're pages in order", teach and "last 2 images (one page each, in order)" in teach[0][0], teach[:1])
     check("study: 'check my work' with the sheet in front asked the phone", any(e.get("voice") for e in r.ev("photo.capture")), r.ev("photo.capture"))
