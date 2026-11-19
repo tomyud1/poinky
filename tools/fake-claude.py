@@ -113,6 +113,8 @@ while True:
         continue
     if t != "user": continue
     text = " ".join(c.get("text", "") for c in msg["message"]["content"] if c.get("type") == "text")
+    images = sum(1 for c in msg["message"]["content"] if c.get("type") == "image")
+    note(f"pid {os.getpid()} {role} images: {images}")   # (its own line: the question line ends with the JSON text)
     note(f"pid {os.getpid()} {role} question: " + json.dumps(text))
     if mode == "crash": sys.exit(3)
     if mode == "signedout":

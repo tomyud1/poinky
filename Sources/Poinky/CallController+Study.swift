@@ -34,8 +34,8 @@ extension CallController {
     /// What you said (or typed), before the talker sees it. True when the study session took it.
     func studyHeard(_ text: String) -> Bool {
         study.driver = self
-        if let (photo, note) = study.takePhoto() {
-            studyCheck(photo: photo, note: note, said: text)
+        if let (photos, note, flat) = study.takePhoto() {
+            studyCheck(photos: photos, note: note, flat: flat, said: text)
             return true
         }
         guard study.isActive(call: studyCall) else {
@@ -66,7 +66,10 @@ extension CallController {
             study.awaiting = .working
             studyStatus(he ? "תורך" : "your turn")
             studySayNow(StudyWords.tryIt(he), said: text)
-        case .check?: studyCheck(photo: nil, note: nil, said: text)
+        case .check?:
+            // Their work is on paper and the sheet is what's on screen: ask the phone for it (CallController+Photo.swift).
+            if photoInsteadOfScreen(text) { return true }
+            studyCheck(photos: [], note: nil, said: text)
         case .show?:
             if study.awaiting == .afterWrong { studyTeach(.fix, said: text) } else { studyTeach(.solve, said: text) }
         case .next?: studyNext(said: text)
@@ -447,7 +450,7 @@ extension CallController {
     }
 
     /// Runs one teacher task on the current part: waits for the solver's reference first when it matters.
-    func studyTeach(_ kind: StudyBrief.Kind, said: String, image: String? = nil, imageName: String? = nil, note: String? = nil) {
+    func studyTeach(_ kind: StudyBrief.Kind, said: String, images: [String] = [], imageNames: [String] = [], note: String? = nil) {
         let s = study
         guard let sheet0 = s.sheet, sheet0.question != nil else {
             // No question yet (it couldn't be read): read it now.
@@ -482,11 +485,11 @@ extension CallController {
             if !newPaper { self.overlay.lessonStep(#"{"ops":[{"op":"erase","ids":["\#(tag)-turn"]}]}"#, scale: snap.scale) }
             self.studyTag(tag)
             s.paperTag = tag
-            var text = StudyBrief.message(kind, sheet: sheet, said: said, newPaper: newPaper, note: note)
+            var text = StudyBrief.message(kind, sheet: sheet, said: said, newPaper: newPaper, note: note, photos: images.count)
             text += "\n" + self.studyContext(snap).joined(separator: "\n")
             let stream = StudyStream()
             let qi = sheet.current, pi = sheet.part
-            let job = StudyJob(brain: teacher, images: image.map { [$0] } ?? [], sendShot: image == nil,
+            let job = StudyJob(brain: teacher, images: images, sendShot: images.isEmpty,
                                tap: stream.feed, finish: stream.finish) { [weak self] ok in
                 guard let self else { return }
                 s.teacherBusy = false
@@ -501,12 +504,12 @@ extension CallController {
                     self.studySay(he ? "סליחה, משהו השתבש. ננסה שוב?" : "Sorry, something went wrong there. Shall we try again?")
                     return
                 }
-                self.studyAfter(kind, stream: stream, qi: qi, pi: pi, imageName: imageName)
+                self.studyAfter(kind, stream: stream, qi: qi, pi: pi, imageNames: imageNames)
             }
             s.teacherBusy = true
-            self.studyReceipt(BrainQuestion(text: text, snapshot: image == nil ? snap : nil, extraImages: image.map { [$0] } ?? []),
-                              said: said, snap: snap, note: image == nil ? "Study session (\(kind.rawValue)): the teacher got the screenshot"
-                                                                         : "Study session: the teacher got the photo of your work")
+            self.studyReceipt(BrainQuestion(text: text, snapshot: images.isEmpty ? snap : nil, extraImages: images),
+                              said: said, snap: snap, note: images.isEmpty ? "Study session (\(kind.rawValue)): the teacher got the screenshot"
+                                                                         : "Study session: the teacher got \(images.count == 1 ? "a photo" : "\(images.count) photos") of your work (not the screenshot)")
             Timeline.log("study.teach", ["kind": kind.rawValue, "reference": s.sheet?.currentPart?.reference != nil, "newPaper": newPaper])
             self.studyRun(text, snapshot: snap, job: job)
         }
@@ -514,7 +517,7 @@ extension CallController {
     static var solverWait: Double { ProcessInfo.processInfo.environment["POINKY_STUDY_SOLVER_WAIT"].flatMap(Double.init) ?? 240 }
 
     /// After a teacher task: what it means for the part, and what Poinky asks next.
-    private func studyAfter(_ kind: StudyBrief.Kind, stream: StudyStream, qi: Int, pi: Int, imageName: String?) {
+    private func studyAfter(_ kind: StudyBrief.Kind, stream: StudyStream, qi: Int, pi: Int, imageNames: [String]) {
         let s = study
         guard var sheet = s.sheet, sheet.questions.indices.contains(qi), sheet.questions[qi].parts.indices.contains(pi) else { return }
         let he = sheet.userLanguage == "he"
@@ -533,7 +536,8 @@ extension CallController {
             s.awaiting = nextLabel == nil ? .nextQuestion : .nextPart
         case .check:
             let v = stream.verdict ?? (result: "unknown", line: nil, note: "")
-            part.attempts.append(StudyAttempt(at: Date(), image: imageName, verdict: v.result, line: v.line, note: v.note))
+            part.attempts.append(StudyAttempt(at: Date(), image: imageNames.first, images: imageNames.count > 1 ? imageNames : nil,
+                                              verdict: v.result, line: v.line, note: v.note))
             Timeline.log("study.verdict", ["result": v.result, "line": v.line ?? 0])
             switch v.result {
             case "right":
@@ -561,13 +565,16 @@ extension CallController {
         studyKeepPages(rebuild: part.done)
     }
 
-    /// "Check my work": a photo (the iPhone, `--study-photo`), an image open in front, or what's on screen.
-    func studyCheck(photo: URL?, note: String?, said: String) {
+    /// "Check my work": photos (the iPhone, a drop, `--study-photo`; several pages in order), an image open in
+    /// front, or what's on screen. Each photo's original and its cleaned copy are kept in the sheet's folder (0600);
+    /// the inbox copy is deleted.
+    func studyCheck(photos: [URL], note: String?, flat: Bool = false, said: String) {
         let s = study
         if !s.isActive(call: studyCall) {
             // A photo with no session running: pick up the sheet in front, else the last one.
             let id = StudyStore.id(document: studyFront.document, page: studyFront.page, window: studyFront.window)
             guard let sheet = StudyStore.load(id) ?? StudyStore.all().first, sheet.question != nil else {
+                PhotoFiles.remove(photos)
                 studySayNow(StudyWords.noSheet(Self.language(of: said) == "he"), said: said)
                 return
             }
@@ -577,22 +584,32 @@ extension CallController {
             overlay.onStudyPDF = { [weak self] in self?.studyPDF(open: true, said: "") }
         }
         guard let sheet = s.sheet else { return }
-        let file = photo ?? studyFront.document.flatMap { StudySource.isImage($0) ? $0 : nil }
-        var b64: String?, name: String?
-        if let file, let clean = StudySource.cleanPhoto(file) {
-            let n = (sheet.currentPart?.attempts.count ?? 0) + 1
-            let base = "\(sheet.tag(sheet.current, sheet.part))-mine-\(n)"
-            if let big = StudySource.jpeg(clean, maxSide: 2400, quality: 0.8) { name = StudyStore.write(big, name: base + ".jpg", sheet: sheet.id) }
-            b64 = StudySource.jpeg(clean, maxSide: 1568, quality: 0.85)?.base64EncodedString()
+        let files = photos.isEmpty ? studyFront.document.flatMap { StudySource.isImage($0) ? [$0] : nil } ?? [] : photos
+        var images: [String] = [], names: [String] = []
+        let n = (sheet.currentPart?.attempts.count ?? 0) + 1
+        let base = "\(sheet.tag(sheet.current, sheet.part))-mine-\(n)"
+        for (i, file) in files.enumerated() {
+            guard let (clean, kept) = StudySource.cleanPhotoInfo(file, flat: flat) else { continue }
+            let name = files.count > 1 ? "\(base)-p\(i + 1)" : base
+            if let big = StudySource.jpeg(clean, maxSide: 2400, quality: 0.8), let saved = StudyStore.write(big, name: name + ".jpg", sheet: sheet.id) { names.append(saved) }
+            if !photos.isEmpty, let orig = PhotoFiles.image(file, maxSide: 3000).flatMap({ StudySource.jpeg($0, maxSide: 3000, quality: 0.85) }) {
+                StudyStore.write(orig, name: name + "-original.jpg", sheet: sheet.id)
+            }
+            if let b = StudySource.jpeg(clean, maxSide: 1568, quality: 0.85)?.base64EncodedString() { images.append(b) }
+            // Most of the photo was cut away to find the page: the photo as taken goes too, in case the page was misread.
+            if kept < 0.45, let orig = PhotoFiles.forClaude(file) { images.append(orig) }
         }
-        Timeline.log("study.check", ["photo": b64 != nil])
+        PhotoFiles.remove(photos)
+        Timeline.log("study.check", ["photo": !images.isEmpty, "pages": names.count])
+        var note = note
+        if images.count > names.count, names.count > 0 { note = [note, "a photo whose page took up little of it is also sent uncropped, right after its cleaned copy"].compactMap { $0 }.joined(separator: "; ") }
         if s.lastShot == nil {
             Task { @MainActor in
                 s.lastShot = try? await self.studyCapture()
-                self.studyTeach(.check, said: said, image: b64, imageName: name, note: note)
+                self.studyTeach(.check, said: said, images: images, imageNames: names, note: note)
             }
         } else {
-            studyTeach(.check, said: said, image: b64, imageName: name, note: note)
+            studyTeach(.check, said: said, images: images, imageNames: names, note: note)
         }
     }
 

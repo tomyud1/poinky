@@ -133,9 +133,15 @@ enum ScreenCapture {
     /// Tests: `POINKY_TEST_CAPTURE_FAIL=1`, every screenshot fails as with the display asleep.
     static let testFail = ProcessInfo.processInfo.environment["POINKY_TEST_CAPTURE_FAIL"] == "1"
 
+    /// Tests: `POINKY_TEST_SCREEN=<image>`, every screenshot is that picture: a test copy never sees the real screen
+    /// (so it can run while someone uses the Mac, whatever is open).
+    static let testScreen: CGImage? = ProcessInfo.processInfo.environment["POINKY_TEST_SCREEN"].flatMap { p in
+        CGImageSourceCreateWithURL(URL(fileURLWithPath: p) as CFURL, nil).flatMap { CGImageSourceCreateImageAtIndex($0, 0, nil) }
+    }
+
     static func capture(screen: NSScreen, marks: [Mark], cursor: CGPoint?, focus: FocusCrop? = nil) async throws -> Snapshot {
         if testFail { throw CaptureError.noDisplay }
-        let filter = try await filter(for: screen)
+        let filter: SCContentFilter? = testScreen == nil ? try await self.filter(for: screen) : nil
         let size = screen.frame.size
         let scale = imageScale(for: size)
         let w = Int((size.width * scale).rounded())
@@ -145,7 +151,8 @@ enum ScreenCapture {
         cfg.width = w
         cfg.height = h
         cfg.showsCursor = true
-        let image = try await shot(filter, cfg)
+        let image: CGImage
+        if let t = testScreen { image = t } else { image = try await shot(filter!, cfg) }
 
         guard let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
                                   space: CGColorSpaceCreateDeviceRGB(),

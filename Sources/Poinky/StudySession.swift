@@ -28,9 +28,9 @@ struct StudyPart: Codable, Equatable {
     var done: Bool { status == .solvedByUser || status == .shown || status == .skipped }
     /// Which pages go in the PDF: (your photos, Poinky's papers).
     var pdfContent: (mine: [String], poinky: [String]) {
-        let photos = attempts.compactMap(\.image)
-        let lastRight = attempts.last(where: { $0.verdict == "right" })?.image
-        let mine = lastRight.map { [$0] } ?? photos
+        let photos = attempts.flatMap(\.pictures)
+        let lastRight = attempts.last(where: { $0.verdict == "right" && !$0.pictures.isEmpty })?.pictures
+        let mine = lastRight ?? photos
         switch include {
         case .mine: return (mine, mine.isEmpty ? pages : [])
         case .poinky: return ([], pages)
@@ -46,9 +46,12 @@ struct StudyPart: Codable, Equatable {
 struct StudyAttempt: Codable, Equatable {
     var at: Date
     var image: String?           // the cleaned photo (file name in the sheet's folder); nil: it was on screen
+    var images: [String]? = nil  // every page of it, in order, when there were several (`image` is the first)
     var verdict: String          // right / wrong / unreadable / unfinished / unknown
     var line: Int?               // their first wrong or unreadable line
     var note: String
+    /// The cleaned pages of this attempt, in order.
+    var pictures: [String] { images ?? image.map { [$0] } ?? [] }
 }
 
 struct StudyQuestion: Codable, Equatable {
@@ -315,8 +318,8 @@ enum StudyWords {
     static func choice(_ he: Bool) -> String { he ? "רוצה לנסות לבד, לקבל רמז, או שאראה לך?" : "Want to try it yourself, get a hint, or shall I show you?" }
     static func choiceAgain(_ he: Bool) -> String { he ? "לנסות לבד, רמז, או הפתרון המלא?" : "Try it yourself, a hint, or the full solution?" }
     static func tryIt(_ he: Bool) -> String {
-        he ? "בטח, קח את הזמן. כשתסיים, תראה לי: תשלח תמונה, או תפתח אותה על המסך ותגיד תבדוק."
-           : "Sure, take your time. When you're done, show me: send a photo, or put it on screen and say check my work."
+        he ? "בטח, קח את הזמן. כשתסיים, תגיד תבדוק ותצלם את הדף באייפון, או תלחץ על כפתור המצלמה בנייר."
+           : "Sure, take your time. When you're done, say check my work and snap the page with your iPhone, or click My work on the paper."
     }
     static func moreHint(_ he: Bool) -> String { he ? "רוצה לנסות עכשיו, או עוד רמז?" : "Want to try it now, or another hint?" }
     static func lastHint(_ he: Bool) -> String {
@@ -361,8 +364,8 @@ enum StudyWords {
         }
     }
     static func noPhoto(_ he: Bool) -> String {
-        he ? "אני לא רואה את הפתרון שלך. תשלח תמונה, או תפתח אותו על המסך ותגיד שוב תבדוק."
-           : "I can't see your work. Send a photo, or open it on screen and say check my work again."
+        he ? "אני לא רואה את הפתרון שלך. תלחץ על כפתור המצלמה בנייר כדי לצלם אותו באייפון, או תגרור תמונה לנייר."
+           : "I can't see your work. Click My work on the paper to snap it with your iPhone, or drop a picture on the paper."
     }
     static func onPart(_ q: String, _ label: String, _ status: String, he: Bool) -> String {
         he ? "אנחנו בשאלה \(q), \(part(label, he: true)). \(status)" : "We're on question \(q), \(part(label, he: false)). \(status)"
@@ -505,7 +508,7 @@ enum StudyBrief {
     }
 
     static func message(_ kind: Kind, sheet s: StudySheet, number: String? = nil, said: String = "", paperBottom: Int? = nil,
-                        newPaper: Bool = false, pdfPages: Int = 0, note: String? = nil) -> String {
+                        newPaper: Bool = false, pdfPages: Int = 0, note: String? = nil, photos: Int = 1) -> String {
         var l = ["STUDY: \(kind.rawValue)"]
         switch kind {
         case .present:
@@ -525,7 +528,8 @@ enum StudyBrief {
             l.append("Give hint \(level) of 3 for the current part (\(level == 1 ? "the principle or approach only" : level == 2 ? "set up the governing equation(s), don't solve" : "the next step from where they are, then stop")).")
         case .solve: l.append("Show the full worked solution of the current part.")
         case .check:
-            l.append("The user's own work for the current part is in the last image\(note == nil ? "" : " (\(note!))"). Check it line by line.")
+            let where_ = photos > 1 ? "the last \(photos) images (one page each, in order)" : "the last image"
+            l.append("The user's own work for the current part is in \(where_)\(note == nil ? "" : " (\(note!))"). Check it line by line.")
         case .fix: l.append("The user wants the corrected continuation of their attempt: continue from their last right line and finish the part.")
         case .fixHint: l.append("Give one hint that helps them fix their wrong step themselves.")
         case .ask: l.append("The user asked this during the session. Answer it (or write only <pass/> if it isn't about the homework).")
@@ -571,7 +575,8 @@ final class StudySession {
     var working = false               // waiting on the solver or the teacher (tests: not quiet yet)
     var paperTag: String?             // the part the open paper belongs to
     var gen = 0                       // changes when a teacher job is cut off
-    var pendingPhoto: URL?            // a photo waiting for the session to start
+    var pendingPhotos: [URL] = []     // photos (pages, in order) waiting for the session to take them
+    var pendingFlat = false           // they came flat (a scan, a PDF export): nothing to straighten
     var pendingNote: String?
     var lastShot: Snapshot?
     weak var driver: CallController?
@@ -579,24 +584,29 @@ final class StudySession {
     /// A photo of the user's handwritten work (the iPhone capture calls this; also `--study-photo`).
     /// Starts a session if none is running, and checks the work against the current part.
     func checkWork(image: NSImage, note: String? = nil) {
-        guard let data = StudySource.jpeg(image, maxSide: 3000) else { return }
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("poinky-work-\(UUID().uuidString).jpg")
-        guard (try? data.write(to: url)) != nil else { return }
-        checkWork(file: url, note: note)
+        guard let data = StudySource.jpeg(image, maxSide: 3000), let url = PhotoFiles.write(data, ext: "jpg") else { return }
+        checkWork(files: [url], note: note)
     }
 
-    func checkWork(file: URL, note: String? = nil) {
-        pendingPhoto = file
+    func checkWork(file: URL, note: String? = nil) { checkWork(files: [file], note: note) }
+
+    /// Several pages of work for one part, in order (photos from the phone, a scan, an iPad export).
+    /// `flat`: they're already flat (a scan or a PDF page): only the light is evened out.
+    func checkWork(files: [URL], note: String? = nil, flat: Bool = false) {
+        guard !files.isEmpty else { return }
+        pendingPhotos = files
+        pendingFlat = flat
         pendingNote = note
         driver?.askTyped(sheet?.userLanguage == "he" ? "תבדוק את הפתרון שלי" : "check my work")
     }
 
-    /// Takes the waiting photo (once).
-    func takePhoto() -> (URL, String?)? {
-        guard let p = pendingPhoto else { return nil }
-        pendingPhoto = nil
-        defer { pendingNote = nil }
-        return (p, pendingNote)
+    /// Takes the waiting photos (once).
+    func takePhoto() -> ([URL], String?, Bool)? {
+        guard !pendingPhotos.isEmpty else { return nil }
+        let p = pendingPhotos
+        pendingPhotos = []
+        defer { pendingNote = nil; pendingFlat = false }
+        return (p, pendingNote, pendingFlat)
     }
 
     func isActive(call: Int) -> Bool { sheet != nil && activeCall == call }

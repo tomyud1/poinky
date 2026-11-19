@@ -98,6 +98,8 @@ final class NotchModel: ObservableObject {
     var onReceipts: () -> Void = {}
     var onQuiet: () -> Void = {}
     var onCopy: (String) -> Void = { _ in }
+    var onPhoto: () -> Void = {}                    // a photo of your work from your iPhone (CallController+Photo.swift)
+    var onPhotoFiles: ([URL]) -> Void = { _ in }    // pictures dropped on the notch
 
     /// Quiet mode (answers are written, nothing is played): a slashed speaker beside the idle notch, so it's never
     /// a surprise that Poinky doesn't talk. `writing`: the answer being given now is written, not said.
@@ -278,6 +280,17 @@ struct NotchView: View {
             }
         }
         .frame(width: size.width, height: size.height)
+        // A picture dropped on the notch (it opens under the drag): the same as one from the phone.
+        .onDrop(of: [.fileURL], isTargeted: nil) { providers in
+            let m = m
+            for p in providers {
+                _ = p.loadObject(ofClass: URL.self) { url, _ in
+                    guard let url, PhotoFiles.isPicture(url) else { return }
+                    DispatchQueue.main.async { m.onPhotoFiles([url]) }
+                }
+            }
+            return !providers.isEmpty
+        }
         .coordinateSpace(name: "notch")
         .onPreferenceChange(TipFrames.self) { m.tipXs = $0 }
         .overlay(alignment: .top) {
@@ -414,6 +427,8 @@ struct NotchView: View {
                       tip: m.quiet ? "Quiet mode is on: I write my answers and play no sounds. Click to talk out loud again (⌃⌥Q)."
                                    : "Quiet mode: write answers instead of saying them, for a library, a lecture or a call (⌃⌥Q)",
                       tint: m.quiet ? sbOrange : nil, action: m.onQuiet)
+            NotchIcon(m: m, id: "photo", icon: "camera",
+                      tip: "Show me something on paper: a photo from your iPhone (⌃⌥P). Or drop a picture or PDF here.", action: m.onPhoto)
             NotchIcon(m: m, id: "teacher", icon: "pencil.and.scribble", tip: m.teacherOn ? "Teacher on: explanations get a hand-drawn sketch or a 3D model. Click to turn off." : "Teacher off: voice and quick marks only. Click to turn on.",
                       tint: m.teacherOn ? sbBlue : nil, dim: !m.teacherOn, action: m.onTeacher)
             if m.sessionOn && !m.inCall {

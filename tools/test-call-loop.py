@@ -67,6 +67,8 @@ def run(name, asks, quit_after, env=None, args=()):
          "POINKY_SPEECH_LOG": f"{d}/speech.txt", "POINKY_CLAUDE_CMD": FAKE, "FAKE_CLAUDE_LOG": f"{d}/fake.txt",
          "POINKY_SPEECH_WAV": f"{d}/played.f32", "POINKY_OVERLAY_LOG": f"{d}/overlay.txt", "POINKY_TYPEBOX_LOG": f"{d}/box.txt"}
     e.update(env)
+    # POINKY_TEST_SCREEN=<picture>: every screenshot is that picture (the test copy never sees the real screen).
+    if os.environ.get("POINKY_TEST_SCREEN"): e["POINKY_TEST_SCREEN"] = os.environ["POINKY_TEST_SCREEN"]
     if audio: e.pop("POINKY_MUTE", None)
     if api: e["POINKY_API_URL"] = f"http://127.0.0.1:{api}/v1/messages"
     # (A scenario with a window of its own to act in launches in front, so that window can be the key one.)

@@ -21,6 +21,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             Updater.shared.selfTest(out: args[i + 1])
             return
         }
+        // `Poinky --phone-menu-test <out.txt>`: the real Continuity Camera menu, what it held and how it ended (PhonePhoto.swift).
+        if let i = args.firstIndex(of: "--phone-menu-test"), i + 1 < args.count {
+            let out = args[i + 1]
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { MainActor.assumeIsolated { ContinuityCamera.devMenuTest(out: out) } }
+            return
+        }
         // `Poinky --study-eval <outdir> <sheet> <en|he> <step>…`: a study session with the real models, no screen (StudyEval.swift).
         if let i = args.firstIndex(of: "--study-eval") {
             let rest = Array(args[(i + 1)...])
@@ -154,10 +160,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Several `--ask`s are asked one after another, `POINKY_ASK_GAP` seconds apart (default 5).
         let gap = ProcessInfo.processInfo.environment["POINKY_ASK_GAP"].flatMap(Double.init) ?? 5
         // `--study-photo <file>` among the asks: a photo of your work handed to the study session (as the iPhone capture does).
-        let asks = args.indices.filter { ["--ask", "--study-photo"].contains(args[$0]) && $0 + 1 < args.count }
-            .map { args[$0] == "--study-photo" ? "\u{1}photo:" + args[$0 + 1] : args[$0 + 1] }
+        // `--photo <capture|add|use|retake|cancel|yes|no>`: a click on the photo card or the paper's "My work" button
+        // (the phone is POINKY_FAKE_PHONE); `--photo-drop <file>`: a picture dropped on the paper (CallController+Photo.swift).
+        let asks = args.indices.filter { ["--ask", "--study-photo", "--photo", "--photo-drop"].contains(args[$0]) && $0 + 1 < args.count }
+            .map { args[$0] == "--study-photo" ? "\u{1}photo:" + args[$0 + 1] : args[$0] == "--photo" ? "\u{1}click:" + args[$0 + 1]
+                 : args[$0] == "--photo-drop" ? "\u{1}drop:" + args[$0 + 1] : args[$0 + 1] }
         let ask: (String) -> Void = { q in
-            if q.hasPrefix("\u{1}photo:") { StudySession.shared.driver = c; StudySession.shared.checkWork(file: URL(fileURLWithPath: String(q.dropFirst(7)))) } else { c.askTyped(q) }
+            if q.hasPrefix("\u{1}photo:") { StudySession.shared.driver = c; StudySession.shared.checkWork(file: URL(fileURLWithPath: String(q.dropFirst(7)))) }
+            else if q.hasPrefix("\u{1}click:") { c.photoCardAction(["action": String(q.dropFirst(7))]) }
+            else if q.hasPrefix("\u{1}drop:") { c.photoReceived([URL(fileURLWithPath: String(q.dropFirst(6)))].compactMap(PhotoFiles.copyIn), origin: .drop) }
+            else { c.askTyped(q) }
         }
         if let wait = ProcessInfo.processInfo.environment["POINKY_ASK_WAIT"].flatMap(Double.init), asks.count > 1 {
             // Each question after the first waits until the last answer is done (spoken and sketched) plus `wait` s.
