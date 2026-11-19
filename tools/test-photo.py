@@ -17,9 +17,11 @@ study state, and that no picture is left behind (the inbox is empty; a study ses
   recent      "use the photo I just AirDropped" → the newest picture (not the screenshot, not the old one) → yes →
               the next question takes it; an iPad PDF dropped on the paper → 2 pages with "is this right?"
 
-A window of the test's own covers the screen while it runs (tools/tests/cover-window.swift), so screenshots never
-show anything else; the run stops if that window isn't in front. Run under the screen lock when agents share the
-Mac:  lockf -t 1500 ~/Desktop/poinky-wt/screen.lock python3 tools/test-photo.py [scenario…] [--keep]
+The test copy never looks at the real screen: its screenshots are the homework sheet (POINKY_TEST_SCREEN), so it can
+run while someone uses the Mac. With --cover it takes real screenshots instead, with a window of the test's own
+covering the screen (tools/tests/cover-window.swift; the run stops if that window isn't in front). Its card still
+shows on screen for a moment, so run under the screen lock when agents share the Mac:
+  lockf -t 1500 ~/Desktop/poinky-wt/screen.lock python3 tools/test-photo.py [scenario…] [--cover]
 """
 import json, os, re, stat, subprocess, sys, tempfile, time
 
@@ -44,6 +46,13 @@ SCRIPT["check"] = [ts.lesson("check", ["Let me go through both pages.", "Your th
 
 def pids():
     return set(map(int, subprocess.run(["pgrep", "-f", EXE], capture_output=True, text=True).stdout.split()))
+
+
+def sheet_png(d):
+    shot = os.path.join(d, "sheet.png")
+    if not os.path.exists(shot):
+        subprocess.run(["sips", "-s", "format", "png", SHEET, "--out", shot], capture_output=True)
+    return shot
 
 
 def cover(d, secs):
@@ -78,7 +87,11 @@ def launch(d, items, quit_after, env_extra):
     cmd += [APP, "--args"]
     for kind, v in items: cmd += [kind, v]
     cmd += ["--quit-after", str(quit_after)]
-    cov, ok = cover(d, quit_after + 20)
+    if "--cover" not in sys.argv:
+        env["POINKY_TEST_SCREEN"] = sheet_png(d)
+        cov, ok = None, True
+    else:
+        cov, ok = cover(d, quit_after + 20)
     if not ok:
         print("ABORT: the test window couldn't get in front (someone is using the Mac?); nothing was launched")
         sys.exit(2)
@@ -92,7 +105,7 @@ def launch(d, items, quit_after, env_extra):
     end = time.time() + quit_after + 15
     lost = False
     while pid and time.time() < end:
-        if open(os.path.join(d, "cover.txt")).read().strip() == "lost":
+        if cov and open(os.path.join(d, "cover.txt")).read().strip() == "lost":
             lost = True; os.kill(pid, 9); break
         try: os.kill(pid, 0)
         except ProcessLookupError: break
@@ -101,7 +114,7 @@ def launch(d, items, quit_after, env_extra):
         if pid:
             try: os.kill(pid, 9)
             except ProcessLookupError: pass
-    cov.kill()
+    if cov: cov.kill()
     if lost:
         print("ABORT: the test window stopped being in front; the test copy was stopped"); sys.exit(2)
 
@@ -247,11 +260,11 @@ def cancel():
 def recent():
     d = scratch("recent")
     dl = f"{d}/dl"
-    subprocess.run(["cp", f"{WORK}/sign-last.jpg", f"{dl}/IMG_0412.jpg"])
+    # (A file's "added" date can't be set back, so the older one is simply put there first.)
     subprocess.run(["cp", f"{WORK}/all-right.jpg", f"{dl}/old.jpg"])
+    time.sleep(1.2)
+    subprocess.run(["cp", f"{WORK}/sign-last.jpg", f"{dl}/IMG_0412.jpg"])
     subprocess.run(["cp", f"{HARD}/ipad-notes.png", f"{dl}/Screenshot 2026-11-18 at 10.00.00.png"])
-    old = time.time() - 86400
-    os.utime(f"{dl}/old.jpg", (old, old))
     launch(d, [("--ask", "use the photo I just airdropped"), ("--ask", "yes"), ("--ask", "what does this say?"),
                ("--photo-drop", f"{HARD}/ipad-notes.pdf"), ("--ask", "is this right?")], 40,
            {"POINKY_RECENT_DIRS": dl, "POINKY_FAKE_PHONE": "none"})
