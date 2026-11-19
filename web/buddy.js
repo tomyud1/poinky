@@ -53,13 +53,12 @@
   #bubble .foot{display:flex;gap:4px;justify-content:flex-end;align-items:center;margin:7px -4px -2px 0}
   #bubble .foot button{font:600 12px/1 -apple-system,system-ui,sans-serif;color:#fff;background:rgba(255,255,255,.18);border:0;
     border-radius:999px;padding:5px 11px;cursor:pointer}
-  /* Hover is .hot, set from the cursor the app sends every frame (the overlay is never the key window, so
-     WebKit's own :hover can't be relied on there); :hover is kept for browsers. Pressed: .down / :active. */
-  #bubble .foot button{transition:background .12s,transform .12s}
-  #bubble .foot button:hover,#bubble .foot button.hot{background:rgba(255,255,255,.34);box-shadow:0 0 0 1px rgba(255,255,255,.45)}
-  #bubble .foot button:active,#bubble .foot button.down{background:rgba(255,255,255,.12);transform:scale(.94)}
+  /* Hover is .hot and pressed .down, from the shared hover module (overlay.html: the overlay is never the key
+     window, so WebKit's own :hover can't be relied on there). On the blue bubble the ring is white. */
+  #bubble .foot button.hot{background:rgba(255,255,255,.34);box-shadow:0 0 0 1.5px rgba(255,255,255,.75)}
+  #bubble .foot button.down{background:rgba(255,255,255,.12)}
   #bubble .foot button.x{background:transparent;color:rgba(255,255,255,.7);padding:5px 7px}
-  #bubble .foot button.x:hover,#bubble .foot button.x.hot{color:#fff;background:rgba(255,255,255,.18);box-shadow:none}
+  #bubble .foot button.x.hot{color:#fff;background:rgba(255,255,255,.18);box-shadow:0 0 0 1.5px rgba(255,255,255,.6)}
   .sb-ripple{position:absolute;width:34px;height:34px;margin:-17px 0 0 -17px;border-radius:50%;border:2.5px solid #3b82ff;
     pointer-events:none;z-index:49;animation:sbRipple .6s ease-out forwards;box-shadow:0 0 10px rgba(59,130,255,.6)}
   @keyframes sbRipple{from{transform:scale(.3);opacity:1}to{transform:scale(1.4);opacity:0}}
@@ -246,24 +245,50 @@
   }
   requestAnimationFrame(frame);
 
-  // The bubble's buttons light up under the cursor (from SB.tick), like a button should.
-  let hotBtn = null;
+  // Everything you can click lights up under the cursor the app sends (SB.tick): the shared hover module in
+  // overlay.html (SBX.pointAt) sets .hot / .down; here it's fed the cursor, when it moves and a few times a
+  // second (things move under a still cursor too). The bubble also remembers you're on it (it stays a while).
+  let ticked = false, pointedAt = 0, pointKey = '';
   function hoverButtons() {
-    let hit = null;
-    if (parked && cursor && bubble.classList.contains('on')) {
+    if (parked && cursor && bubble.classList.contains('on'))
+      hovered = cursor.x >= bubbleRectNow.x && cursor.x <= bubbleRectNow.x + bubbleW && cursor.y >= bubbleRectNow.y && cursor.y <= bubbleRectNow.y + bubbleH;
+    const X = window.SBX;
+    if (!ticked) return;
+    if (!X || !X.pointAt) {   // buddy.js on its own (a test page without the overlay): just the bubble's buttons
       for (const b of bubble.querySelectorAll('.foot button')) {
         const r = b.getBoundingClientRect();
-        if (cursor.x >= r.left - 2 && cursor.x <= r.right + 2 && cursor.y >= r.top - 2 && cursor.y <= r.bottom + 2) { hit = b; break; }
+        b.classList.toggle('hot', !!(parked && cursor && cursor.x >= r.left && cursor.x <= r.right && cursor.y >= r.top && cursor.y <= r.bottom));
       }
-      hovered = cursor.x >= bubbleRectNow.x && cursor.x <= bubbleRectNow.x + bubbleW && cursor.y >= bubbleRectNow.y && cursor.y <= bubbleRectNow.y + bubbleH;
+      return;
     }
-    if (hit === hotBtn) return;
-    if (hotBtn) hotBtn.classList.remove('hot', 'down');
-    hotBtn = hit;
-    if (hit) hit.classList.add('hot');
+    const now = performance.now(), key = cursor ? cursor.x + ',' + cursor.y : '';
+    if (key === pointKey && now - pointedAt < 120) return;
+    pointKey = key; pointedAt = now;
+    X.pointAt(cursor);
   }
   const bubbleRectNow = { x: 0, y: 0 };
 
+  // What the bubble keeps off: the marks on screen, cards (the paper, a model) and what the answer is about (the
+  // app's subjects, SB.bubbleAvoid). Measured a few times a second, not every frame.
+  let avoidApp = [], avoidList = [], avoidAt = 0, bubbleSpot = 0;
+  function avoidRects() {
+    const now = performance.now();
+    if (now - avoidAt < 200) return avoidList;
+    avoidAt = now;
+    const out = avoidApp.slice();
+    document.querySelectorAll('#draw > g, #cards > .card:not(.leaving)').forEach(e => {
+      const r = e.getBoundingClientRect(); if (r.width || r.height) out.push({ x: r.left, y: r.top, w: r.width, h: r.height });
+    });
+    return (avoidList = out);
+  }
+  function covered(x, y) {
+    let a = 0;
+    for (const r of avoidRects()) {
+      const w = Math.min(x + bubbleW, r.x + r.w + 8) - Math.max(x, r.x - 8), h = Math.min(y + bubbleH, r.y + r.h + 8) - Math.max(y, r.y - 8);
+      if (w > 0 && h > 0) a += w * h;
+    }
+    return a;
+  }
   function placeBubble() {
     if (!bubble.classList.contains('on')) return;
     if (parked) return placeParked();
@@ -273,9 +298,21 @@
     let left = side.x < 0;
     if (!left && x + bubbleW > innerWidth - 12) { x = B.x - 14 - bubbleW; left = true; }
     if (side.y > 0 && y + bubbleH > innerHeight - 12) y = B.y - bubbleH - 10;
-    bubble.classList.toggle('left', left);
-    bubble.style.left = Math.min(innerWidth - bubbleW - 8, Math.max(8, x)).toFixed(1) + 'px';
-    bubble.style.top = Math.min(innerHeight - bubbleH - 8, Math.max(8, y)).toFixed(1) + 'px';
+    const clampX = v => Math.min(innerWidth - bubbleW - 8, Math.max(8, v)), clampY = v => Math.min(innerHeight - bubbleH - 8, Math.max(8, v));
+    // Over a mark, a card or what's being explained: the buddy's other corners, the one covering least (and it
+    // stays put unless another is clearly better, so it doesn't hop about while you move).
+    const spots = [[x, y, left], [B.x + 28, B.y + 4, false], [B.x + 28, B.y - 8 - bubbleH, false], [B.x - 14 - bubbleW, B.y + 4, true], [B.x - 14 - bubbleW, B.y - 8 - bubbleH, true]]
+      .map(([sx, sy, l]) => { const cx = clampX(sx), cy = clampY(sy); return { x: cx, y: cy, left: l, c: covered(cx, cy) }; });
+    let pick = spots[Math.min(bubbleSpot, spots.length - 1)];
+    if (spots[0].c === 0) pick = spots[0];
+    else {
+      const best = spots.reduce((p, q) => q.c < p.c ? q : p);
+      if (best.c < pick.c - 150) pick = best;
+    }
+    bubbleSpot = spots.indexOf(pick);
+    bubble.classList.toggle('left', pick.left);
+    bubble.style.left = pick.x.toFixed(1) + 'px';
+    bubble.style.top = pick.y.toFixed(1) + 'px';
   }
 
   function setBubble(kind, text, extra) {
@@ -463,10 +500,15 @@
 
   // ---------- API for the app ----------
   Object.assign(SB, {
+    /** What this answer is about (rects in points, [x, y, w, h]): the speech bubble stays off it. */
+    bubbleAvoid(rs) { avoidApp = (rs || []).map(r => ({ x: +r[0], y: +r[1], w: +r[2], h: +r[3] })); avoidAt = 0; },
+    /** For tests: where the bubble is ({x, y, w, h}). */
+    bubbleBox() { const r = bubble.getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height, on: bubble.classList.contains('on') }; },
     /** Cursor position in points (or null when it's on another screen), and the mic level 0…1. */
     tick(x, y, l) {
       const now = performance.now();
       cursor = x == null ? null : { x, y };
+      if (!ticked) { ticked = true; document.documentElement.classList.add('sb-tracked'); }
       level = +l || 0;
       if (cursor && lastTick && Math.hypot(x - lastTick.x, y - lastTick.y) > 1.5) lastMoveAt = now;
       lastTick = cursor;

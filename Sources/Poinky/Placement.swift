@@ -237,3 +237,24 @@ enum Placement {
 
     private static func clamp(_ v: CGFloat, _ lo: CGFloat, _ hi: CGFloat) -> CGFloat { max(lo, min(hi, v)) }
 }
+
+
+/// The region of a homework question on screen (points), from the teacher's rough box and the screenshot's
+/// lines of text: every line the box touches counts in full (a box that stopped short let the paper cover the
+/// end of the question's lines).
+enum StudyRegion {
+    static func grow(_ box: CGRect, lines: [CGRect]) -> CGRect {
+        var r = box
+        // Lines whose middle is inside the box's rows and that overlap it sideways; again with what that added
+        // (a line that starts left of the box), at most a few times.
+        for _ in 0..<3 {
+            var changed = false
+            for l in lines where l.midY >= r.minY && l.midY <= r.maxY && l.maxX > r.minX && l.minX < r.maxX {
+                let u = r.union(l)
+                if u != r { r = u; changed = true }
+            }
+            if !changed { break }
+        }
+        return r
+    }
+}

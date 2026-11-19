@@ -424,6 +424,7 @@
   "source": "r3-newbase",
   "raw": "<say>Let's check number two. You've got a equals 2, b equals 3, c equals negative 2, which is right. The formula step is right too, and the square root of 25 is 5, so the answer is one half or negative 2. Looks correct to me, Dana.</say>\n<draw>{\"items\":[{\"type\":\"bracket\",\"id\":\"q2\",\"x\":140,\"y\":220,\"h\":80,\"find\":\"2. Solve with the quadratic formula\",\"to\":\"x = 1/2 or x = –2\"}]}</draw>",
   "fails": [
+   "never calls the user by the name on the sheet (Dana)",
    "no verdict guessed before the check",
    "the teacher checks it: short hand-over, no <visual>"
   ]

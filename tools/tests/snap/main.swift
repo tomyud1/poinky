@@ -74,11 +74,23 @@ func shape(_ it: [String: Any], k: CGFloat, size: CGSize) -> Shape {
     switch type {
     case "circle":
         let r = max(n(it["r"]) ?? 0, 16 * k), rx = n(it["rx"]) ?? r * 1.15, ry = n(it["ry"]) ?? r
+        if let sq = n(it["sq"]) {
+            // A rounded box in one stroke (dense text): it wobbles up to 0.6 pt each way and ends 0.8 pt inside.
+            let w = 0.7 * k
+            s.strokes = [-w, w].map { d in MarkSnapper.roundRect(cx: x, cy: y, a: rx + d, b: ry + d, r: sq, step: 1.5) + [CGPoint(x: x - rx + sq, y: y - ry - d)] }
+            s.inside = { p in
+                let ax = abs(p.x - x), ay = abs(p.y - y), a = rx - 2 * w, b = ry - 2 * w, rr = max(0, sq - 2 * w)
+                guard ax <= a, ay <= b else { return false }
+                let cx = ax - (a - rr), cy = ay - (b - rr)
+                return cx <= 0 || cy <= 0 || cx * cx + cy * cy <= rr * rr
+            }
+            break
+        }
         s.strokes = [(0...96).map { i in let a = Double(i) / 96 * 2 * .pi; return CGPoint(x: x + rx * cos(a), y: y + ry * sin(a)) }]
         // The pen's wobble pulls the loop in by up to ~6% at its end.
         s.inside = { p in let dx = (p.x - x) / (rx * 0.94), dy = (p.y - y) / (ry * 0.94); return dx * dx + dy * dy <= 1 }
     case "box", "highlight":
-        let pad: CGFloat = type == "box" ? 4 : 3, w = n(it["w"]) ?? 0, h = n(it["h"]) ?? 0
+        let pad: CGFloat = type == "box" ? (n(it["pad"]) ?? 4) : 3, w = n(it["w"]) ?? 0, h = n(it["h"]) ?? 0
         let r = CGRect(x: x, y: y, width: w, height: h).insetBy(dx: -pad * k, dy: -pad * k)
         s.strokes = [[CGPoint(x: r.minX, y: r.minY), CGPoint(x: r.maxX, y: r.minY), CGPoint(x: r.maxX, y: r.maxY), CGPoint(x: r.minX, y: r.maxY), CGPoint(x: r.minX, y: r.minY)]]
         if type == "highlight" { s.half = 1 * k }
@@ -166,9 +178,19 @@ for (ci, c) in cases.enumerated() {
         if !sh.points.allSatisfy({ screenRect.contains($0) }) { problems.append("goes off the screen") }
         if let l = sh.label, !screenRect.contains(l) { problems.append("label off the screen") }
         if let l = sh.label, ink.filter({ l.contains($0) }).count > tol { problems.append("label covers the target") }
+        // …nor other words (the tag is opaque: what's under it is hidden).
+        if let l = sh.label { let under = px.ink(in: l.insetBy(dx: 2, dy: 2)).count; if under > 12 { problems.append("label hides \(under) px of other ink") } }
         // Not through the target's ink (a highlight is meant to lie over it).
         let through = crossed(ink, sh)
         if type != "highlight", through > tol { problems.append("runs through the target's ink (\(through) px)") }
+        // A loop or box never runs through anything else on the page (the line above, a neighbour's label).
+        if type == "circle" || type == "box" {
+            let near = bounds(sh.points).insetBy(dx: -6, dy: -6)
+            let keep = t.insetBy(dx: -2, dy: -2)
+            let others = px.ink(in: near).filter { !keep.contains($0) }
+            let hit = crossed(others, sh)
+            if hit > 3 { problems.append("runs through other ink (\(hit) px)") }
+        }
         switch type {
         case "circle", "box", "highlight":
             let out = ink.filter { !(sh.inside?($0) ?? true) }.count

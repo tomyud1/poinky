@@ -13,7 +13,8 @@ screen lock when other agents share the Mac. Usage: tools/test-study.py [--keep]
 import json, os, re, subprocess, sys, tempfile, time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-APP = os.path.join(ROOT, "build/Poinky.app")
+sys.path.insert(0, os.path.join(ROOT, "tools")); from testapp import stable_app
+APP = stable_app(os.path.join(ROOT, "build/Poinky.app"))   # one fixed path (tools/testapp.py)
 EXE = os.path.join(APP, "Contents/MacOS/Poinky")
 SHEET = os.path.join(ROOT, "tools/study/sheet-he.pdf")
 WORK = os.path.join(ROOT, "tools/study/work")

@@ -119,6 +119,9 @@ final class CallController: NSObject, NSMenuDelegate {
     private var needsRecap = false
     private var swappedTalker = false   // this session's talker was swapped: the summary's key facts go with each question
     private var sayGate: (turn: Int, passed: [String], held: [String], settled: Bool) = (-1, [], [], false)
+    /// How this turn's question was routed (`TalkerRoute`): the code honors it where the fast talker didn't.
+    private var turnRoute: (turn: Int, route: TalkerRoute) = (-1, TalkerRoute())
+    private var routeNow: TalkerRoute? { turnRoute.turn == turn ? turnRoute.route : nil }
     private var handOverTurn = -1            // the turn `handOverSaid` belongs to
     private var handOverSaid: [String] = []  // what the talker said so far while the teacher sketches the answer
     private var sentOnce: [String: String] = [:]   // context that rarely changes: sent again only when it does
@@ -704,6 +707,7 @@ final class CallController: NSObject, NSMenuDelegate {
         pendingFocus = nil
         focusRegion = nil
         paperSubjects = []
+        overlay.setSubjects([])
         cursorBox = nil
         pendingPaper = nil
         endGuide()
@@ -1585,6 +1589,7 @@ final class CallController: NSObject, NSMenuDelegate {
             paperSubjects = [r]
             movePaperOff()   // an open paper over what you just marked moves aside
         }
+        overlay.setSubjects(paperSubjects)   // the speech bubble keeps off it too
         anchorDrawings(to: focusRegion, on: screen)
         placeCaptions()
         // Clicked a part of a 3D model and asked about it: the teacher answers on that model.
@@ -1614,6 +1619,7 @@ final class CallController: NSObject, NSMenuDelegate {
                 // and got checks wrong).
                 let route = TalkerRoute.classify(proactive ? "" : question, marked: marked,
                                                  work: self.frontContext.selection + "\n" + (snap.focus?.text ?? ""))
+                self.turnRoute = (myTurn, route)
                 let teacherNow = partQ == nil && !proactive && self.artist != nil
                 let sketchNow = teacherNow && route.teacher == .sketch
                 let checkNow = teacherNow && route.teacher == .check
@@ -2078,7 +2084,11 @@ final class CallController: NSObject, NSMenuDelegate {
     /// Lets the held rest of the `<say>` play, or drops it when a `<visual>` follows (then a short hand-over line).
     private func settleSayGate(finished: Bool) {
         guard sayGate.turn == turn, !sayGate.settled else { return }
-        switch TalkerRoute.afterSay(parser.text, finished: finished) {
+        var next = TalkerRoute.afterSay(parser.text, finished: finished)
+        // They asked for it brief: the paper is dropped (`handle`), so what was said stays.
+        if next == .visual, routeNow?.dropsVisual(lastQuestion) == true { next = .other }
+        if next == .other, routeNow?.shape == .guide, howToGate(finished: finished) { return }
+        switch next {
         case .wait:
             return
         case .visual:
@@ -2093,6 +2103,29 @@ final class CallController: NSObject, NSMenuDelegate {
             if !sayGate.held.isEmpty { state = .speaking }
         }
         sayGate.held = []
+    }
+
+    /// An app how-to ("how do I make the title bigger"): the walkthrough shows the steps one click at a time, reading
+    /// the app's real state, so steps the talker read out anyway are dropped. With `<guide>`/`<do>` after its `<say>`,
+    /// the held rest goes; with no tag at all and steps in it, it goes too and the walkthrough starts here.
+    /// True: handled (the gate is settled).
+    private func howToGate(finished: Bool) -> Bool {
+        let text = parser.text
+        let tagged = text.contains("<guide") || text.contains("<do>")
+        let held = sayGate.held.joined(separator: " ")
+        if tagged {
+            if !sayGate.held.isEmpty { Timeline.log("talker.cut", ["turn": turn, "pieces": sayGate.held.count, "why": "guide"]) }
+        } else if finished, TalkerRoute.spokenSteps(held + " " + sayGate.passed.joined(separator: " ")) {
+            Timeline.log("talker.cut", ["turn": turn, "pieces": sayGate.held.count, "why": "steps"])
+            speaker.enqueue("I'll walk you through it.")
+            state = .speaking
+            startGuide(TalkerRoute.guideGoal(lastQuestion))
+        } else {
+            return false
+        }
+        sayGate.settled = true
+        sayGate.held = []
+        return true
     }
 
     private func handle(_ ev: TalkEvents) {
@@ -2136,7 +2169,10 @@ final class CallController: NSObject, NSMenuDelegate {
                 placeCaptions()
             }
         }
-        if let brief = ev.visual, teacherStartedTurn != turn, ev.guide == nil { requestVisual(brief) }
+        if let brief = ev.visual, teacherStartedTurn != turn, ev.guide == nil {
+            // "Explain briefly…": the spoken answer is the answer (Haiku still added a paper about half the time).
+            if routeNow?.dropsVisual(lastQuestion) == true { Timeline.log("talker.visualDropped", ["turn": turn]) } else { requestVisual(brief) }
+        }
         if let goal = ev.guide { startGuide(goal) }
         if let task = ev.doTask { startGuide(task, acting: true) }
         if let r = ev.replace { replaceText(r) }
@@ -2179,7 +2215,25 @@ final class CallController: NSObject, NSMenuDelegate {
             if let a = helper(named: who) { undoHelper(agents.past(a), said: nil) }
             else if let p = pastHelper(key: who) ?? pastHelpers(limit: 40).first(where: { $0.name.lowercased() == who.lowercased() }) { undoHelper(p, said: nil) }
         }
-        for req in ev.agents {
+        for var req in ev.agents {
+            // A small change to the text in front, or another view of the screen, isn't a helper's job (real runs started
+            // one, once in an unrelated code folder): the change is done in the app, the view is sketched.
+            if req.resumeKey == nil, let route = routeNow, route.refusesHelper {
+                Timeline.log("talker.helperRefused", ["turn": turn, "shape": route.shape?.rawValue ?? ""])
+                if route.shape == .redraw { if teacherStartedTurn != turn { requestVisual(req.task) } }
+                else if config.computerControl, ev.doTask == nil, ev.guide == nil { startGuide(req.task, acting: true) }
+                continue
+            }
+            // Never a folder that has nothing to do with the document in front.
+            if req.resumeKey == nil, let doc = frontContext.document {
+                let dir = TalkerRoute.helperDir(requested: req.dir, document: doc, project: AppContext.projectFolder(of: doc), question: lastQuestion)
+                if dir != req.dir {
+                    Timeline.log("talker.helperDir", ["turn": turn, "moved": true])
+                    var r = AgentRequest(title: req.title, dir: dir, task: req.task, model: req.model, planFirst: req.planFirst)
+                    r.resumeKey = req.resumeKey
+                    req = r
+                }
+            }
             // Continuing an earlier helper ("continue the login fix"): found by its key.
             if let key = req.resumeKey {
                 if let past = pastHelper(key: key), agents.resume(past, text: req.task, config: config) != nil { continue }
@@ -2727,7 +2781,7 @@ final class CallController: NSObject, NSMenuDelegate {
         let r = r.intersection(CGRect(origin: .zero, size: size))
         // A "place" that's most of the screen says nothing about where the paper can go.
         guard !r.isNull, r.width > 2, r.height > 2, r.width * r.height < size.width * size.height * 0.75 else { return }
-        if !paperSubjects.contains(r) { paperSubjects.append(r) }
+        if !paperSubjects.contains(r) { paperSubjects.append(r); overlay.setSubjects(paperSubjects) }
         if move { movePaperOff() }
     }
 
@@ -3024,6 +3078,8 @@ final class CallController: NSObject, NSMenuDelegate {
     private func perform(_ a: [String: Any], snap: Snapshot, screen: NSScreen) async -> ActResult {
         func num(_ k: String) -> CGFloat? { (a[k] as? NSNumber).map { CGFloat($0.doubleValue) } }
         let ui = guide?.ui ?? AppReader.Reading()
+        // Text to aim at ("find") needs the screenshot read first.
+        let read = (a["find"] as? String).map { !$0.isEmpty } == true ? await snap.text.readLines(timeout: 4) : snap.text.lines
         // Where to act: a listed element ("el"), the text named by "find" if it's on screen, else x/y (screenshot pixels).
         func target() -> (px: CGPoint, label: String)? {
             if let n = (a["el"] as? NSNumber)?.intValue, let e = ui.elements[n] {
@@ -3032,9 +3088,9 @@ final class CallController: NSObject, NSMenuDelegate {
             var p: CGPoint? = nil
             if let x = num("x"), let y = num("y") { p = CGPoint(x: x, y: y) }
             let find = (a["find"] as? String)?.trimmingCharacters(in: .whitespaces) ?? ""
-            if !find.isEmpty, let r = MarkSnapper.locate(find, to: nil, hint: p, in: snap.text.lines) { p = CGPoint(x: r.midX, y: r.midY) }
+            if !find.isEmpty, let r = MarkSnapper.locate(find, to: nil, hint: p, in: read) { p = CGPoint(x: r.midX, y: r.midY) }
             guard let px = p else { return nil }
-            return (px, find.isEmpty ? textNear(px, snap.text.lines) : find)
+            return (px, find.isEmpty ? textNear(px, read) : find)
         }
         func onScreen(_ px: CGPoint) -> CGPoint {
             let local = CGPoint(x: px.x / snap.scale, y: px.y / snap.scale)
@@ -3044,7 +3100,10 @@ final class CallController: NSObject, NSMenuDelegate {
         let kind = (a["do"] as? String ?? "").lowercased()
         switch kind {
         case "click":
-            guard let t = target() else { return .failed("no x/y for the click") }
+            guard let t = target() else {
+                Timeline.log("act.noTarget", ["lines": read.count, "find": !((a["find"] as? String) ?? "").isEmpty])
+                return .failed("no x/y for the click")
+            }
             if !(guide?.confirmed ?? false), isRisky(t.label) { return .needsOK("“\(t.label)”") }
             let n = (a["double"] as? Bool) == true ? 2 : 1
             guard await Computer.click(at: onScreen(t.px), count: n, right: (a["right"] as? Bool) == true) else { return .stopped }
@@ -3944,7 +4003,19 @@ extension CallController {
         finishTeacherOutput()
     }
     /// What the paper must stay off (the question on screen), in screen points.
-    func studyFocus(_ r: CGRect?) { focusRegion = r; placeCaptions() }
+    /// The question on the sheet (points), which the student keeps reading: the paper must not cover any of it.
+    /// The teacher's box is a guess that often stops short of where its lines end, so it grows to the whole of
+    /// every line of text it touches (`StudyRegion.grow`), and it becomes a subject (the paper opens beside it,
+    /// an open paper over it moves aside, the bubble keeps off it).
+    func studyFocus(_ r: CGRect?) {
+        guard let r else { focusRegion = nil; placeCaptions(); return }
+        let k = lastSnapshot?.scale ?? 1
+        let lines = k > 0 ? (lastSnapshot?.text.lines ?? []).map { CGRect(x: $0.rect.minX / k, y: $0.rect.minY / k, width: $0.rect.width / k, height: $0.rect.height / k) } : []
+        let grown = StudyRegion.grow(r, lines: lines)
+        focusRegion = grown
+        addPaperSubject(grown)
+        placeCaptions()
+    }
     func studyContext(_ snap: Snapshot) -> [String] {
         let room = paperFrame()
         let units = Int((room.height - 32) / room.width * 800)

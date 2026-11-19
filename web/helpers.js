@@ -82,7 +82,14 @@
   .hl-chip .btns{display:flex;gap:6px;margin-top:9px}
   .hl-chip .btns button{flex:1;font:600 11.5px -apple-system,system-ui,sans-serif;color:rgba(255,255,255,.9);background:rgba(255,255,255,.1);
     border:0;border-radius:7px;padding:5px 0;cursor:pointer}
-  .hl-chip .btns button:hover{background:rgba(255,255,255,.18)}
+  /* Hover (.hot) and pressed (.down) come from the overlay's shared hover module (the app's cursor); :hover is for
+     the design playground in a browser. */
+  .hl-chip .btns button{transition:background .14s cubic-bezier(.25,.8,.35,1),box-shadow .14s,transform .14s}
+  :root:not(.sb-tracked) .hl-chip .btns button:hover,.hl-chip .btns button.hot{background:rgba(255,255,255,.2);box-shadow:0 0 0 1.5px rgba(255,255,255,.5)}
+  .hl-chip .btns button.down{transform:scale(.95);background:rgba(255,255,255,.08)}
+  .hl-chip .btns button.stop.hot{background:rgba(229,72,77,.28)}
+  .hl-chip .btns.ask button.yes.hot{filter:brightness(1.12)}
+  @media (prefers-reduced-motion: reduce){.hl-chip .btns button.down{transform:none}}
   .hl-chip .btns button.stop{color:#ff8a80} .hl-chip .btns button.stop.sure{background:#e5484d;color:#fff}
   .hl-chip .askq{margin-top:8px;padding:7px 9px;border-radius:8px;background:rgba(255,255,255,.07);font:500 11.5px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;
     color:rgba(255,255,255,.9);word-break:break-word;display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}

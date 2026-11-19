@@ -7,7 +7,7 @@ import Foundation
 /// pinned by the phrase table in tools/tests/talker-route/cases.tsv (run by tools/test-talker.sh).
 struct TalkerRoute: Equatable {
     enum Teacher: String { case none, sketch, check }
-    enum Shape: String { case rewrite, summary, quiz, recall, guide }
+    enum Shape: String { case rewrite, summary, quiz, recall, guide, redraw }
 
     var teacher: Teacher = .none
     /// Which rule decided `teacher` (the table test and the timeline name it).
@@ -34,7 +34,9 @@ struct TalkerRoute: Equatable {
         r.aboutUsage = has(s, aboutUsageWords)
         r.wantsVideo = has(s, longWords)
         (r.teacher, r.reason) = teacher(s, marked: marked, work: work)
-        r.shape = has(s, rewriteWords) ? .rewrite : has(s, summaryWords) ? .summary : has(s, quizWords) ? .quiz
+        let edit = !r.aboutApp && !r.aboutHelpers && (has(s, rewriteWords) || (s.range(of: editPattern, options: .regularExpression) != nil && !has(s, lookWords)))
+        r.shape = edit ? .rewrite : has(s, summaryWords) ? .summary : has(s, quizWords) ? .quiz
+            : !r.aboutHelpers && r.teacher == .none && s.range(of: redrawPattern, options: .regularExpression) != nil ? .redraw
             : has(s, pastWords) ? .recall
             : r.reason == "how-to" && !r.aboutApp && has(s, appHowToWords) ? .guide : nil
         return r
@@ -126,6 +128,14 @@ struct TalkerRoute: Equatable {
     static let aboutUsageWords = ["usage", "used", "cost", "spent", "limit", "tokens", "how much"]
     static let rewriteWords = ["punchier", "shorter", "rewrite", "reword", "rephrase", "fix the grammar", "more formal",
                                "less formal", "tighten", "make it sound", "make this sound", "more polite", "politer"]
+    /// A small change to the text in front ("change Friday to Saturday", "replace teh with the"): a rewrite to offer,
+    /// never a helper (real runs started one, once in an unrelated code folder).
+    static let editPattern = #"\b(change|replace|swap|correct)\s+\S+.{0,58}\s(to|with|into|for)\s+\S|\bfix (the|this|that|a) (typo|spelling)"#
+    /// …but changing how it looks is done in the app (a walkthrough or the doer), not new wording.
+    static let lookWords = ["font", "size", "color", "colour", "bold", "italic", "theme", "mode", "background", "margin",
+                            "spacing", "layout", "format", "setting", "language", "voice", "brightness", "wallpaper"]
+    /// Another view of what's on screen ("show it as a line instead", "make this a table"): a sketch, never a helper.
+    static let redrawPattern = #"\b(as|into) an? (line|bar|pie|chart|graph|table|diagram|timeline|flowchart|list)\b|\b(line|bar|pie) (chart|graph) instead\b"#
     static let summaryWords = ["short version", "sum it up", "summarize", "summarise", "tl;dr", "tldr", "gist",
                                "in a nutshell", "quick summary"]
 
@@ -193,17 +203,59 @@ struct TalkerRoute: Equatable {
         before.last?.last.map { ".!?…".contains($0) } == true
     }
 
+    // MARK: Honoring the route when the fast talker didn't
+
+    /// Spoken how-to steps in an app ("Click Format, then choose Font…"): the walkthrough shows them instead.
+    static func spokenSteps(_ text: String) -> Bool {
+        let s = text.lowercased()
+        return s.range(of: #"\b(click|tap|press|select|choose|open the|go to|menu|toolbar|sidebar|tab|button|drag|right-click|⌘|command-|cmd)\b"#,
+                       options: .regularExpression) != nil
+    }
+    /// The walkthrough's goal from the question ("how do I make the title bigger" → "make the title bigger").
+    static func guideGoal(_ question: String) -> String {
+        var q = question.trimmingCharacters(in: .whitespacesAndNewlines.union(.punctuationCharacters))
+        for p in ["how do i ", "how can i ", "how to ", "where do i ", "where can i ", "walk me through ", "show me how to ", "help me "] {
+            if q.lowercased().hasPrefix(p) { q = String(q.dropFirst(p.count)); break }
+        }
+        return q.isEmpty ? question : q
+    }
+    /// The route said quick ("explain briefly…"): a `<visual>` from the talker is dropped (the spoken answer stays),
+    /// unless they asked to see something.
+    func dropsVisual(_ question: String) -> Bool {
+        reason == "quick" && !Self.has(question.lowercased(), Self.seeWords)
+    }
+    static let seeWords = ["show", "draw", "sketch", "picture", "diagram", "visual", "graph", "chart", "3d", "image", "see ",
+                           "תראה", "תצייר", "ציור", "גרף"]
+    /// A helper for a small change to the text in front, or for another view of the screen: not a helper's job.
+    var refusesHelper: Bool { (shape == .rewrite || shape == .redraw) && !aboutHelpers }
+
+    /// The folder a helper the talker started works in: its `dir`, unless that has nothing to do with the document
+    /// in front (outside it, and the question doesn't name it): then the document's project folder, or its folder.
+    /// A helper once got the owner's code folder for a TextEdit note. Nil document: the talker's choice stands.
+    static func helperDir(requested: String?, document: URL?, project: URL?, question: String) -> String? {
+        guard let doc = document else { return requested }
+        let home = (project ?? doc.deletingLastPathComponent()).path
+        guard let req = requested, !req.isEmpty else { return home }
+        let r = URL(fileURLWithPath: (req as NSString).expandingTildeInPath).standardizedFileURL.path
+        if doc.standardizedFileURL.path.hasPrefix(r.hasSuffix("/") ? r : r + "/") { return requested }
+        let name = (r as NSString).lastPathComponent.lowercased()
+        if name.count >= 3, question.lowercased().contains(name) { return requested }
+        return home
+    }
+
     /// The hint `shape` stands for, said right where the fast talker reads last.
     var shapeHint: String? {
         switch shape {
         case .rewrite?:
-            return "(New wording: the whole new text goes in <offer say=\"Swapping it in.\"><replace>…the new text…</replace></offer>, which replaces the selected text. If nothing is selected, name what it replaces by its first and last words, copied exactly from the screen: <replace from=\"…\" to=\"…\">, and don't say \"selected\". In <say>: if the new text is one or two sentences, say those words themselves (no \"here's a version\"), then \"Want me to swap it in?\"; only if longer: \"Here's a shorter version. Want me to swap it in?\" (Poinky shows it). Only the words being replaced: no greeting or sign-off.)"
+            return "(A change to the text in front, never a helper. New wording: the whole new text goes in <offer say=\"Swapping it in.\"><replace>…the new text…</replace></offer>, which replaces the selected text. If nothing is selected, name what it replaces by its first and last words, copied exactly from the screen: <replace from=\"…\" to=\"…\">, and don't say \"selected\". In <say>: if the new text is one or two sentences, say those words themselves (no \"here's a version\"), then \"Want me to swap it in?\"; only if longer: \"Here's a shorter version. Want me to swap it in?\" (Poinky shows it). Only the words being replaced: no greeting or sign-off.)"
         case .summary?:
             return "(Summary: at most 3 short sentences, about 40 words, the main point first. Don't list every item.)"
         case .quiz?:
             return "(Quiz: you ask. Put the first question itself in <say> and wait for their answer. No <visual>, no helper.)"
         case .recall?:
             return "(About something before this conversation: don't answer from memory or say you don't have it. Say a short line like \"Let me look.\" and write <recall>topic and time words</recall>.)"
+        case .redraw?:
+            return "(Another view of what's on screen: a short hand-over line and <visual> with the data and where it is. Never a helper for this.)"
         case .guide?:
             return "(How to do something: if it's done in an app on screen, your <say> is only \"Sure, I'll walk you through it.\" (no steps in it) and you add <guide>the goal</guide>; it shows them one click at a time.)"
         case nil:

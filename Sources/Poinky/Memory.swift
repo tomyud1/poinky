@@ -93,7 +93,9 @@ enum Memory {
         }
         let first = NSFullUserName().split(separator: " ").first.map(String.init) ?? ""
         var s = "\n\n## What you know about the user (from earlier conversations)\n"
-        if !first.isEmpty { s += "- Their Mac account name is \(NSFullUserName()), so they're probably \(first) (unless they say otherwise; use it rarely).\n" }
+        // Unmistakable about who the user is: a name on a homework sheet or an email is someone else (a talker called
+        // the user "Dana" from the sheet on screen).
+        if !first.isEmpty { s += "- The user (the person talking to you) is \(NSFullUserName()), from their Mac account: call them \(first) if anything, rarely. A name you read on the screen (a sheet, an email, a document) is someone else's: never call the user by it.\n" }
         let list = facts()
         s += list.isEmpty ? "- Nothing else yet: this may be one of your first conversations.\n" : list.joined(separator: "\n") + "\n"
         return notes ? s + DailyNotes.promptSection() : s

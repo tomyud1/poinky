@@ -65,7 +65,29 @@ if args.count > 1, args[1] == "--handover" {
         let got = TalkerRoute.afterSay(text, finished: done)
         if got != want { bad += 1; print("FAIL afterSay \(text.debugDescription) → \(got), want \(want)") } else { print("ok   afterSay → \(got)") }
     }
-    print("\(cases.count + after.count - bad)/\(cases.count + after.count) hand-over cases")
+    // Honoring the route in code: a quick answer keeps no paper; a small edit or a redraw starts no helper; spoken
+    // steps of an app how-to become a walkthrough; a helper never works in a folder unrelated to the document in front.
+    var more = 0
+    func expect(_ ok: Bool, _ what: String) { more += 1; if !ok { bad += 1; print("FAIL \(what)") } else { print("ok   \(what)") } }
+    expect(TalkerRoute.classify("explain briefly what Rubisco does").dropsVisual("explain briefly what Rubisco does"), "quick: a <visual> is dropped")
+    expect(!TalkerRoute.classify("briefly show me the graph").dropsVisual("briefly show me the graph"), "quick but asked to see: kept")
+    expect(!TalkerRoute.classify("explain this").dropsVisual("explain this"), "not quick: kept")
+    expect(TalkerRoute.classify("change Friday to Saturday").refusesHelper, "a one-word change starts no helper")
+    expect(TalkerRoute.classify("can you show it as a line instead").refusesHelper, "a redraw starts no helper")
+    expect(!TalkerRoute.classify("start a helper to change all the dates to ISO format").refusesHelper, "asked for a helper: allowed")
+    expect(!TalkerRoute.classify("fix this bug").refusesHelper, "a bug fix may get a helper")
+    expect(TalkerRoute.spokenSteps("Click Format, then choose Font and Bigger."), "spoken steps are noticed")
+    expect(!TalkerRoute.spokenSteps("The title is the first line."), "plain sentences aren't steps")
+    expect(TalkerRoute.guideGoal("How do I make the title bigger?") == "make the title bigger", "the walkthrough's goal")
+    let doc = URL(fileURLWithPath: "/Users/u/Documents/party-plan.txt")
+    expect(TalkerRoute.helperDir(requested: "~/code/poinky", document: doc, project: nil, question: "change Friday to Saturday") == "/Users/u/Documents",
+           "a code folder unrelated to the open note: the note's folder")
+    expect(TalkerRoute.helperDir(requested: "/Users/u/code/app", document: URL(fileURLWithPath: "/Users/u/code/app/src/a.py"), project: nil, question: "fix it") == "/Users/u/code/app",
+           "the document's own project: kept")
+    expect(TalkerRoute.helperDir(requested: "~/code/website", document: doc, project: nil, question: "have a helper update the website repo") == "~/code/website",
+           "a folder the question names: kept")
+    expect(TalkerRoute.helperDir(requested: "~/code/x", document: nil, project: nil, question: "fix it") == "~/code/x", "no document: the talker's choice")
+    print("\(cases.count + after.count + more - bad)/\(cases.count + after.count + more) hand-over and honoring cases")
     exit(bad == 0 ? 0 : 1)
 }
 

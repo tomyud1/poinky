@@ -10,7 +10,7 @@
     {"item": {"type": "highlight", "id": "q3", "x": 330, "y": 470, "w": 400, "h": 30, "find": "Find the slope of the line through"}, "phrase": "Find the slope of the line through"},
     {"item": {"type": "underline", "id": "q4", "x": 330, "y": 610, "w": 160, "find": "Sketch y = x² − 4"}, "phrase": "Sketch y = x² − 4"},
     {"item": {"type": "underline", "id": "twice", "x": 400, "y": 420, "w": 150, "find": "or x = -2"}, "phrase": "or x = −2", "note": "also in question 1: the one near the mark"},
-    {"item": {"type": "circle", "id": "work", "x": 470, "y": 370, "r": 95, "find": "x = (-3 ± √(9 + 16)) / 4", "to": "x = 1/2 or x = -2"}, "phrase": "x = (−3 ± √(9 + 16)) / 4", "to": "x = 1/2 or x = −2", "note": "three lines of working: the ellipse encloses all of them"},
+    {"item": {"type": "circle", "id": "work", "x": 470, "y": 370, "r": 95, "find": "x = (-3 ± √(9 + 16)) / 4", "to": "x = 1/2 or x = -2"}, "phrase": "x = (−3 ± √(9 + 16)) / 4", "to": "x = 1/2 or x = −2", "note": "three lines of working right under the question: enclosed, without cutting the question line (a rounded box)"},
     {"item": {"type": "circle", "id": "pen", "x": 440, "y": 372, "r": 95}, "phrase": "x = (−3 ± √(9 + 16)) / 4", "to": "x = 1/2 or x = −2", "note": "the teacher's screen circle (no find) around the same lines, too small (the owner's screenshot)"},
     {"item": {"type": "box", "id": "line2", "x": 345, "y": 356, "w": 160, "h": 22, "find": "x = (-3 ± 5) / 4"}, "phrase": "x = (−3 ± 5) / 4", "note": "handwriting: OCR's box is smaller than the ink"},
     {"item": {"type": "underline", "id": "line1", "x": 341, "y": 346, "w": 250, "find": "x = (-3 ± √(9 + 16)) / 4"}, "phrase": "x = (−3 ± √(9 + 16)) / 4", "note": "the next line starts right below"},
@@ -37,5 +37,13 @@
   {"page": "tools/e2e/pages/chart.html", "screen": [1440, 900], "marks": [
     {"item": {"type": "circle", "id": "billing", "x": 240, "y": 180, "r": 40, "find": "668", "label": "most: 668"}, "phrase": "668"},
     {"item": {"type": "underline", "id": "low", "x": 600, "y": 440, "w": 70, "find": "148", "label": "lowest: 148"}, "phrase": "148"}
+  ]},
+  {"page": "tools/tests/snap/pages/dense.html", "screen": [1440, 900], "note": "dense text and a diagram: marks never touch what's around their target", "marks": [
+    {"item": {"type": "circle", "id": "membrane", "x": 358, "y": 155, "r": 57, "find": "The cell membrane controls", "to": "substances away from the", "label": "membrane"}, "phrase": "The cell membrane controls", "note": "a sentence over two lines in the middle of a dense paragraph: the loop may not cut the lines above and below", "to": "substances away from the"},
+    {"item": {"type": "circle", "id": "genetic", "x": 389, "y": 178, "r": 28, "find": "the genetic material"}, "phrase": "the genetic material", "note": "a phrase between two close lines"},
+    {"item": {"type": "circle", "id": "mito", "x": 226, "y": 274, "r": 38, "find": "Mitochondria release energy from glucose"}, "phrase": "Mitochondria release energy from glucose", "note": "a list item with the items above and below 3 pt away"},
+    {"item": {"type": "box", "id": "chloro", "x": 132, "y": 283, "w": 179, "h": 16, "find": "Chloroplasts capture light in plant cells"}, "phrase": "Chloroplasts capture light in plant cells", "note": "a box in a tight list"},
+    {"item": {"type": "circle", "id": "opp", "x": 1074, "y": 250, "r": 28, "find": "opposite", "label": "opposite side"}, "phrase": "opposite", "note": "a diagram label right next to its line"},
+    {"item": {"type": "circle", "id": "adj", "x": 899, "y": 355, "r": 28, "find": "adjacent"}, "phrase": "adjacent", "note": "a diagram label just under the triangle's base"}
   ]}
 ]

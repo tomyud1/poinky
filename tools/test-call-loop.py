@@ -11,7 +11,10 @@ Usage: tools/test-call-loop.py [scenario …]     (no names: all of them; --list
 import json, os, subprocess, sys, tempfile, time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-APP = os.environ.get("POINKY_APP") or os.path.join(ROOT, "build/Poinky.app")   # (another build: checks that fail before a fix)
+sys.path.insert(0, os.path.join(ROOT, "tools")); from testapp import stable_app
+# One fixed path for every checkout (tools/testapp.py: macOS asks about bypassing the window picker per path);
+# POINKY_APP: another build as it is (checks that fail before a fix).
+APP = stable_app(os.path.join(ROOT, "build/Poinky.app"))
 EXE = os.path.join(APP, "Contents/MacOS/Poinky")
 FAKE = os.path.join(ROOT, "tools/fake-claude.py")
 
@@ -514,7 +517,7 @@ DOER_KEYS = {"FAKE_CLAUDE_REPLY": "<say>Okay, doing it.</say><do>press keys in t
              "FAKE_GUIDE_REPLIES": json.dumps(
                  ["<say>Pressing keys.</say>" + "".join(f'<act>{{"do":"key","keys":"{k}"}}</act>' for k in COMBOS),
                   '<act>{"do":"click","find":"TARGET WINDOW"}</act>',
-                  '<act>{"do":"key","keys":"option+up"}</act><act>{"do":"click","find":"second line here"}</act>'
+                  '<act>{"do":"key","keys":"option+up"}</act><act>{"do":"click","find":"CLICK HERE NEXT"}</act>'
                   '<act>{"do":"type","text":" ok"}</act>',
                   '<done>Done.</done>'])}
 
@@ -558,7 +561,7 @@ SCENARIOS = {
     "carry-kept": (["what did we talk about earlier"], 9, {"_SEED": seed_previous()}, c_carry_kept),
     "reminder-fired": (["hi", "did my reminder go off"], 20, {"_SEED": seed_reminder(), "POINKY_REMINDER_TICK": "1",
                                                               "POINKY_ASK_GAP": "11"}, c_reminder_fired),
-    "doer-keys": (["do it for me"], 24, DOER_KEYS, c_doer_keys, ["--doer-target", "{dir}/target.txt"]),
+    "doer-keys": (["do it for me"], 34, DOER_KEYS, c_doer_keys, ["--doer-target", "{dir}/target.txt"]),
     "hang": (["what is this"], 22, {"FAKE_CLAUDE_MODE": "hang", "POINKY_STALL_SECS": "8", "POINKY_STUCK_SECS": "12"}, c_hang),
 }
 

@@ -74,7 +74,15 @@
     .lpaper .saves{position:absolute;right:40px;top:5px;display:flex;gap:6px;z-index:3}
     .lpaper .save{height:28px;border-radius:14px;border:0;padding:0 11px;cursor:pointer;white-space:nowrap;
       background:rgba(30,32,38,.08);color:#5d584c;font:600 12.5px -apple-system,system-ui;transition:background .15s,color .15s,opacity .2s}
-    .lpaper .save:hover{background:rgba(30,32,38,.72);color:#fff}
+    .lpaper .save.hot{background:rgba(30,32,38,.72);color:#fff}
+    /* A past step you can click to see drawn again: a soft blue glow under the cursor (hover module in overlay.html). */
+    /* A past step you can click to see drawn again: under the cursor, a soft blue box behind all of it (hover
+       module in overlay.html; a CSS filter on an SVG group doesn't draw in WebKit). */
+    .lpaper .lsvg rect.stephi{fill:rgba(59,130,255,.08);stroke:rgba(59,130,255,.55);stroke-width:1.5;pointer-events:none;
+      animation:stephi .14s cubic-bezier(.25,.8,.35,1)}
+    .lpaper .lsvg rect.stephi.down{fill:rgba(59,130,255,.16)}
+    .lpaper.chalk .lsvg rect.stephi{fill:rgba(255,255,255,.07);stroke:rgba(150,190,255,.6)}
+    @keyframes stephi{from{opacity:0}}
     .lpaper .save.done{background:#3a9a5b;color:#fff}
     .lpaper .save:disabled{opacity:.5;cursor:default}
     .lpaper .save[hidden]{display:none}
@@ -90,7 +98,9 @@
       background-size:100% 100%,100% 100%,22px 22px,22px 22px;box-shadow:0 22px 60px rgba(0,0,0,.5),0 0 0 1px rgba(255,255,255,.1)}
     .lpaper.chalk .bar{color:#b7c1bb;background:rgba(255,255,255,.05);border-bottom-color:rgba(255,255,255,.08)}
     .lpaper.chalk .save{background:rgba(255,255,255,.1);color:#d9dfdb}
-    .lpaper.chalk .save:hover{background:rgba(255,255,255,.88);color:#1f2925}
+    .lpaper.chalk .save.hot{background:rgba(255,255,255,.88);color:#1f2925}
+    .lpaper.chalk .bar.hot{background:rgba(255,255,255,.09)}
+    .lpaper.chalk .bar::after{background:rgba(255,255,255,.3)}
     .lpaper.chalk .save.done{background:#3a9a5b;color:#fff}
     .lpaper .grain{position:absolute;left:0;right:0;top:38px;bottom:0;pointer-events:none;z-index:2}
     @keyframes lp-in{from{opacity:0;transform:translateY(18px) scale(.97)}to{opacity:1;transform:none}}`;
@@ -427,6 +437,7 @@
       if (t && s.contains(t) && !(window.CSSTransition && a instanceof CSSTransition)) { try { a.commitStyles(); } catch (e) {} }
     }
     const copy = s.cloneNode(true);
+    copy.querySelectorAll('rect.stephi').forEach(r => r.remove());   // the cursor's highlight isn't part of the page
     copy.querySelectorAll('[clip-path]').forEach(n => n.removeAttribute('clip-path'));   // anything still being written
     copy.querySelectorAll('text[opacity="0"]').forEach(n => n.remove());
     copy.querySelectorAll('[style*="stroke-dash"]').forEach(n => { n.style.strokeDasharray = ''; n.style.strokeDashoffset = ''; });
@@ -959,6 +970,27 @@
     if (o.text) {
       await writeText(g, { x: x + w / 2, y: y + h / 2 + size * .35, text: o.text, size, align: 'center', color: o.textColor, free: false, halo: fill, math: o.math, fit: false, maxWidth: w - 12 });
     }
+  }
+
+  // ---------- the sheet's own figure (a study session, from the PDF): shown as it is, annotated on top ----------
+  // The teacher re-drew figures from a homework sheet and got them wrong (a tornado's circles not concentric).
+  // When the app has the figure cropped from the sheet (SB.studyFigure), `{"op":"figure","x","y","w"}` puts it
+  // there, as wide as `w`, as tall as its own shape makes it (`figureHeight(w)` is what the brief tells the
+  // teacher); the teacher's labels and arrows go on top of it. No figure: nothing is drawn.
+  let figureURL = null, figureAspect = 0;
+  SB.studyFigure = (url, aspect) => { figureURL = url || null; figureAspect = +aspect || 0; };
+  async function figure(o) {
+    if (!figureURL) return;
+    const w = Math.max(80, Math.min(UNITS - (o.x || 40) - 10, o.w || 360));
+    const h = figureAspect > 0 ? w / figureAspect : w * .75;
+    const x = o.x ?? 40, y = o.y + freeShift({ x, y: o.y, w, h });
+    const g = group(o);
+    claim({ x, y, w, h }, o.id);
+    grow(y + h);
+    const im = el('image', { href: figureURL, x, y, width: w, height: h, preserveAspectRatio: 'xMidYMid meet', opacity: 0 }, g);
+    el('rect', { x, y, width: w, height: h, fill: 'none', stroke: 'rgba(0,0,0,.18)', 'stroke-width': 1, rx: 4 }, g);
+    im.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 450, fill: 'forwards' });
+    await wait(.5);
   }
 
   async function arrow(o, parent, toScreen, colorDefault) {
@@ -1541,7 +1573,7 @@
         if (c.h == null) c.h = 64;
         if (c.w == null) c.w = Math.max(120, Math.min(UNITS - 40 - c.x, (c.text ? measure(c.text, c.size || 26) : 0) + 40));
         break;
-      case 'graph': case 'axes': case 'table': if (c.y == null) c.y = below() + 14; break;
+      case 'graph': case 'axes': case 'table': case 'figure': if (c.y == null) c.y = below() + 14; break;
       case 'arrow': if (!c.from || !c.to) return null; break;
       case 'line': if (!c.points || c.points.length < 2) return null; break;
       case 'dot': case 'circle': case 'check': case 'number': if (c.x == null || c.y == null) return null; break;
@@ -1553,7 +1585,7 @@
     if (!paper || !paper.isConnected) return;
     o = clean(o);
     if (!o) return;
-    if (['text', 'math', 'graph', 'axes', 'table', 'box', 'arrow', 'line', 'dot', 'circle', 'check', 'number'].includes(o.op)) {
+    if (['text', 'math', 'graph', 'axes', 'table', 'box', 'figure', 'arrow', 'line', 'dot', 'circle', 'check', 'number'].includes(o.op)) {
       const t = opTop(o);
       if (toTop && t != null) { yShift = t > 80 ? 40 - t : 0; toTop = false; }
       // Drawing that already starts near the top again doesn't need moving up any more.
@@ -1569,6 +1601,7 @@
       case 'point': return point(o);
       case 'bars': case 'bar': return bars(o);
       case 'box': return box(o);
+      case 'figure': return figure(o);
       case 'arrow': return arrow(o, svg, onScreen);
       case 'line': return line(o);
       case 'dot': case 'circle': return dot(o);
@@ -1592,6 +1625,24 @@
   // ---------- steps: each lessonStep is numbered; click a past step to see it drawn again ----------
   // Nothing already drawn ever fades while something else is drawn or replayed (dimming the rest confused people).
   let stepNo = 0, curStep = 0, replaying = 0, replayBusy = false;
+  // A past step lights up under the cursor only when a click would replay it (nothing is being drawn).
+  if (X.hoverIf) X.hoverIf.push(t => !(t.matches && t.matches('g[data-step]')) || (!running && !replayBusy));
+  // Its highlight: one box around every group of that step, behind the drawing (in the paper's units).
+  if (X.onHot) X.onHot.push((el, was) => {
+    if (was && was.matches && was.matches('g[data-step]')) document.querySelectorAll('rect.stephi').forEach(r => r.remove());
+    if (!el || !el.matches || !el.matches('g[data-step]')) return;
+    const s = el.ownerSVGElement; if (!s) return;
+    let b = null;
+    for (const g of s.querySelectorAll(`:scope > g[data-step="${el.dataset.step}"]`)) {
+      const r = g.getBBox(); if (!r.width && !r.height) continue;
+      b = b ? { x: Math.min(b.x, r.x), y: Math.min(b.y, r.y), x2: Math.max(b.x2, r.x + r.width), y2: Math.max(b.y2, r.y + r.height) } : { x: r.x, y: r.y, x2: r.x + r.width, y2: r.y + r.height };
+    }
+    if (!b) return;
+    const pad = 8, hi = document.createElementNS(NS, 'rect');
+    Object.entries({ class: 'stephi', x: b.x - pad, y: b.y - pad, width: b.x2 - b.x + 2 * pad, height: b.y2 - b.y + 2 * pad, rx: 10 }).forEach(([k, v]) => hi.setAttribute(k, v));
+    const defs = s.querySelector(':scope > defs');
+    s.insertBefore(hi, defs ? defs.nextSibling : s.firstChild);
+  });
   /** Draws a past step again (its strokes and words, in order); everything else stays as it is. */
   async function replayStep(n) {
     if (running || replayBusy || !svg) return;

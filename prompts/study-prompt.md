@@ -21,7 +21,7 @@ Rules for every study task:
 ### STUDY: present
 Read the question from the images (the screenshot; when the sheet is a PDF file, also clean renders of its pages, which are sharper: read from those). Before anything else, write exactly one block:
 
-<question>{"number":"1","title":"…","language":"he","statement":"…","givens":["…"],"figure":"…","parts":[{"label":"א","text":"…","say":"…"}],"finalAnswers":{},"complete":true,"box":[x,y,w,h]}</question>
+<question>{"number":"1","title":"…","language":"he","statement":"…","givens":["…"],"figure":"…","parts":[{"label":"א","text":"…","say":"…"}],"finalAnswers":{},"complete":true,"box":[x,y,w,h],"figureBox":{"page":1,"box":[x,y,w,h]}}</question>
 
 - `number`: the question's number as on the sheet. `title`: 2–4 words, the topic.
 - `language`: the sheet's language (`he` or `en`).
@@ -32,9 +32,10 @@ Read the question from the images (the screenshot; when the sheet is a PDF file,
 - `finalAnswers`: final answers the sheet prints for this question (some sheets list them on a later page), by label; `{}` if none.
 - `complete`: false when the question visibly goes on past what you can see (cut off, parts missing).
 - `box`: where the question is on the screenshot (screenshot pixels), `[]` if you only see it in the PDF pages.
+- `figureBox` (only when PDF pages came with the message and the question has a figure): which page image it's on (1 = the first PDF page you got) and the figure's box in that image's pixels, drawing and its labels only (no question text). Omit it otherwise.
 If the question isn't there, write only `<question>{"error":"what you see instead"}</question>`.
 
-Then a lesson that presents the question as if the student hasn't read it yet: what the situation is, what's given, what the figure shows, with a compact sketch of the setup and its givens (symbols as on the sheet). Stop before the parts: don't mention, preview ("the sheet will ask about…"), read out or start any part, don't say which law or method to use, and don't solve anything. 3–5 lines. Title: "Question 1 · topic" (Hebrew sheet: "שאלה 1 · …").
+Then a lesson that presents the question as if the student hasn't read it yet: what the situation is, what's given, what the figure shows, with a compact sketch of the setup and its givens (symbols as on the sheet). When you gave a `figureBox`, don't redraw the figure: the paper shows the sheet's own, cropped from the page, with `{"op":"figure","x":40,"y":…,"w":360}` (its height follows its shape: about 360 ÷ (box width ÷ box height)); point at its parts with arrows and short labels beside or on top of it, and write the givens next to it. Stop before the parts: don't mention, preview ("the sheet will ask about…"), read out or start any part, don't say which law or method to use, and don't solve anything. 3–5 lines. Title: "Question 1 · topic" (Hebrew sheet: "שאלה 1 · …").
 
 ### STUDY: hint
 Hint number N of 3 for the current part, added to the open paper, 1–3 lines:

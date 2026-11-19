@@ -123,5 +123,17 @@ for (name, size) in screens {
 let sorted = times.sorted()
 print("Random screens: \(times.count) (\(counts.spots) with room beside the subject, \(counts.full) with room for a full paper, \(counts.none) with none)")
 print(String(format: "Time per placement: median %.1f ms, worst %.1f ms", sorted[sorted.count / 2], sorted.last ?? 0))
+// A homework question the teacher boxed short of its lines' ends (a real run: the paper covered them): the
+// region takes in every line it touches, and the paper keeps off all of it.
+do {
+    let lines = [CGRect(x: 100, y: 200, width: 640, height: 18), CGRect(x: 100, y: 224, width: 610, height: 18),
+                 CGRect(x: 120, y: 248, width: 300, height: 18), CGRect(x: 100, y: 300, width: 600, height: 18)]
+    let box = CGRect(x: 95, y: 196, width: 420, height: 70)
+    let q = StudyRegion.grow(box, lines: lines)
+    check(q.maxX >= 740 && q.minX <= 100 && q.maxY < 300, "the question's region reaches its lines' ends (\(q)), not the next question")
+    let screen = CGSize(width: 1440, height: 900)
+    let paper = Placement.paper(screen: screen, room: Placement.Room(subjects: [q], text: lines))
+    check(!paper.intersects(q), "a study paper keeps off the whole question (paper \(paper))")
+}
 print(failures == 0 ? "All \(checks) placement checks passed." : "\(failures) of \(checks) placement checks failed.")
 exit(failures == 0 ? 0 : 1)

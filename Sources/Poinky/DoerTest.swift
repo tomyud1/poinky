@@ -27,19 +27,51 @@ enum DoerTest {
             window = NSWindow(contentRect: frame, styleMask: [.titled, .resizable], backing: .buffered, defer: false)
             window.title = "Poinky test target"
             window.isReleasedWhenClosed = false
-            let scroll = NSScrollView(frame: CGRect(origin: .zero, size: size))
+            // The words the doer clicks are fixed labels: the key combinations it presses edit the text below (⌥J
+            // types ∆ over a selection), so words in the text itself could be gone by the time it clicks them.
+            let content = NSView(frame: CGRect(origin: .zero, size: size))
+            let bar = 120.0
+            let top = NSTextField(labelWithString: "TARGET WINDOW")
+            top.font = NSFont.systemFont(ofSize: 28, weight: .bold)
+            top.frame = CGRect(x: 16, y: size.height - 56, width: size.width - 32, height: 40)
+            top.autoresizingMask = [.width, .minYMargin]
+            let second = NSTextField(labelWithString: "CLICK HERE NEXT")
+            second.font = NSFont.systemFont(ofSize: 28, weight: .bold)
+            second.frame = CGRect(x: 16, y: size.height - bar + 4, width: size.width - 32, height: 40)
+            second.autoresizingMask = [.width, .minYMargin]
+            let scroll = NSScrollView(frame: CGRect(x: 0, y: 0, width: size.width, height: size.height - bar))
             scroll.hasVerticalScroller = true
             scroll.autoresizingMask = [.width, .height]
-            text = NSTextView(frame: CGRect(origin: .zero, size: size))
+            text = NSTextView(frame: CGRect(origin: .zero, size: CGSize(width: size.width, height: size.height - bar)))
             text.font = NSFont.systemFont(ofSize: 28, weight: .semibold)
-            text.string = "TARGET WINDOW\n\nPoinky test lines\nsecond line here\n"
+            text.string = "Poinky test lines\nsecond line here\n"
             text.autoresizingMask = [.width]
             scroll.documentView = text
-            window.contentView = scroll
+            for v in [top, second, scroll] { content.addSubview(v) }
+            window.contentView = content
             super.init()
             monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .leftMouseDown, .rightMouseDown]) { [weak self] e in
                 MainActor.assumeIsolated { self?.note(e) }
                 return e
+            }
+            // When the window stops being where the keys go, say so (and what took them): a test that loses its
+            // keys midway can tell why.
+            let nc = NotificationCenter.default
+            for name in [NSWindow.didResignKeyNotification, NSWindow.didBecomeKeyNotification] {
+                nc.addObserver(forName: name, object: nil, queue: .main) { [weak self] n in
+                    MainActor.assumeIsolated {
+                        guard let self, let w = n.object as? NSWindow else { return }
+                        let became = n.name == NSWindow.didBecomeKeyNotification
+                        if w === self.window || became { self.add("(\(became ? "key" : "not key"): \(type(of: w)) “\(w.title)”; app key window: \(NSApp.keyWindow.map { "\(type(of: $0)) “\($0.title)”" } ?? "none"); top: \(DoerTest.topWindow()); keyboard: \(DoerTest.keyboardOwner()))") }
+                    }
+                }
+            }
+            for name in [NSApplication.didResignActiveNotification, NSApplication.didBecomeActiveNotification] {
+                nc.addObserver(forName: name, object: nil, queue: .main) { [weak self] n in
+                    MainActor.assumeIsolated {
+                        self?.add("(app \(n.name == NSApplication.didBecomeActiveNotification ? "active" : "not active"); front: \(NSWorkspace.shared.frontmostApplication?.localizedName ?? "?"))")
+                    }
+                }
             }
         }
 
@@ -77,6 +109,7 @@ enum DoerTest {
         }
 
         func close() {
+            add("text now: \(text.string.debugDescription)")
             if let monitor { NSEvent.removeMonitor(monitor) }
             monitor = nil
             window.orderOut(nil)
@@ -131,9 +164,33 @@ enum DoerTest {
             return false
         }
         guard let t = target else { return true }
-        if t.inFront { return true }
+        if t.inFront { t.add("(may act: isKey \(t.window.isKeyWindow), key window \(NSApp.keyWindow.map { "“\($0.title)”" } ?? "none"))"); return true }
         t.add("ABORT: the target window wasn't in front, so nothing was done (active: \(NSApp.isActive), isKey: \(t.window.isKeyWindow), front: \(NSWorkspace.shared.frontmostApplication.map { "\($0.localizedName ?? "?") \($0.processIdentifier)" } ?? "?"), me: \(ProcessInfo.processInfo.processIdentifier), key window: \(NSApp.keyWindow.map { "\(type(of: $0)) “\($0.title)”" } ?? "none"))")
         return false
+    }
+
+    /// Where the keyboard goes now, system-wide (accessibility): the focused app's name and pid, and its focused
+    /// window's title.
+    static func keyboardOwner() -> String {
+        let sys = AXUIElementCreateSystemWide()
+        var app: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(sys, kAXFocusedApplicationAttribute as CFString, &app) == .success, let a = app,
+              CFGetTypeID(a) == AXUIElementGetTypeID() else { return "?" }
+        var pid: pid_t = 0
+        AXUIElementGetPid(a as! AXUIElement, &pid)
+        var w: CFTypeRef?, t: CFTypeRef?
+        var title = ""
+        if AXUIElementCopyAttributeValue(a as! AXUIElement, kAXFocusedWindowAttribute as CFString, &w) == .success, let win = w,
+           CFGetTypeID(win) == AXUIElementGetTypeID(),
+           AXUIElementCopyAttributeValue(win as! AXUIElement, kAXTitleAttribute as CFString, &t) == .success { title = t as? String ?? "" }
+        return "\(NSRunningApplication(processIdentifier: pid)?.localizedName ?? "?") pid \(pid) “\(title)”"
+    }
+
+    /// The frontmost normal window on screen (its owner and title), from the window server.
+    static func topWindow() -> String {
+        let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
+        let w = list.first { ($0[kCGWindowLayer as String] as? Int ?? 1) == 0 }
+        return "\(w?[kCGWindowOwnerName as String] ?? "?") “\(w?[kCGWindowName as String] ?? "")” pid \(w?[kCGWindowOwnerPID as String] ?? 0)"
     }
 
     /// The title of the front app's focused window (accessibility; the window list's first one can be a

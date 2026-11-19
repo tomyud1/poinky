@@ -11,7 +11,8 @@ probe's ok / FAIL line; the overlay's call log and the timeline of a run are kep
 import json, os, subprocess, sys, tempfile
 
 root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-app = os.environ.get("POINKY_APP", os.path.join(root, "build", "Poinky.app"))
+sys.path.insert(0, os.path.join(root, "tools")); from testapp import stable_app
+app = stable_app(os.path.join(root, "build", "Poinky.app"))   # one fixed path (tools/testapp.py); POINKY_APP as it is
 only = sys.argv[1] if len(sys.argv) > 1 else ""
 work = tempfile.mkdtemp(prefix="poinky-listen-")
 failed = 0
