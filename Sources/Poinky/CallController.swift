@@ -3107,6 +3107,8 @@ final class CallController: NSObject, NSMenuDelegate {
     private func perform(_ a: [String: Any], snap: Snapshot, screen: NSScreen) async -> ActResult {
         func num(_ k: String) -> CGFloat? { (a[k] as? NSNumber).map { CGFloat($0.doubleValue) } }
         let ui = guide?.ui ?? AppReader.Reading()
+        // Text to aim at ("find") needs the screenshot read first.
+        let read = (a["find"] as? String).map { !$0.isEmpty } == true ? await snap.text.readLines(timeout: 4) : snap.text.lines
         // Where to act: a listed element ("el"), the text named by "find" if it's on screen, else x/y (screenshot pixels).
         func target() -> (px: CGPoint, label: String)? {
             if let n = (a["el"] as? NSNumber)?.intValue, let e = ui.elements[n] {
@@ -3115,9 +3117,9 @@ final class CallController: NSObject, NSMenuDelegate {
             var p: CGPoint? = nil
             if let x = num("x"), let y = num("y") { p = CGPoint(x: x, y: y) }
             let find = (a["find"] as? String)?.trimmingCharacters(in: .whitespaces) ?? ""
-            if !find.isEmpty, let r = MarkSnapper.locate(find, to: nil, hint: p, in: snap.text.lines) { p = CGPoint(x: r.midX, y: r.midY) }
+            if !find.isEmpty, let r = MarkSnapper.locate(find, to: nil, hint: p, in: read) { p = CGPoint(x: r.midX, y: r.midY) }
             guard let px = p else { return nil }
-            return (px, find.isEmpty ? textNear(px, snap.text.lines) : find)
+            return (px, find.isEmpty ? textNear(px, read) : find)
         }
         func onScreen(_ px: CGPoint) -> CGPoint {
             let local = CGPoint(x: px.x / snap.scale, y: px.y / snap.scale)
@@ -3127,7 +3129,10 @@ final class CallController: NSObject, NSMenuDelegate {
         let kind = (a["do"] as? String ?? "").lowercased()
         switch kind {
         case "click":
-            guard let t = target() else { return .failed("no x/y for the click") }
+            guard let t = target() else {
+                Timeline.log("act.noTarget", ["lines": read.count, "find": !((a["find"] as? String) ?? "").isEmpty])
+                return .failed("no x/y for the click")
+            }
             if !(guide?.confirmed ?? false), isRisky(t.label) { return .needsOK("“\(t.label)”") }
             let n = (a["double"] as? Bool) == true ? 2 : 1
             guard await Computer.click(at: onScreen(t.px), count: n, right: (a["right"] as? Bool) == true) else { return .stopped }

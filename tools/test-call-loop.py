@@ -497,7 +497,7 @@ DOER_KEYS = {"FAKE_CLAUDE_REPLY": "<say>Okay, doing it.</say><do>press keys in t
              "FAKE_GUIDE_REPLIES": json.dumps(
                  ["<say>Pressing keys.</say>" + "".join(f'<act>{{"do":"key","keys":"{k}"}}</act>' for k in COMBOS),
                   '<act>{"do":"click","find":"TARGET WINDOW"}</act>',
-                  '<act>{"do":"key","keys":"option+up"}</act><act>{"do":"click","find":"second line here"}</act>'
+                  '<act>{"do":"key","keys":"option+up"}</act><act>{"do":"click","find":"CLICK HERE NEXT"}</act>'
                   '<act>{"do":"type","text":" ok"}</act>',
                   '<done>Done.</done>'])}
 
@@ -540,7 +540,7 @@ SCENARIOS = {
     "carry-kept": (["what did we talk about earlier"], 9, {"_SEED": seed_previous()}, c_carry_kept),
     "reminder-fired": (["hi", "did my reminder go off"], 20, {"_SEED": seed_reminder(), "POINKY_REMINDER_TICK": "1",
                                                               "POINKY_ASK_GAP": "11"}, c_reminder_fired),
-    "doer-keys": (["do it for me"], 24, DOER_KEYS, c_doer_keys, ["--doer-target", "{dir}/target.txt"]),
+    "doer-keys": (["do it for me"], 34, DOER_KEYS, c_doer_keys, ["--doer-target", "{dir}/target.txt"]),
     "hang": (["what is this"], 22, {"FAKE_CLAUDE_MODE": "hang", "POINKY_STALL_SECS": "8", "POINKY_STUCK_SECS": "12"}, c_hang),
 }
 

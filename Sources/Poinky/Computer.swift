@@ -223,12 +223,24 @@ enum Computer {
             return "\(combo) is blocked (it could close apps or delete things)"
         }
         guard my == token else { return "stopped" }
+        // The same modifier tapped twice in quick succession is a shortcut of its own in other apps: double ⌥
+        // opens the Claude app's quick entry (it took the keyboard from the window being typed in, so the doer's
+        // later keys and typing went nowhere), double ⌃ / fn starts Dictation. A second press with a modifier
+        // the last one also used waits until that modifier has been up for a moment.
+        let wait = modifierKeys.filter { flags.contains($0.flag) }.map { m in (lastRelease[m.code] ?? 0) + Self.modifierGap - now }.max() ?? 0
+        if wait > 0 { try? await Task.sleep(nanoseconds: UInt64(wait * 1e9)) }
+        guard my == token else { return "stopped" }
         pressing = true
         tap(code, flags: flags)
         try? await Task.sleep(nanoseconds: 40_000_000)
         pressing = false
         return nil
     }
+
+    /// When each modifier key last came up after one of Poinky's presses (uptime), and how long it stays up
+    /// before Poinky presses it again (double-tap shortcuts usually need the second tap within ~0.3–0.5 s).
+    private static var lastRelease: [UInt16: TimeInterval] = [:]
+    static let modifierGap: TimeInterval = 0.6
 
     /// The modifier keys, in the order a person presses them.
     private static let modifierKeys: [(flag: CGEventFlags, code: UInt16)] = [
@@ -252,7 +264,7 @@ enum Computer {
         for m in mods { held.insert(m.flag); post(m.code, down: true, held) }
         post(code, down: true, held)
         post(code, down: false, held)
-        for m in mods.reversed() { held.remove(m.flag); post(m.code, down: false, held) }
+        for m in mods.reversed() { held.remove(m.flag); post(m.code, down: false, held); lastRelease[m.code] = now }
         lastKey = now
         if !mods.isEmpty { lastModifierKey = now }
         if code == UInt16(kVK_Escape) { lastEscape = now }

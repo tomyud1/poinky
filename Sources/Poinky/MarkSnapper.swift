@@ -19,8 +19,18 @@ final class TextIndex: @unchecked Sendable {
     private var image: CGImage?
     private var ink: InkMap?
     private var reread: [CGRect: [OCRLine]] = [:]
+    private var read = false
 
     var lines: [OCRLine] { lock.withLock { _lines } }
+    /// The lines once they've been read (or what there is after `timeout` seconds). Poinky's hands wait for
+    /// them before aiming at text (`"find"`): a quick reply could otherwise arrive before the screenshot was read.
+    func readLines(timeout: Double) async -> [OCRLine] {
+        let end = ProcessInfo.processInfo.systemUptime + timeout
+        while !lock.withLock({ read || image == nil }), ProcessInfo.processInfo.systemUptime < end {
+            try? await Task.sleep(nanoseconds: 40_000_000)
+        }
+        return lines
+    }
     var words: [CGRect] { lines.flatMap { $0.words.map(\.rect) } }
 
     init(lines: [OCRLine] = [], image: CGImage? = nil) {
@@ -52,7 +62,7 @@ final class TextIndex: @unchecked Sendable {
             let ink = InkMap(image)
             let found = Self.recognize(image, ink: ink)
             guard let self else { return }
-            self.lock.withLock { self._lines = found; self.ink = ink }
+            self.lock.withLock { self._lines = found; self.ink = ink; self.read = true }
         }
     }
 
