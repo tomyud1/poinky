@@ -236,6 +236,12 @@ TEXTEDIT = screen("TextEdit", ["File", "Edit", "Format", "View", "Window", "Help
 register, how to box cakes without smudging them, and how to talk to customers who were in a hurry.</p>
 <p style="font:15px Helvetica">By the end of August I was helping decorate cakes for two weddings.</p>""")
 TEXTEDIT_CTX = ["Front app: TextEdit, window “summer-job.txt”.", "Open document: ~/Documents/summer-job.txt."]
+# A short note in TextEdit (the owner's real run: "change Friday to Saturday" started a helper in a code folder).
+PARTY = screen("TextEdit", ["File", "Edit", "Format", "View", "Window", "Help"], "party-plan.txt", """
+<p style="font:15px Helvetica">Maya's birthday</p>
+<p style="font:15px Helvetica">The party is on Friday at 7 pm at our place. Bring snacks, we have drinks.</p>
+<p style="font:15px Helvetica">Ask Noah about the cake.</p>""")
+PARTY_CTX = ["Front app: TextEdit, window “party-plan.txt”.", "Open document: ~/Documents/party-plan.txt."]
 
 LANG = screen("Safari", ["File", "Edit", "View", "History", "Bookmarks", "Window", "Help"], "Trip to Lyon — packing list", """
 <h2 style="margin-top:0">Lyon, December</h2><p>Flights: Dec 12 → Dec 19</p><p>☐ adapter &nbsp; ☐ scarf &nbsp; ☐ phrasebook</p>""")
@@ -566,6 +572,7 @@ SCENARIOS = [
          checks=[("the teacher checks it: short hand-over, no <visual>", lambda r: not r["tags"].get("visual") and len(r["say"].split()) <= 15),
                  ("no verdict guessed before the check", lambda r: not verdict(r["say"])),
                  ("marks number 2 (or nothing)", lambda r: not r["draw"] or "2" in r["draw"]),
+                 ("never calls the user by the name on the sheet (Dana)", lambda r: not re.search(r"\bDana\b", r["say"])),
                  ("no agent", lacks("agent", "do"))]),
     dict(id="physics-why", who="student", html=PHYSICS, ctx=PHYSICS_CTX, said="why is it 6 newtons and not 14", cursor=(500, 420),
          checks=[("says it once: a short answer alone, or one hand-over line with <visual>", lambda r: len(r["say"].split()) <= (15 if r["tags"].get("visual") else 50)),
@@ -585,6 +592,17 @@ SCENARIOS = [
          checks=[("walks them through it (<guide>) or does it (<do>)", lambda r: bool(r["tags"].get("guide") or r["tags"].get("do"))),
                  ("no spoken how-to (one short line)", say_words_max(15)),
                  ("no paper", lacks("visual"))]),
+
+    # Small changes to what's in front (real runs: each started a helper, once in a code folder): a rewrite to
+    # offer, done in the app, or a sketch; never a helper.
+    dict(id="edit-friday", who="writer", html=PARTY, ctx=PARTY_CTX, said="change Friday to Saturday", cursor=(420, 140),
+         checks=[("no helper for a one-word change", lacks("agent")),
+                 ("ready to change it: <offer> with <replace>, or <do>", lambda r: offered("replace")(r) or bool(r["tags"].get("replace") or r["tags"].get("do"))),
+                 ("the new text says Saturday", lambda r: re.search(r"Saturday", str(r.get("offer") or "") + str(r["tags"].get("replace") or "") + str(r["tags"].get("do") or "")) is not None),
+                 ("short", say_words_max(25))]),
+    dict(id="chart-line-instead", who="office", html=CHART, ctx=CHART_CTX, said="can you show it as a line instead", cursor=(600, 450),
+         checks=[("a sketch (<visual>), not a helper", lambda r: has("visual")(r) and lacks("agent", "do")(r)),
+                 ("one short hand-over line", say_words_max(15))]),
 
     # The owner's own case: engineering homework in Hebrew, asked about in English or in Hebrew.
     dict(id="hebrew-sheet-en", who="student", html=HEB_SHEET, ctx=HEB_CTX, said="explain question 1", cursor=(700, 300),

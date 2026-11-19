@@ -49,7 +49,7 @@ def identity_section():
 def memory_section(facts):
     s = "\n\n## What you know about the user (from earlier conversations)\n"
     src = open(os.path.join(ROOT, "Sources/Poinky/Memory.swift"), encoding="utf-8").read()
-    m = re.search(r's \+= "(- Their Mac account name is (?:[^"\\]|\\.)*)"', src)
+    m = re.search(r's \+= "(- The user \(the person talking to you\) is (?:[^"\\]|\\.)*)"', src)
     s += swift_literal(m.group(1)).replace("\\(NSFullUserName())", "Alex Rivera").replace("\\(first)", "Alex")
     s += ("\n".join(facts) + "\n") if facts else "- Nothing else yet: this may be one of your first conversations.\n"
     return s

@@ -120,6 +120,9 @@ final class CallController: NSObject, NSMenuDelegate {
     private var needsRecap = false
     private var swappedTalker = false   // this session's talker was swapped: the summary's key facts go with each question
     private var sayGate: (turn: Int, passed: [String], held: [String], settled: Bool) = (-1, [], [], false)
+    /// How this turn's question was routed (`TalkerRoute`): the code honors it where the fast talker didn't.
+    private var turnRoute: (turn: Int, route: TalkerRoute) = (-1, TalkerRoute())
+    private var routeNow: TalkerRoute? { turnRoute.turn == turn ? turnRoute.route : nil }
     private var handOverTurn = -1            // the turn `handOverSaid` belongs to
     private var handOverSaid: [String] = []  // what the talker said so far while the teacher sketches the answer
     private var sentOnce: [String: String] = [:]   // context that rarely changes: sent again only when it does
@@ -1629,6 +1632,7 @@ final class CallController: NSObject, NSMenuDelegate {
                 // and got checks wrong).
                 let route = TalkerRoute.classify(proactive ? "" : question, marked: marked,
                                                  work: self.frontContext.selection + "\n" + (snap.focus?.text ?? ""))
+                self.turnRoute = (myTurn, route)
                 let teacherNow = partQ == nil && !proactive && self.artist != nil
                 let sketchNow = teacherNow && route.teacher == .sketch
                 let checkNow = teacherNow && route.teacher == .check
@@ -2087,7 +2091,11 @@ final class CallController: NSObject, NSMenuDelegate {
     /// Lets the held rest of the `<say>` play, or drops it when a `<visual>` follows (then a short hand-over line).
     private func settleSayGate(finished: Bool) {
         guard sayGate.turn == turn, !sayGate.settled else { return }
-        switch TalkerRoute.afterSay(parser.text, finished: finished) {
+        var next = TalkerRoute.afterSay(parser.text, finished: finished)
+        // They asked for it brief: the paper is dropped (`handle`), so what was said stays.
+        if next == .visual, routeNow?.dropsVisual(lastQuestion) == true { next = .other }
+        if next == .other, routeNow?.shape == .guide, howToGate(finished: finished) { return }
+        switch next {
         case .wait:
             return
         case .visual:
@@ -2102,6 +2110,29 @@ final class CallController: NSObject, NSMenuDelegate {
             if !sayGate.held.isEmpty { state = .speaking }
         }
         sayGate.held = []
+    }
+
+    /// An app how-to ("how do I make the title bigger"): the walkthrough shows the steps one click at a time, reading
+    /// the app's real state, so steps the talker read out anyway are dropped. With `<guide>`/`<do>` after its `<say>`,
+    /// the held rest goes; with no tag at all and steps in it, it goes too and the walkthrough starts here.
+    /// True: handled (the gate is settled).
+    private func howToGate(finished: Bool) -> Bool {
+        let text = parser.text
+        let tagged = text.contains("<guide") || text.contains("<do>")
+        let held = sayGate.held.joined(separator: " ")
+        if tagged {
+            if !sayGate.held.isEmpty { Timeline.log("talker.cut", ["turn": turn, "pieces": sayGate.held.count, "why": "guide"]) }
+        } else if finished, TalkerRoute.spokenSteps(held + " " + sayGate.passed.joined(separator: " ")) {
+            Timeline.log("talker.cut", ["turn": turn, "pieces": sayGate.held.count, "why": "steps"])
+            speaker.enqueue("I'll walk you through it.")
+            state = .speaking
+            startGuide(TalkerRoute.guideGoal(lastQuestion))
+        } else {
+            return false
+        }
+        sayGate.settled = true
+        sayGate.held = []
+        return true
     }
 
     private func handle(_ ev: TalkEvents) {
@@ -2145,7 +2176,10 @@ final class CallController: NSObject, NSMenuDelegate {
                 placeCaptions()
             }
         }
-        if let brief = ev.visual, teacherStartedTurn != turn, ev.guide == nil { requestVisual(brief) }
+        if let brief = ev.visual, teacherStartedTurn != turn, ev.guide == nil {
+            // "Explain briefly…": the spoken answer is the answer (Haiku still added a paper about half the time).
+            if routeNow?.dropsVisual(lastQuestion) == true { Timeline.log("talker.visualDropped", ["turn": turn]) } else { requestVisual(brief) }
+        }
         if let goal = ev.guide { startGuide(goal) }
         if let task = ev.doTask { startGuide(task, acting: true) }
         if let r = ev.replace { replaceText(r) }
@@ -2188,7 +2222,25 @@ final class CallController: NSObject, NSMenuDelegate {
             if let a = helper(named: who) { undoHelper(agents.past(a), said: nil) }
             else if let p = pastHelper(key: who) ?? pastHelpers(limit: 40).first(where: { $0.name.lowercased() == who.lowercased() }) { undoHelper(p, said: nil) }
         }
-        for req in ev.agents {
+        for var req in ev.agents {
+            // A small change to the text in front, or another view of the screen, isn't a helper's job (real runs started
+            // one, once in an unrelated code folder): the change is done in the app, the view is sketched.
+            if req.resumeKey == nil, let route = routeNow, route.refusesHelper {
+                Timeline.log("talker.helperRefused", ["turn": turn, "shape": route.shape?.rawValue ?? ""])
+                if route.shape == .redraw { if teacherStartedTurn != turn { requestVisual(req.task) } }
+                else if config.computerControl, ev.doTask == nil, ev.guide == nil { startGuide(req.task, acting: true) }
+                continue
+            }
+            // Never a folder that has nothing to do with the document in front.
+            if req.resumeKey == nil, let doc = frontContext.document {
+                let dir = TalkerRoute.helperDir(requested: req.dir, document: doc, project: AppContext.projectFolder(of: doc), question: lastQuestion)
+                if dir != req.dir {
+                    Timeline.log("talker.helperDir", ["turn": turn, "moved": true])
+                    var r = AgentRequest(title: req.title, dir: dir, task: req.task, model: req.model, planFirst: req.planFirst)
+                    r.resumeKey = req.resumeKey
+                    req = r
+                }
+            }
             // Continuing an earlier helper ("continue the login fix"): found by its key.
             if let key = req.resumeKey {
                 if let past = pastHelper(key: key), agents.resume(past, text: req.task, config: config) != nil { continue }

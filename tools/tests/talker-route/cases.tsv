@@ -58,7 +58,7 @@ what does this mean	n	-	none	-
 why is it 6 newtons and not 14	n	-	none	-
 what's this	n	-	none	-
 what does this chart say	n	-	none	-
-show this as a line	n	-	none	-
+show this as a line	n	-	none	redraw
 # Videos and long explanations: the talker decides, and gets the video section
 make me a video about why the sky is blue	n	-	none	video
 explain the whole story of the Roman empire	n	-	none	video
@@ -126,3 +126,13 @@ what was I doing in Claude Code this morning	n	-	none	recall
 מה דיברנו אתמול	n	-	none	recall
 quiz me on this	n	-	none	quiz
 תעשה לי בוחן קצר	n	-	none	quiz
+# Small changes to what's in front: a rewrite to offer (never a helper); another view: a sketch hint
+change Friday to Saturday	n	-	none	rewrite
+replace "teh" with "the"	n	-	none	rewrite
+fix the typo in the second line	n	-	none	rewrite
+can you change the date to the 14th	n	-	none	rewrite
+change the font to Arial	n	-	none	-
+switch to dark mode	n	-	none	-
+can you show it as a line instead	n	-	none	redraw
+make this a table	n	-	none	-
+turn this into a bar chart	n	-	none	redraw
