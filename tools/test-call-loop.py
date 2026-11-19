@@ -11,7 +11,10 @@ Usage: tools/test-call-loop.py [scenario …]     (no names: all of them; --list
 import json, os, subprocess, sys, tempfile, time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-APP = os.environ.get("POINKY_APP") or os.path.join(ROOT, "build/Poinky.app")   # (another build: checks that fail before a fix)
+sys.path.insert(0, os.path.join(ROOT, "tools")); from testapp import stable_app
+# One fixed path for every checkout (tools/testapp.py: macOS asks about bypassing the window picker per path);
+# POINKY_APP: another build as it is (checks that fail before a fix).
+APP = stable_app(os.path.join(ROOT, "build/Poinky.app"))
 EXE = os.path.join(APP, "Contents/MacOS/Poinky")
 FAKE = os.path.join(ROOT, "tools/fake-claude.py")
 
