@@ -61,6 +61,7 @@ extension CallController {
         }
         photoHome.model.onPhotoFiles = { [weak self] urls in self?.photoReceived(urls.compactMap(PhotoFiles.copyIn), origin: .drop) }
         photoTypeBox.onPhotos = { [weak self] urls, origin in self?.photoReceived(urls, origin: origin) }
+        ContinuityCamera.shared.onLate = { [weak self] urls in self?.photoReceived(urls, origin: .phone) }
         inbox.hotKey = HotKey(spec: photoHotkeySpec) { [weak self] in self?.photoCapture(at: NSEvent.mouseLocation, said: nil) }
     }
 
@@ -224,6 +225,11 @@ extension CallController {
         switch outcome {
         case .files(let urls):
             photoReceived(urls, origin: .phone)
+        case .noDevice where !i.pages.isEmpty, .timedOut where !i.pages.isEmpty, .failed where !i.pages.isEmpty:
+            // Another page didn't come: back to the pages there are.
+            i.phase = .review
+            photoShowReview()
+            if i.byVoice { photoSay(outcome == .noDevice ? PhotoWords.noDevice(i.he) : PhotoWords.timedOut(i.he)) }
         case .noDevice:
             i.phase = .idle
             photoCard(state: "error", text: PhotoWords.noDeviceCard(i.he),

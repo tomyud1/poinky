@@ -60,6 +60,10 @@ final class ContinuityCamera: NSObject, PhotoDevice, NSMenuDelegate {
     private var ours = Set<ObjectIdentifier>()
     private var placeholder: NSMenuItem?
     private var actionObserver: Any?
+    /// A picture that comes after the menu closed without us seeing a device item picked (AppKit may not tell):
+    /// still taken until this time, through `onLate`.
+    private var lateUntil = Date.distantPast
+    var onLate: (([URL]) -> Void)?
 
     /// Image and PDF return types, registered once, so AppKit asks the responder chain for them.
     static let returnTypes: [NSPasteboard.PasteboardType] = [.pdf, .png, .tiff, NSPasteboard.PasteboardType("public.jpeg"),
@@ -119,6 +123,7 @@ final class ContinuityCamera: NSObject, PhotoDevice, NSMenuDelegate {
             host?.orderOut(nil)
             return
         }
+        if !devices.isEmpty { lateUntil = Date().addingTimeInterval(PhotoDevices.timeout) }   // (see `onLate`)
         finish(devices.isEmpty && picked == nil ? .noDevice : .cancelled)
     }
 
@@ -159,8 +164,10 @@ final class ContinuityCamera: NSObject, PhotoDevice, NSMenuDelegate {
             MainActor.assumeIsolated {
                 let files = PhotoFiles.fromPasteboard(pb, origin: .phone)
                 Timeline.log("phone.received", ["files": files.count, "types": (pb.types ?? []).prefix(4).map(\.rawValue).joined(separator: ",")])
-                guard !files.isEmpty else { return false }
-                self?.finish(.files(files))
+                guard !files.isEmpty, let self else { return false }
+                if self.done != nil { self.finish(.files(files)) }
+                else if Date() < self.lateUntil { self.lateUntil = .distantPast; self.onLate?(files) }
+                else { PhotoFiles.remove(files); return false }
                 return true
             }
         }
