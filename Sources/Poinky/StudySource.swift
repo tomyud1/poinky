@@ -49,6 +49,25 @@ enum StudySource {
         return jpeg(img, maxSide: longSide).map { $0.base64EncodedString() }
     }
 
+    /// The sheet's own figure, cropped from its PDF page (`box`: pixels of that page as `pageImage` drew it for the
+    /// teacher, `longSide` 1560), drawn sharper (2×) and with a little margin: a data URL for the paper, and its
+    /// width / height. Nil: no such page, or a box that's not a sensible part of it.
+    static func figure(_ url: URL, page: Int, box: CGRect, longSide: CGFloat = 1560) -> (dataURL: String, aspect: CGFloat)? {
+        guard let doc = PDFDocument(url: url), let p = doc.page(at: page) else { return nil }
+        let b = p.bounds(for: .cropBox)
+        let k = longSide / max(b.width, b.height)
+        let W = b.width * k, H = b.height * k
+        let r = box.insetBy(dx: -8, dy: -8).intersection(CGRect(x: 0, y: 0, width: W, height: H))
+        guard !r.isNull, r.width > 40, r.height > 40, r.width * r.height < W * H * 0.8 else { return nil }
+        let zoom: CGFloat = 2
+        let img = p.thumbnail(of: NSSize(width: W * zoom, height: H * zoom), for: .cropBox)
+        guard let cg = img.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return nil }
+        let kx = CGFloat(cg.width) / W, ky = CGFloat(cg.height) / H
+        guard let crop = cg.cropping(to: CGRect(x: r.minX * kx, y: r.minY * ky, width: r.width * kx, height: r.height * ky)),
+              let data = jpeg(crop, maxSide: 1400, quality: 0.9) else { return nil }
+        return ("data:image/jpeg;base64," + data.base64EncodedString(), r.width / r.height)
+    }
+
     // MARK: Photos of the user's work
 
     static func jpeg(_ image: NSImage, maxSide: CGFloat, quality: CGFloat = 0.85) -> Data? {

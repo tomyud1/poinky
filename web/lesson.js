@@ -972,6 +972,27 @@
     }
   }
 
+  // ---------- the sheet's own figure (a study session, from the PDF): shown as it is, annotated on top ----------
+  // The teacher re-drew figures from a homework sheet and got them wrong (a tornado's circles not concentric).
+  // When the app has the figure cropped from the sheet (SB.studyFigure), `{"op":"figure","x","y","w"}` puts it
+  // there, as wide as `w`, as tall as its own shape makes it (`figureHeight(w)` is what the brief tells the
+  // teacher); the teacher's labels and arrows go on top of it. No figure: nothing is drawn.
+  let figureURL = null, figureAspect = 0;
+  SB.studyFigure = (url, aspect) => { figureURL = url || null; figureAspect = +aspect || 0; };
+  async function figure(o) {
+    if (!figureURL) return;
+    const w = Math.max(80, Math.min(UNITS - (o.x || 40) - 10, o.w || 360));
+    const h = figureAspect > 0 ? w / figureAspect : w * .75;
+    const x = o.x ?? 40, y = o.y + freeShift({ x, y: o.y, w, h });
+    const g = group(o);
+    claim({ x, y, w, h }, o.id);
+    grow(y + h);
+    const im = el('image', { href: figureURL, x, y, width: w, height: h, preserveAspectRatio: 'xMidYMid meet', opacity: 0 }, g);
+    el('rect', { x, y, width: w, height: h, fill: 'none', stroke: 'rgba(0,0,0,.18)', 'stroke-width': 1, rx: 4 }, g);
+    im.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 450, fill: 'forwards' });
+    await wait(.5);
+  }
+
   async function arrow(o, parent, toScreen, colorDefault) {
     const g = group(o, parent);
     const [x1, y1] = o.from, [x2, y2] = o.to;
@@ -1552,7 +1573,7 @@
         if (c.h == null) c.h = 64;
         if (c.w == null) c.w = Math.max(120, Math.min(UNITS - 40 - c.x, (c.text ? measure(c.text, c.size || 26) : 0) + 40));
         break;
-      case 'graph': case 'axes': case 'table': if (c.y == null) c.y = below() + 14; break;
+      case 'graph': case 'axes': case 'table': case 'figure': if (c.y == null) c.y = below() + 14; break;
       case 'arrow': if (!c.from || !c.to) return null; break;
       case 'line': if (!c.points || c.points.length < 2) return null; break;
       case 'dot': case 'circle': case 'check': case 'number': if (c.x == null || c.y == null) return null; break;
@@ -1564,7 +1585,7 @@
     if (!paper || !paper.isConnected) return;
     o = clean(o);
     if (!o) return;
-    if (['text', 'math', 'graph', 'axes', 'table', 'box', 'arrow', 'line', 'dot', 'circle', 'check', 'number'].includes(o.op)) {
+    if (['text', 'math', 'graph', 'axes', 'table', 'box', 'figure', 'arrow', 'line', 'dot', 'circle', 'check', 'number'].includes(o.op)) {
       const t = opTop(o);
       if (toTop && t != null) { yShift = t > 80 ? 40 - t : 0; toTop = false; }
       // Drawing that already starts near the top again doesn't need moving up any more.
@@ -1580,6 +1601,7 @@
       case 'point': return point(o);
       case 'bars': case 'bar': return bars(o);
       case 'box': return box(o);
+      case 'figure': return figure(o);
       case 'arrow': return arrow(o, svg, onScreen);
       case 'line': return line(o);
       case 'dot': case 'circle': return dot(o);

@@ -282,6 +282,15 @@ extension CallController {
                 sheet.part = 0
                 s.sheet = sheet
                 self.studyTag(sheet.tag(sheet.current, 0))
+                // The sheet's own figure (cropped from the PDF page the teacher named): shown on the paper as it is,
+                // instead of a re-drawing (`figure` op in lesson.js).
+                self.studyFigure(nil)
+                if let doc = sheet.document.map(URL.init(fileURLWithPath:)), let fb = obj["figureBox"] as? [String: Any],
+                   let n = (fb["page"] as? NSNumber)?.intValue, pages.indices.contains(n - 1),
+                   let v = (fb["box"] as? [Any])?.compactMap({ ($0 as? NSNumber).map { CGFloat($0.doubleValue) } }), v.count == 4,
+                   let fig = StudySource.figure(doc, page: pages[n - 1], box: CGRect(x: v[0], y: v[1], width: v[2], height: v[3])) {
+                    self.studyFigure(fig)
+                }
                 // Keep the paper off the question on screen.
                 if let b = obj["box"] as? [Any], b.count == 4 {
                     let v = b.compactMap { ($0 as? NSNumber).map { CGFloat($0.doubleValue) } }
@@ -642,6 +651,9 @@ extension CallController {
     // MARK: Papers, the PDF, stopping
 
     /// The paper's study tag (which part what's drawn next belongs to) and its quiet status.
+    func studyFigure(_ f: (dataURL: String, aspect: CGFloat)?) {
+        overlay.evaluateForTest("SB.studyFigure && SB.studyFigure(\(Self.js(f?.dataURL ?? "")), \(f.map { Double($0.aspect) } ?? 0))")
+    }
     func studyTag(_ tag: String) { overlay.evaluateForTest("SB.studyTag && SB.studyTag(\(Self.js(tag)))") }
     func studyStatus(_ text: String) { overlay.evaluateForTest("SB.studyStatus && SB.studyStatus(\(Self.js(text)))") }
     static func js(_ s: String) -> String {
