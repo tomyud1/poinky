@@ -1,8 +1,7 @@
 import Foundation
 
-/// "What's this?" right after clicking a part of a 3D model: the teacher answers with a short narrated
-/// step on that same model (the camera moves in, the part is opened or shown working, then the model
-/// goes back to the lesson's view), and the talker only names the part.
+/// "What's this?" right after clicking a part of a 3D model: a follow-up where the teacher answers with
+/// ordinary narrated steps on that same model, told which part was clicked, and the talker only names it.
 enum PartQuestion {
     /// Whether a question asked right after a click is about the clicked part. A click is a strong hint,
     /// so anything that asks something counts, unless it's clearly about something else (closing the model,
@@ -28,10 +27,10 @@ enum PartQuestion {
         let what = name.isEmpty ? "one of its parts" : "the part “\(name)”"
         let code = part.isEmpty ? "" : " (in your code: `kit.get('\(part)')`)"
         return "The user clicked \(what)\(code) on the 3D model id=\"\(modelId)\" and asked about it. "
-            + "Answer ON THAT MODEL, don't build a new one: 1–3 `<say>` lines, each with a `<step3d id=\"\(modelId)\">` (only the first with a `note`: the part and its job) "
-            + "that shows the answer on the part: `const p = kit.clicked();` then move in (`kit.focus(p)`), make it "
-            + "clear (a temp label, `kit.highlight`, a `cut`/`xray` to see inside) and show what it does (a flow, a move, a squeeze). "
-            + "The model goes back to the lesson's view by itself when you're done. "
+            + "Answer ON THAT MODEL, don't build a new one: 1–3 `<say>` lines, each with a `<step3d id=\"\(modelId)\" note=\"…\">` "
+            + "that shows the answer on the part: `const p = kit.clicked();` then move in (`kit.focus(p, {zoom:1.4})`), make it "
+            + "clear (a temp label, `kit.highlight`, a `cut` to see inside) and show what it does (a flow, a move, a squeeze). "
+            + "What you change stays on the model, so don't leave it isolated or exploded. "
             + "Started in parallel with the talker, who only says the part's name in one short line: start with what it does, don't name it again."
     }
 

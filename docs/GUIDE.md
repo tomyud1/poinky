@@ -11,7 +11,6 @@ The full tour. For a quick start, see the [README](../README.md).
 - Memory, settings and agent logs are plain files in `~/Library/Application Support/Poinky/`.
 - When a lesson shows a photo of something, Poinky searches Wikipedia for it (only the search words are sent, not your screen).
 - No analytics, no accounts, no server of ours.
-- Away mode is off unless you turn it on (Settings → Claude → When you're away). Then, while you're away, a helper's question goes to your phone through ntfy (ntfy.sh, or your own server), on a random topic only you know. Turn off "Say what it wants" to send only that a helper is waiting.
 
 ## Safety when it acts for you
 
@@ -86,7 +85,7 @@ Because it runs on Claude Code, Poinky can start an **agent**: a separate Claude
 - **Git:** "commit this", "open a PR and watch the checks". Pushing and opening a PR always ask you first.
 - **The mouse:** a helper that uses your mouse and keyboard (or Chrome) asks the first time; only one uses them at a time, the others wait their turn.
 - **Usage:** "how much have the helpers used today?" Each helper's window shows what each run used.
-- **Away mode:** with it on, a question from a helper while you're away (screen locked, or no keyboard or mouse for a few minutes) reaches your phone in the ntfy app, with buttons to answer.
+- **Notifications:** a question from a helper while you're not talking to Poinky becomes a Mac notification with Allow / Don't Allow (Settings → Claude → Notifications).
 
 ### Demo
 `python3 demo/serve.py` opens six realistic, made-up scenes for showing Poinky off: a social feed, a code editor, a notes doc with a checklist, a transit dashboard, an encyclopedia article and a notes app. They all work like the real thing (click, type, check things off), so Poinky can walk you through actions. The code editor shows the real files in `demo/sample-project` live and its terminal really runs the tests, so you can watch a background agent fix the bug. `demo/DEMO-SCRIPT.md` is a recording script.
@@ -138,15 +137,13 @@ Poinky is signed with a local certificate ("Poinky Local Signing", created by `b
 
 ## Settings
 
-✨ menu → **Settings…** (⌘,) opens the settings window: hold-to-talk keys, call shortcut, language and pause length, buddy and sounds, voice picker with ▶ preview and speed, Claude connection and models, **Privacy** (apps that are never captured; password managers are excluded by default), and prompt editing. Everything is stored in `~/Library/Application Support/Poinky/config.json`:
+✨ menu → **Settings…** (⌘,) opens the settings window: hold-to-talk keys, call shortcut, language and pause length, buddy and sounds, voice picker with ▶ preview and speed, Claude connection and Quick / Careful, **Privacy** (apps that are never captured; password managers are excluded by default), and prompt editing. Everything is stored in `~/Library/Application Support/Poinky/config.json`:
 
 | Key | Default | What it does |
 |---|---|---|
 | `brain` | `claudeCode` | `claudeCode` (your subscription) or `api` (API key) |
-| `claudeCodeModel` | `haiku` | Talker model. Haiku is fastest. |
 | `artistEnabled` | `true` | Turn the diagram/3D artist on or off (also in the menu) |
-| `artistModel` | `sonnet` | Artist model. `sonnet` gives detailed models (~30 s for 3D); `haiku` is ~8 s but simpler. |
-| `apiModel` / `apiArtistModel` | `claude-haiku-5-5` / `claude-sonnet-5-5` | The same two roles for the API brain |
+| `claudeCodeModel`, `artistModel`, `guideModel`, `doerModel` (and `api…` for the API brain), `talkerEffort`, `artistEffort`, `guideEffort`, `doerEffort` | Quick | Each part's model and effort. Settings → Claude sets them all at once with **Quick** (the defaults: Haiku talks, Sonnet teaches and does things) or **Careful** (Sonnet talks, the teacher thinks first, Opus does things); any other mix shows as Custom and is edited under Settings → Advanced. |
 | `apiKey` | | Anthropic API key (API brain only) |
 | `language` | `en-US` | e.g. `he-IL` for Hebrew (uses Apple's dictation engine). Claude replies in the language you speak. |
 | `voiceEngine` | `phonon` | `phonon` (free local neural voice) or `apple` |
@@ -165,7 +162,6 @@ Poinky is signed with a local certificate ("Poinky Local Signing", created by `b
 | `memoryEnabled` | `true` | Remember things about you between sessions |
 | `agentPermission` | `auto` | Background agents: `auto` (Claude Code's auto mode; falls back to `acceptEdits` if it can't start), `acceptEdits` or `plan` |
 | `computerControl` | `true` | Let Poinky click and type for you when you ask it to do something |
-| `doerModel` / `apiDoerModel` | `sonnet` / `claude-sonnet-5-5` | The model that clicks and types for you |
 | `agentModel` | | Background agents' model (empty = your Claude Code default) |
 | `silenceSeconds` | `1.0` | Hands-free calls: how long a pause ends your question |
 | `hotkey` | `ctrl+option+space` | Starts / ends a hands-free call, e.g. `cmd+shift+k`, `f13` |
@@ -198,7 +194,6 @@ The 3D kit (`web/kit.js`) gives the artist simple building blocks on top of thre
 | `HelperTranscript.swift` | What the window shows (`.chat.jsonl` entries) and earlier helpers (`PastHelper`) |
 | `HelperUndo.swift` / `HelperWorktree.swift` | Undo with Claude Code's checkpoints; worktrees for helpers sharing a repo |
 | `TypeBox.swift` | ⌃⌥T: typing to Poinky or a helper |
-| `AwayNotifier.swift` | Away mode: helpers' questions to your phone (ntfy) |
 | `prompts/poinky-manual.md` | The app's own manual, given to the talker |
 | `AudioIO.swift` | Playback, the hold-to-talk mic, and the hands-free mic with voice processing |
 | `SpeechListener.swift` | On-device speech-to-text; ends a question on a pause (calls) or when you let go |

@@ -127,7 +127,7 @@ Built (2026-11-15): math (fractions, powers, roots, Greek), `graph` / `plot` / `
 Still open: the session notebook lives only in the overlay (gone if Poinky quits; write it to disk as pages are kept); a light print version of chalkboard pages in the PDF; the talker remembering where your notes were saved.
 
 ## 7e. 3D models (status: done on `poinky-reliability`)
-Built (2026-11-15): coloured cut faces, labels that follow what's left after a cut and hide when zoomed in, Reduce Motion, idle models stop redrawing, hover names; clicking a part names it and tells the talker; a question about a clicked part gets a short narrated close-up on the same model (`PartQuestion.swift`, `kit.run(…, {aside:true})` / `kit.endAside()`), saved as a note to replay; double-click a part for a closer look, Esc to go back. Tests: `tools/tests/kit-*.html`.
+Built (2026-11-15): coloured cut faces, labels that follow what's left after a cut and hide when zoomed in, Reduce Motion, idle models stop redrawing, hover names; clicking a part names it and tells the talker; a question about a clicked part is a follow-up on the same model (`PartQuestion.swift`: the teacher is told which part); Esc or a click on empty space goes back to the lesson's view. (2026-11-18: the "aside" mode that put the model back by itself, and double-click for a closer look, were removed as more machinery than they were worth.) Tests: `tools/tests/kit-*.html`.
 Still open: an app test mode that fakes a click (the click → question → spoken answer flow is only tested in parts); pointing at a part while holding ⌃⌥ counts as asking about it; tuning how far the close-up zooms over several models.
 
 ## 7f. The talker (status: done on `poinky-reliability`)
@@ -147,6 +147,6 @@ Built (2026-11-18): quiet mode (`quiet`, notch button, ⌃⌥Q, menu, Settings �
 Still open: the buddy-off caption strip in quiet mode shows only the latest 240 characters with no Copy; ⌘C on a selection in the bubble (the overlay never takes the keyboard; Copy works); quiet mode doesn't skip Phonon's startup (it stays loaded so switching back is instant); a reading pace setting.
 
 ## 8. Later
-- Approve helpers from the phone (`AwayNotifier` is the start).
+- Not phone approvals: approving helpers from the phone through ntfy (`AwayNotifier`, away mode) was removed on 2026-11-18. It needed a public relay, five settings and one-time codes for little use, and Mac notifications (`HelperNotifier`) already reach you when a helper needs you while you're away from Poinky. Don't add it back without a new reason.
 - The user's connectors (calendar, email) through helpers.
 - Windows.

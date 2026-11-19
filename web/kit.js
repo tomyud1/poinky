@@ -298,49 +298,6 @@
       camTween = { az0: cam.baseAz, el0: cam.el, az1: az, el1: v.el, t0: clock, dur: reduceMotion ? Math.min(dur, 0.4) : dur };
       cam.goalTarget.copy(v.target); cam.goalDist = v.dist; focused = v.focused; cam.spin = v.spin || 0;
     }
-    // ---------- a step about the part you clicked (an aside) ----------
-    // "What's this?" about a clicked part: the camera moves in, the step can cut it open, add arrows or a flow,
-    // and when it's over (endAside: the app sends it once the voice is done) the model goes back to the
-    // lesson's view as it was: cuts, x-rays and exploded views from the aside are undone, its new parts,
-    // motions and notes fade. A double-click on a part is an aside with no code (a closer look).
-    let aside = null;
-    const asideCode = {};   // a step's note → its aside code, so clicking the note shows it again
-    function beginAside() {
-      if (aside) return;
-      const had = new Set(); world.traverse(o => had.add(o));
-      aside = { view: { az: camTween ? camTween.az1 : cam.baseAz, el: camTween ? camTween.el1 : cam.el,
-                        target: cam.goalTarget.clone(), dist: cam.goalDist, focused, spin: cam.spin, whole: focusWhole },
-                had, anims: new Set(anims), labels: new Set(labels), undo: [], note: null };
-    }
-    function endAside(dur = 1.2) {
-      if (!aside) return false;
-      const a = aside; aside = null;
-      if (a.note != null && a.note === curNote) saveView(a.note);   // its note shows the close-up again
-      for (const u of a.undo.reverse()) { try { u(); } catch (e) {} }
-      for (const f of anims.filter(f => !a.anims.has(f) && !f.keep)) anims.splice(anims.indexOf(f), 1);
-      const added = [];
-      world.traverse(o => { if (!a.had.has(o) && a.had.has(o.parent) && !o.userData.helper && !o.userData.isGround) added.push(o); });
-      added.forEach(o => fadeMats(matsOf(o, true), 0, { dur: 0.5, done: () => kit.remove(o) }, meshesOf(o)));
-      for (const L of labels.slice()) {
-        if (a.labels.has(L) || L.gone) continue;
-        const onOld = L.target && L.target.isObject3D && a.had.has(L.target);
-        if (L.temp || !onOld) fadeLabel(L);
-      }
-      showView(a.view, dur);
-      focusWhole = a.view.whole;
-      wakeUntil = clock + dur + 1;
-      return true;
-    }
-    // Things an aside opens up are closed again when it ends (only what it changed).
-    function undoable(name, undo, was) {
-      const orig = kit[name];
-      kit[name] = function (obj, o) {
-        const before = aside && obj && obj.isObject3D ? was(obj) : null;
-        const r = orig.call(kit, obj, o);
-        if (aside && before === false) aside.undo.push(() => undo(obj));
-        return r;
-      };
-    }
     const camDir = () => new T.Vector3(Math.cos(cam.el) * Math.sin(cam.baseAz), Math.sin(cam.el), Math.cos(cam.el) * Math.cos(cam.baseAz));
     function pivotOf(obj, p) {
       const key = String(p);
@@ -974,7 +931,6 @@
           }
           if (u >= 1) anims.splice(anims.indexOf(fn), 1);   // done: stop running every frame
         };
-        fn.keep = true;   // (an aside ending doesn't cut it short: it puts the glow back itself)
         anims.push(fn);
       },
       /** Smoothly zoom the camera onto a part; kit.focus() with no part shows everything again. */
@@ -989,14 +945,12 @@
         if (b.isEmpty()) return;
         focused = true; focusCount++;
         // Move most of the way toward the part, but keep enough of the whole model in view for context.
-        // About one part (a clicked part's aside): closer, and more of the picture is that part.
-        const close = !!aside && !Array.isArray(obj);
         const wc = whole.getCenter(new T.Vector3()), pc = b.getCenter(new T.Vector3());
-        cam.goalTarget.copy(wc.lerp(pc, close ? 0.85 : 0.6));
+        cam.goalTarget.copy(wc.lerp(pc, 0.6));
         const az = camTween ? camTween.az1 : cam.baseAz, el = camTween ? camTween.el1 : cam.el;
         const wholeDist = fitDistance(whole, whole.getCenter(new T.Vector3()), az, el);
         const partDist = Array.isArray(obj) ? wholeDist * 0.5 : fitDistance(b, pc, az, el, obj) * 1.6;
-        cam.goalDist = Math.max(partDist / (o.zoom ?? 1), wholeDist * (close ? 0.42 : 0.62));
+        cam.goalDist = Math.max(partDist / (o.zoom ?? 1), wholeDist * 0.62);
         focusWhole = { dist: wholeDist * 1.1, center: whole.getCenter(new T.Vector3()) };
         // Something big in the way (the Sun in front of the Earth)? Swing to the nearest clear angle.
         if (!Array.isArray(obj) && !o.view) {
@@ -1031,16 +985,8 @@
       },
       /** Run more code in this same scene (a narrated step or a follow-up question). Throws the first error
           after running every statement that works. */
-      run(code, note, opt) {
+      run(code, note) {
         stepAt = clock; wakeUntil = clock + 3;
-        const isAside = !!(opt && opt.aside);
-        // A step about the part you clicked starts an aside (the lesson's view is kept to come back to);
-        // the lesson's next narrated step ends it first.
-        if (aside && !isAside && note != null) endAside(0.7);
-        if (isAside && !aside && viewingNote != null && viewingNote !== curNote && noteViews[curNote]) showView(noteViews[curNote], 0.01);
-        if (isAside) beginAside();
-        if (isAside && note != null) { aside.note = note; asideCode[note] = code; }
-        else if (isAside && aside.note != null) asideCode[aside.note] += ';\n' + code;
         if (note != null) {
           saveView(curNote);
           // You were looking back at an earlier step: return to where the lesson is before it moves on.
@@ -1056,18 +1002,7 @@
           where it was for that step, its moment notes come back, and the part labels it added flash. */
       revisit(note) {
         if (note == null) return;
-        endAside(0.6);
         saveView(curNote);
-        if (asideCode[note] != null) {
-          // A step about a clicked part: show it again (its code runs once more in a new aside, so the cut and
-          // the motion come back), and it goes away like any aside (Esc, empty space, the lesson's next step).
-          viewingNote = note;
-          kit.clearLabels('temp');
-          beginAside();
-          const keep = curNote; curNote = null;
-          try { runAll(splitStatements(asideCode[note], true).stmts); } finally { curNote = keep; }
-          return;
-        }
         const v = noteViews[note];
         if (v) showView(v, 1.2);
         viewingNote = note;
@@ -2345,7 +2280,7 @@
     function pick(px, py) {
       const m = partAt(px, py);
       if (pickedLabel) { fadeLabel(pickedLabel); pickedLabel = null; }
-      if (!m) { endAside(); return null; }   // clicking empty space: back from a closer look
+      if (!m) { back(); return null; }   // clicking empty space: back to the lesson's view
       const w = whatIs(m);
       clicked = w.obj;
       kit.highlight(w.obj, { color: 'yellow', dur: 1.6 });
@@ -2362,25 +2297,20 @@
     kit.pick = pick;   // for tests: kit.pick(x, y) clicks there
     /** The part the user clicked last (for a step about it), or null. */
     kit.clicked = () => clicked;
-    /** A step about a clicked part is over: back to the lesson's view, as it was. */
-    kit.endAside = () => endAside();
-    kit.inAside = () => !!aside;   // for tests
-    // Double-click a part: a closer look (an aside with no code). Esc or a click on empty space goes back.
-    function look(px, py) {
-      const m = partAt(px, py);
-      if (!m) return false;
-      const w = whatIs(m);
-      beginAside();
-      stepAt = clock + 1e-3;   // labels from before don't pull the camera back out of a close look
-      kit.focus(w.obj, { zoom: 1.5 });
+    // Esc or a click on empty space: back from an earlier step you looked at to where the lesson is, and from
+    // a close-up to the whole model. (Cuts and x-rays stay: they're part of the lesson.)
+    function back() {
+      if (viewingNote != null && curNote != null && viewingNote !== curNote) {
+        kit.revisit(curNote); viewingNote = null;
+        try { if (parent !== window) parent.postMessage({ sbBack: true }, '*'); } catch (e) {}
+        return true;
+      }
+      viewingNote = null;
+      if (!focused) return false;
+      kit.focus(); wakeUntil = clock + 2;
       return true;
     }
-    kit.look = look;   // for tests: kit.look(x, y) double-clicks there
-    undoable('cut', o => kit.uncut(o, { dur: 0.8 }), o => !!o.userData.cut);
-    undoable('cutaway', o => kit.uncut(o, { dur: 0.8 }), o => !!o.userData.cut);
-    undoable('xray', o => kit.fade(o, { to: 1, dur: 0.6 }), o => matsOf(o).some(m => m.opacity < 0.99 * (m.userData.op0 ?? 1)));
-    undoable('isolate', () => kit.isolate(), () => false);
-    undoable('explode', o => kit.assemble(o), o => (o || world).children.some(c => c.userData.home && !c.position.equals(c.userData.home)));
+    kit.back = back;   // for tests: Esc
     kit.renders = () => renders;   // for tests: how many frames were drawn
     // Resting the pointer on a part shows its name in a small tip (unless its label is already showing).
     const tip = document.createElement('div'); tip.className = 'hover-name'; document.body.appendChild(tip);
@@ -2423,8 +2353,7 @@
       if (press && Math.hypot(e.clientX - press.x, e.clientY - press.y) < 5 && performance.now() - press.t < 600) pick(e.clientX, e.clientY);
       press = null;
     });
-    renderer.domElement.addEventListener('dblclick', e => look(e.clientX, e.clientY));
-    addEventListener('keydown', e => { if (e.key === 'Escape') endAside(); });
+    addEventListener('keydown', e => { if (e.key === 'Escape') back(); });
     renderer.domElement.addEventListener('wheel', e => { cam.goalDist *= Math.exp(e.deltaY * 0.001); lastInteract = (performance.now() - t0) / 1000; e.preventDefault(); }, { passive: false });
     addEventListener('resize', () => { renderer.setSize(W(), H()); camera.aspect = W() / H(); camera.updateProjectionMatrix(); });
 

@@ -5,7 +5,6 @@ import AppKit
 enum HelperTest {
     private static var manager: AgentManager?
     private static var manager2: AgentManager?
-    private static var away: AwayNotifier?
     private static var notifier: HelperNotifier?
     private static var restarted = false
     private static var lines: [String] = []
@@ -114,16 +113,6 @@ enum HelperTest {
             if kv.count == 2, let id = Int(kv[0].trimmingCharacters(in: .whitespaces)) { planned[id] = kv[1] }
         }
         let tellFirst = env["POINKY_TEST_TELL"] == "1"
-        // POINKY_TEST_NTFY=<server>: you're away, and questions go to that (fake) ntfy server; its buttons answer.
-        if let server = env["POINKY_TEST_NTFY"] {
-            let n = AwayNotifier()
-            away = n
-            var c = config
-            c.awayNotify = true; c.ntfyServer = server; c.ntfyTopic = "poinky-test"
-            n.settings(c)
-            n.forceAway = true
-            n.onAnswer = { id, rid, reply in log("from the phone: #\(id) \(reply) → \(m.answer(id: id, requestID: rid, reply))") }
-        }
         m.onAsksChanged = { a in
             notifier?.stillOpen(m.agents.flatMap { h in h.asks.map { (h.id, $0) } })
             if let n = notifier, let first = a.asks.first {
@@ -135,8 +124,6 @@ enum HelperTest {
                     }
                 }
             }
-            away?.stillOpen(Set(m.agents.flatMap { $0.asks.map(\.requestID) }))
-            if let first = a.asks.first { away?.asking(a, first) }
             guard let ask = a.asks.first else { log("#\(a.id) \(a.name) has no open requests"); return }
             log("#\(a.id) \(a.name) ASKS: \(ask.bubble) [\(ask.detail.replacingOccurrences(of: "\n", with: " / "))] spoken: \"\(a.name) \(ask.spoken)\" risky=\(ask.risky)")
             let id = a.id, rid = ask.requestID
