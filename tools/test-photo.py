@@ -139,10 +139,12 @@ class Run:
 
     def questions(self, role):
         """(text, images) of each message the fake brain got in that role."""
-        out = []
+        out, images = [], {}
         for l in self.fake:
-            m = re.search(r" (\w+) question: (\".*\")( images=(\d+))?$", l)
-            if m and m.group(1) == role: out.append((json.loads(m.group(2)), int(m.group(4) or 0)))
+            m = re.search(r"pid (\d+) (\w+) images: (\d+)$", l)
+            if m: images[m.group(1)] = int(m.group(3)); continue
+            m = re.search(r"pid (\d+) (\w+) question: (\".*\")$", l)
+            if m and m.group(2) == role: out.append((json.loads(m.group(3)), images.pop(m.group(1), 0)))
         return out
 
     def states(self):
